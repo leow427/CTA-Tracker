@@ -1,0 +1,16 @@
+# Secrets (API keys); commit the *.example files instead
+firmware/**/secrets.h
+ios/**/Secrets.xcconfig
+
+# Build output
+.pio/
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+__pycache__/
+
+# Local tooling and OS files
+CLAUDE.md
+.claude/
+.DS_Store
