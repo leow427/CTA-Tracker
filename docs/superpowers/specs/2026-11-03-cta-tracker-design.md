@@ -340,7 +340,7 @@ If pioarduino fails, fall back to `arduino-cli` with the same core version. The 
 
 **iPhone app:** Xcode, SwiftUI, Swift Testing. App and widget extension share an App Group. Leo's paid developer account allows TestFlight.
 
-**Pet art.** Claude draws it: an original pixel character based on the shape of the CTA 7000-series railcar, with no CTA logo.
+**Pet art.** An original pixel character based on the shape of the CTA 7000-series railcar, with no CTA logo.
 
 - Each frame is a 32×32 text grid in `art/`, one character per pixel, each character mapped to a palette slot.
 - The app's pet colors are a palette swap, so recoloring needs no new art.
