@@ -1,6 +1,8 @@
 # CTA Tracker Foundation Implementation Plan (Plan 1 of 4)
 
 > **For agentic workers:** Execute natively with superpowers:executing-plans, one task at a time, following `docs/Agent-Workflow.md` (fresh reviewers, at most 3 rounds, report every Blocker and Should fix to Leo). Steps use checkbox (`- [ ]`) syntax for tracking. Don't start until Leo says go.
+>
+> **This plan is a reference, not a script.** Expect it to change as the code teaches us things; update it when you deviate (see the workflow's rules). The spec is the contract.
 
 **Goal:** Prove the firmware toolchain on both boards, and build everything the dock, handheld, and app share: the C++ transit library, the CTA fixtures, the GTFS data tool, and the pet art pipeline.
 

@@ -30,7 +30,8 @@ Tasks that change only docs or notes (like the day-1 toolchain spike's write-up)
 **Rules:**
 
 - **Git:** one commit per task, at the end. No `stash`, `checkout`, `reset`, `clean`, or `rebase`. Stay inside the task.
-- **Plan vs. spec:** if the task and the spec disagree, or the code doesn't match the task, stop and ask Leo. Never edit a spec or a plan; propose changes in your report.
+- **Plans are references, not scripts.** They will change. When the code shows a better way than the plan (a different file split, signature, or order), take it, say so in your report, and update the plan in the same commit so the next task reads the truth.
+- **The spec is the contract.** If the task and the spec disagree, or a better way would change what the spec says (behavior, values, messages, scope), stop and ask Leo. Never edit the spec yourself; propose the change in your report.
 - **Tests:** never delete, skip, or weaken a test. Tests stay offline and deterministic: CTA and weather data come from `fixtures/`, time is passed in (`now`), and nothing in a test touches the network, Wi-Fi, or BLE.
 - **Hardware:** steps that need the boards, the iPhone, or real API keys are Leo's. Prepare them, say exactly what to run and what passing looks like, and wait.
 - **Dependencies:** none beyond what the spec and `docs/notes/toolchain.md` name. Use the pinned versions.
