@@ -63,7 +63,7 @@ The hardware is decided. This section only lists what the software depends on.
 
 ## 4. Architecture
 
-There is no server. Each of the three clients calls CTA and Open-Meteo directly over HTTPS. The app talks to both ESP32s over BLE.
+There is no server. Each of the three clients calls CTA and Open-Meteo directly over HTTPS (the dock also calls ipapi.co once a day for its weather location, section 7.5). The app talks to both ESP32s over BLE.
 
 ```
      CTA Train Tracker · CTA Bus Tracker · CTA Customer Alerts · Open-Meteo
@@ -95,6 +95,7 @@ The dock and handheld share one C++ library (`firmware/lib/cta`) for the CTA cli
 | CTA Bus Tracker API | Bus Tracker key | `getpredictions` (several stops per call), `getvehicles` (positions by route), `getpatterns` (ordered stops with distance along route), `getroutes` / `getdirections` / `getstops` (dock stop picker) |
 | CTA Customer Alerts API | none | Active alerts per route (the ⚠ badge, the Sad mood) |
 | Open-Meteo | none | Current weather code and temperature for pet accessories |
+| ipapi.co (`https://ipapi.co/json/`) | none | The dock's approximate location for weather, from its public IP (section 7.5) |
 | CTA GTFS static feed | none | Build-time only: stop list for the app, station order per train line and direction for the dock |
 
 **Keys:** Leo has no CTA keys yet. Applying for both is task one. Until they arrive, parsing is developed against sample responses from CTA's API docs. Real responses get recorded into `fixtures/cta/` as soon as keys work.
@@ -214,6 +215,10 @@ Shown in the status strip at 64 px, using the mood rules in 6.3 over the 3 picke
 - **No saved Wi-Fi:** the screen shows "Open the CTA app to set up Wi-Fi."
 - **No API key compiled in:** the screen shows "No API key."
 - **Night hours:** the screen dims and the LEDs turn off.
+
+### 7.5 Weather location
+
+The dock finds its own location for weather, without the phone. At boot and then once a day, it asks ipapi.co for the approximate latitude and longitude of its public IP address. That's accurate to about the city, which is enough for weather. The result is cached in flash. If a lookup fails, the dock keeps using the cached location; with no cached location yet, the weather icon is hidden and the pet gets no weather accessory.
 
 ## 8. Handheld
 
@@ -359,7 +364,7 @@ fixtures/cta/         recorded CTA responses used by both test suites
 
 - The repo is public. API keys live only in untracked `firmware/secrets.h` and `ios/Secrets.xcconfig`. Committed `*.example` versions show the format. `.gitignore` covers the real files.
 - Wi-Fi passwords cross BLE only on an encrypted, passkey-authenticated link, and are stored in each ESP32's flash (NVS).
-- No accounts, no analytics, and no data leaves the phone except requests to CTA and Open-Meteo. Find-my-handheld locations stay on the phone.
+- No accounts and no analytics. The only outside services are CTA, Open-Meteo, and ipapi.co (dock only, once a day; it sees the home IP address, as every server does). The phone's location goes only to Open-Meteo and the handheld. Find-my-handheld locations stay on the phone.
 
 ## 13. Testing
 

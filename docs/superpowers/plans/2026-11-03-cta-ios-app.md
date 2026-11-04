@@ -86,5 +86,4 @@ ios/CTAWidgets/                     WidgetKit extension (Home + Lock Screen)
 - **Bundle ID and App Group ID:** Leo's choice. They're needed at milestone 3.
 - **Pet on the main screen:** the spec puts it in widgets and settings. Should a small pet also sit in the "Near" pill? Ask Leo once the map works.
 - **Map pin density:** nearby stops only (current plan), or every stop in view when zoomed in.
-- **Dock weather location:** if Plan 2 adopts "the app sends a location in `config`", add it to the dock setup flow here.
 - **Live Activity, Siri, OTA updates, live navigation:** stretch goals, not planned here.
