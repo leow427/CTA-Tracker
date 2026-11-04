@@ -39,7 +39,7 @@ struct NearbyList {
   double lat, lon; bool hasLocation;
   char trains[10][8]; uint8_t nTrains;    // station IDs (4xxxx), nearest first
   char buses[10][8];  uint8_t nBuses;     // bus stop IDs, nearest first
-  char close[3][8];   uint8_t nClose;     // the 3 closest of either kind (see proposed spec change)
+  char close[3][8];   uint8_t nClose;     // the 3 closest of either kind (spec §10)
 };
 bool decodeNearby(const char* json, size_t len, NearbyList& out);   // >10 per tab → keep first 10
 size_t encodeRequest(bool wifiUp, char* buf, size_t cap);           // {"want":"nearby","wifi":<bool>}
@@ -87,10 +87,6 @@ Tests to include: 12 trains → 10 kept; a missing `close` → `nClose = 0`; mal
 - **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, rows show "Loading…".
 - **One state object** (`HandheldState`) is written only on the loop task. BLE callbacks copy the payload into a small queue for the loop.
 - **Keep internal RAM free** for Wi-Fi, TLS, and BLE; put LVGL buffers and response buffers in PSRAM.
-
-## Proposed spec change (needs Leo's OK before milestone 8)
-
-- **Add `close` to the `nearby` message.** Spec §6.3 says only the 3 closest stops (either tab) can make the pet Hyped, but the handheld can't rank train stations against bus stops because `nearby` carries no distances. Proposal: the app adds `"close": [3 IDs]`, the 3 nearest of either kind. The alternative is sending a distance with every ID, which is more bytes for no extra use.
 
 ## Open questions
 

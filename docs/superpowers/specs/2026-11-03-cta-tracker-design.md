@@ -150,7 +150,7 @@ The device mood combines the stop moods:
 
 1. **Asleep** (separate state, not a mood): the handheld is docked (section 8.4). The dock never sleeps.
 2. **Sleepy:** no location yet (handheld), no data at all, or within night hours.
-3. **Hyped:** a live arrival is due in 3 min or less at a *qualifying* stop. On the dock, any of its 3 stops qualifies. On the handheld, only the 3 closest stops (either tab) qualify; with about 20 stops nearby, some vehicle is almost always 3 min away, so counting all of them would make the pet Hyped nonstop.
+3. **Hyped:** a live arrival is due in 3 min or less at a *qualifying* stop. On the dock, any of its 3 stops qualifies. On the handheld, only the 3 closest stops (either tab) qualify, as listed in the `nearby` message's `close` field; with about 20 stops nearby, some vehicle is almost always 3 min away, so counting all of them would make the pet Hyped nonstop.
 4. **Otherwise:** the majority stop mood among stops that have data. Ties go to the more serious mood: Sad, then Worried, then Happy.
 
 **Weather** changes the pet's look, not its mood. Open-Meteo WMO codes 51–67, 80–82, and 95–99 (rain, showers, thunder) add an umbrella. Codes 71–77 and 85–86 (snow), or a temperature below 0 °C, add a scarf.
@@ -230,7 +230,7 @@ The screen is always on, dimmed. After 15 s with no touch it drops to low bright
 ### 8.3 Location and data
 
 1. On every wake, the handheld sends a `request` to the app over BLE with whether it has Wi-Fi.
-2. The app takes one location fix and writes `nearby`: the location plus the 10 nearest train station IDs and 10 nearest bus stop IDs.
+2. The app takes one location fix and writes `nearby`: the location, the 10 nearest train station IDs, the 10 nearest bus stop IDs, and `close`, the 3 nearest stops of either kind. The handheld can't rank stations against bus stops itself because it has no stop coordinates.
 3. **On Wi-Fi:** the handheld polls those stops itself (section 6.6).
 4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per stop every 60 s while connected.
 5. **Neither:** the last data stays on screen greyed out, and the pet turns Sleepy once data is more than 5 min old.
@@ -309,7 +309,7 @@ All payloads are UTF-8 JSON, at most 512 bytes per write.
 | `wifi` | `8d0820b1-1735-4f23-b1be-17b5d867632e` | write (encrypted) | `{slot: 0–2, ssid, pass}`; the dock only accepts slot 0 |
 | `config` | `d8427173-107a-4c28-97ba-ab3b12d1500f` | read, write | `{stops: [{type, route, dir, id, name} ×3], pet: {name, colors}, settings: {screen, led, night_start, night_end}}`; `stops` is dock-only, and a write may include any subset of keys |
 | `request` | `3c4dd75c-a019-4171-b7f1-b8dd87eda07c` | notify | handheld → app: `{want: "nearby", wifi: bool}` |
-| `nearby` | `e8b866e4-18bf-4ab4-bd7c-07b52cb2a057` | write | `{lat, lon, trains: [station IDs], buses: [stop IDs]}` |
+| `nearby` | `e8b866e4-18bf-4ab4-bd7c-07b52cb2a057` | write | `{lat, lon, trains: [station IDs], buses: [stop IDs], close: [3 IDs]}`; each list nearest first |
 | `snapshot` | `7d05cd5a-5784-431f-b051-deb65bc0c3ee` | write | one stop record (6.2) |
 
 The UUIDs are defined once in `firmware/lib/cta/ble_ids.h` and mirrored in the app.
