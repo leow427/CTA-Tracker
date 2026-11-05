@@ -115,3 +115,21 @@ struct ArrivalBookTests {
         #expect(!book.unknown("9"))   // never asked yet: still loading, not unknown
     }
 }
+
+// iOS redesign task 1: the L lines drawn on the Mapbox map.
+struct TrainShapesTests {
+    @Test func trainShapesDecodeTheBundledFile() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../../../../data/train_shapes.json").standardized
+        let shapes = try TrainShapes.decode(Data(contentsOf: url))
+        #expect(shapes.count == 10)
+        #expect(Set(shapes.map(\.route)) == Set(LineColors.trains.map(\.route)))
+        for s in shapes {
+            #expect(s.points.count > 1)
+            for p in s.points {
+                #expect(p.count == 2)
+                #expect((41.6...42.1).contains(p[0]) && (-88.0 ... -87.5).contains(p[1]), "\(s.route) \(p)")
+            }
+        }
+    }
+}

@@ -178,10 +178,11 @@ import Observation
     #endif
 }
 
-/// CTA keys from the app's `Secrets.plist` (gitignored; copy `ios/Secrets.example.plist`). Never logged.
+/// CTA keys and the Mapbox token from the app's `Secrets.plist` (gitignored; copy `ios/Secrets.example.plist`). Never logged.
 struct Secrets {
     let train: String?
     let bus: String?
+    let mapbox: String?
 
     init(bundle: Bundle = .main) {
         let dict = bundle.url(forResource: "Secrets", withExtension: "plist")
@@ -191,5 +192,6 @@ struct Secrets {
         }
         train = key("CTA_TRAIN_KEY")
         bus = key("CTA_BUS_KEY")
+        mapbox = key("MAPBOX_TOKEN")
     }
 }

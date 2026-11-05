@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		CA0000000000000000000010 /* CTAKit in Frameworks */ = {isa = PBXBuildFile; productRef = CA0000000000000000000011 /* CTAKit */; };
+		CA0000000000000000000013 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = CA0000000000000000000014 /* MapboxMaps */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CA0000000000000000000010 /* CTAKit in Frameworks */,
+				CA0000000000000000000013 /* MapboxMaps in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = CTATracker;
 			packageProductDependencies = (
 				CA0000000000000000000011 /* CTAKit */,
+				CA0000000000000000000014 /* MapboxMaps */,
 			);
 			productName = CTATracker;
 			productReference = CA0000000000000000000001 /* CTATracker.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				CA0000000000000000000012 /* XCLocalSwiftPackageReference "CTAKit" */,
+				CA0000000000000000000015 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA0000000000000000000005 /* Products */;
@@ -146,7 +150,7 @@
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -165,7 +169,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -260,10 +264,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		CA0000000000000000000015 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios.git";
+			requirement = {
+				kind = exactVersion;
+				version = 11.34.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		CA0000000000000000000011 /* CTAKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CTAKit;
+		};
+		CA0000000000000000000014 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA0000000000000000000015 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */;
+			productName = MapboxMaps;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

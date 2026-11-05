@@ -101,7 +101,7 @@ Replaces app spec 4.6 where they differ. Haptics, accessibility, and Reduce Moti
 - **L lines:** a GeoJSON source from the bundled `train_shapes.json`, one line layer with a white casing, in the line colors. They stay bright at night (emissive strength 1) and show through buildings at reduced opacity where hidden.
 - **Station dots, bus pins, and vehicles** keep the app spec's rules, drawn as Mapbox layers (dots, pins) and view annotations (vehicles).
 - **Attribution:** the Mapbox logo and info button must stay visible. They sit at the bottom of the open map area, above the list's resting top.
-- **Reverse geocoding** for the "Near" label moves to MapKit's `MKReverseGeocodingRequest` (CLGeocoder is deprecated in iOS 26). It's the only MapKit use left.
+- **Reverse geocoding** for the "Near" label stays on `CLGeocoder`. It's deprecated in iOS 26, but its replacement, `MKReverseGeocodingRequest`, gives no neighborhood or street name, which the label needs. MapKit is no longer used.
 
 ## 7. Code changes
 
