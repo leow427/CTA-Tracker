@@ -1,0 +1,15 @@
+stop_id,stop_code,stop_name,stop_desc,stop_lat,stop_lon,location_type,parent_station,wheelchair_boarding
+40001,,Alpha,,41.90000,-87.65000,1,,1
+40002,,Bravo (Red/Brown),,41.91000,-87.65000,1,,1
+40003,,Charlie,,41.92000,-87.65000,1,,1
+30001,,Alpha (Charlie-bound),,41.90000,-87.65000,0,40001,1
+30002,,Bravo (Charlie-bound),,41.91000,-87.65000,0,40002,1
+30003,,Charlie (Charlie-bound),,41.92000,-87.65000,0,40003,1
+30011,,Alpha (Alpha-bound),,41.90000,-87.65010,0,40001,1
+30012,,Bravo (Alpha-bound),,41.91000,-87.65010,0,40002,1
+30013,,Charlie (Alpha-bound),,41.92000,-87.65010,0,40003,1
+1001,1001,Clark & Alpha,,41.90000,-87.63100,0,,1
+1002,1002,Clark & Bravo,,41.91000,-87.63100,,,1
+40004,,Delta (Red),,41.93000,-87.65000,1,,1
+1003,1003,Alpha Bus Bay,,41.90010,-87.65020,0,40001,1
+1009,1009,Nowhere & Unused,,41.95000,-87.63100,0,,1

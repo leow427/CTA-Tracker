@@ -511,27 +511,27 @@ TEST_ASSERT_EQUAL_HEX8(0b1000000, cta::litMaskBuses(rows + 1, 1, v, 6));
 
 ```cpp
 namespace cta {
-struct TrainLine { const char* route; const char* dirLabel; const char* const* stopIds; const char* const* names; uint8_t count; };
+struct TrainLine { const char* route; const char* dirLabel; const char* const* stopIds; const char* const* names; uint8_t count; uint8_t lead; };
 extern const TrainLine kTrainLines[];
 extern const size_t kTrainLineCount;
 }
 ```
 
-- Produces: `data/train_lines.json` = `[{"route":"Red","dir":"95th/Dan Ryan","stops":[{"id":"30xxx","name":"Howard"}, …]}]`.
+- Produces: `data/train_lines.json` = `[{"route":"Red","dir":"95th/Dan Ryan","stops":[{"id":"30xxx","name":"Howard"}, …],"lead":0}]` (see the lead-in ruling below).
 - Produces: `data/stops.json` = a list of
   - bus stops: `{"id","name","lat","lon","kind":"bus","lines":[{"route":"22","dir":"Northbound"}]}`
   - stations: `{"id","name","lat","lon","kind":"station","platforms":[{"id":"30xxx","lines":[{"route":"Red","dir":"95th/Dan Ryan"}]}]}`
 
   Platforms appear only inside their station, because the handheld's train rows are per station. The app's one-card-per-route-and-direction rule (app design spec 4.2) keys on `lines[].route` + `lines[].dir`.
-- Produces: `data/train_shapes.json` = `[{"route":"Red","points":[[41.97732,-87.66688], …]}]`, one entry per train route, for drawing the lines on the app's map.
-- CLI: `python3 tools/gtfs_build.py <gtfs.zip or dir> [--check] [--bustracker-key KEY]`. It writes the four generated files.
+- Produces: `data/train_shapes.json` = `[{"route":"Red","points":[[41.97732,-87.66688], …]}]`, one or more entries per train route (branches and expresses add their own; see the Shapes ruling below), for drawing the lines on the app's map.
+- CLI: `python3 tools/gtfs_build.py <gtfs.zip or dir> [--check] [--bustracker-key KEY]` (`--bustracker-key` arrives with Step 6). It writes the four generated files.
 - Rules:
   - Train routes are `route_type == 1`.
-  - For each (route, direction_id), the sequence is the most common ordered tuple of platform `stop_id`s across trips; `dirLabel` is that pattern's most common `trip_headsign`; names come from each platform's parent station.
-  - A platform's `lines` are every (route, `dirLabel`) whose trips stop there.
-  - Bus stops are `location_type` 0 or empty, with no `parent_station`, and not used by any train trip. A bus stop's `lines` are every (route, direction) whose trips stop there. The direction comes from CTA's non-standard `direction` column in `trips.txt` ("North" → "Northbound", matching Bus Tracker). Fail loudly if the column is missing.
+  - ~~For each (route, direction_id), the sequence is the most common ordered tuple of platform `stop_id`s across trips; `dirLabel` is that pattern's most common `trip_headsign`; names come from each platform's parent station.~~ Superseded by the Sequences, Headsigns, and Names rulings below.
+  - ~~A platform's `lines` are every (route, `dirLabel`) whose trips stop there.~~ Superseded by the Platform labels ruling below.
+  - Bus stops are `location_type` 0 or empty, ~~with no `parent_station`,~~ and not used by any train trip (see What's a stop below). A bus stop's `lines` are every (route, direction) whose trips stop there. The direction comes from CTA's non-standard `direction` column in `trips.txt` ("North" → "Northbound", matching Bus Tracker). Fail loudly if the column is missing.
   - Stations are `location_type == 1`.
-  - A train route's shape is the most common `shape_id` among its direction-0 trips that follow the most common pattern. Simplify it with Douglas–Peucker at 5 m and round to 5 decimals.
+  - ~~A train route's shape is the most common `shape_id` among its direction-0 trips that follow the most common pattern.~~ Superseded by the Shapes ruling below. Simplify each shape with Douglas–Peucker at 5 m and round to 5 decimals.
   - Stream `stop_times.txt` once with `csv`: train trips feed the sequences, and bus trips feed only each bus stop's `lines`.
 
 **Mini fixture contents:**
@@ -564,7 +564,17 @@ extern const size_t kTrainLineCount;
 
   Pass: exit code 0. Check that `pio test -e native` still builds with the generated `.cpp`.
 - [ ] **Step 6 (once the Bus Tracker key arrives): check bus IDs.** Run with `--bustracker-key`. It calls `getdirections` and `getstops` for route 22 and asserts every returned `stpid` is in `stops.json` with a 22 line whose `dir` matches the Bus Tracker direction, exiting non-zero on any mismatch.
-- [ ] **Step 7: Commit.**
+- *Done (2026-11-05), ahead of Tasks 1–9, so the iPhone app has real stops (Leo's call).* Steps 1–5 done; `--check` passes on the 2026-09-14 feed: 143 stations, 10,683 bus stops, 21 train sequences, 10 shapes (15 KB). The generated `.cpp` compiles with `clang++ -std=c++17 -Wall -Wextra -fsyntax-only`; the `pio test` build check waits for Task 2's native runner. Step 6 waits for the Bus Tracker key.
+- *Rulings from the real feed:*
+  - **Headsigns:** CTA's `trips.txt` has no `trip_headsign`. A pattern's label is its trips' most common `trip_headsign`, else their most common `stop_headsign` (from `stop_times.txt`).
+  - **Platform labels:** a platform's direction is its most common `stop_headsign` for the route; on a trunk shared by branches, every headsign within 80% of the top one, joined (Green's Harlem/Lake–Garfield platforms carry 177 Ashland/63rd and 177 Cottage Grove trains, so they read "Ashland/63rd & Cottage Grove"; worker ruling, review round 3, so a near tie can't flip labels and orphan favorites on the next feed; `--check` fails if any platform sits between 70% and 90%) ("Loop" vs "Kimball" at Belmont, matching Train Tracker's `destNm`), else the label of the pattern that first covered it. Brown, Orange, and Pink run each trip as one round trip in one `direction_id` (Kimball → Loop → Kimball); without per-platform labels both Belmont Brown platforms read "Kimball" and the app merges them into one card.
+  - **Sequences (replaces "one most common pattern per direction"):** per (route, `direction_id`), patterns most common first; each contributes only the stretches of platforms no earlier pattern of the route covered. Each stretch is split wherever the platform label changes, so every `TrainLine` has one `dirLabel` that agrees with `stops.json`. This picks up the opposite one-way trips CTA files under one `direction_id` (Purple Linden ↔ Howard, Yellow), Green's second branch (Ashland/63rd), and Purple Express, and adds nothing for Blue short turns. `--check` asserts every route has both directions and every platform direction in `stops.json` lies in some sequence with that label.
+  - **Lead-in (Leo, 2026-11-05, for round trips):** a piece keeps up to 6 platforms before it, walking back while at least 90% of each platform's trains reach the piece's first stop (worker ruling, review round 3, replacing "only at a direction change"). Brown, Orange, Pink, and the Purple Express turning at the Loop keep 6; Green's branches, the Purple Express trunk, and the one-way pairs get 0, since the shared track's other trains never arrive, and `TrainLine` gains `uint8_t lead` (`train_lines.json`: `"lead"`). The first `lead` stops feed Task 8's approach rows ("6 stops before mine") but are not offered as picks. A (route, dir) can have more than one sequence (Green → Harlem/Lake is the trunk plus a 2-stop piece from the Ashland branch; Purple → Linden is the shuttle plus the Express): pickers list stations by (route, dir) across sequences, and a platform's row uses the sequence that holds it past its lead. Without that rule, LEDs would light for trains that never reach the stop.
+  - **Shapes:** a route's main shape comes from its first stretch: direction 0, or the first direction it has (Orange, Pink, Purple, Yellow run in `direction_id` 1 only). A later stretch whose pattern reaches stations the route's shapes miss adds its own entry (worker ruling, review round 2), so the map draws Green's Ashland/63rd branch and the Purple Express to the Loop: 10 entries for 8 routes, 15 KB.
+  - **Proposed spec edit for Leo (base spec §5, app spec §7.3):** "use the most common trip pattern" → "cover every served platform: the most common pattern per direction, plus the stretches other patterns add (branches, expresses, one-way pairs), split by direction; one path per line plus its branches".
+  - **Names:** station names drop a trailing list of line colors ("Belmont (Red/Brown/Purple)" → "Belmont"); branch notes stay ("Harlem (Blue - Forest Park Branch)"), since the Blue Line has two Harlems. Sequence names use the same rule.
+  - **What's a stop:** stations with no served platform, and bus stops with no trips, are left out. Bus stops are found by their trips, not by having no `parent_station`: CTA parents 20 terminal bays at 95th/Dan Ryan and Jefferson Park to the rail station.
+- [x] **Step 7: Commit.**
 
 ```bash
 git add tools/gtfs_build.py tools/test_gtfs_build.py fixtures/gtfs-mini firmware/lib/cta/src/train_sequences.* data/stops.json data/train_lines.json data/train_shapes.json .gitignore

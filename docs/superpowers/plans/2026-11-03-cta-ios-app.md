@@ -293,7 +293,7 @@ Leo can send a screen back for polish before the commit.
      - Error copy exactly per app spec section 8. Passwords are never logged.
    - **Checkpoint B: dock stops, pet, and device settings.**
      - Presets: write `art/presets.txt` (6 lines: name, slot 2 color, slot 3 color) and add the presets to `data/pet_sprites.json` through `sprite_build.py`.
-     - Dock stops step and dock page: favorites first; trains from `train_lines.json` (load it here, in `TrainLines`); buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
+     - Dock stops step and dock page: favorites first; trains from `train_lines.json` (load it here, in `TrainLines`; skip each line's first `lead` stops, which are lead-in, not picks; a (line, direction) can span several sequences, so merge their stations; Plan 1 Task 10 rulings); buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
      - The dock's stops are read back on every connect.
      - Pet step and `PetSettings`: name and the 6 presets from `pet_sprites.json`, with a 64 pt `PixelImage` preview of the pet.
      - `DeviceSettings`: screen and LED brightness, and night hours.
@@ -308,7 +308,7 @@ Leo can send a screen back for polish before the commit.
      - With the handheld's Wi-Fi off, its stops fill from the phone (demo item 8).
 4. **Extras.** Covers old milestones 8–11. Built in this order, so if time runs short the last ones drop. Each part can be committed on its own if the milestone has to stop partway.
    - **Train lines and line taps.**
-     - `LineLayer` draws `TrainShapes` (load `train_shapes.json` here) as `MapPolyline`s in line colors, plus a dot per station.
+     - `LineLayer` draws every `TrainShapes` entry (load `train_shapes.json` here; a route can have more than one: Green's Ashland branch, the Purple Express) as `MapPolyline`s in line colors, plus a dot per station.
      - A `MapReader` tap goes through `LineHitTest`: the nearest line in screen points, within 20 pt. The result sets a filter chip with × and plays the selection haptic.
      - *Test:* `LineHitTest` picks the nearer of two lines and returns nil beyond 20 pt.
    - **Live tracking.**

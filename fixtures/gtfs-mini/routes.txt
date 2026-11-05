@@ -1,0 +1,3 @@
+route_id,route_short_name,route_long_name,route_type
+Red,,Red Line,1
+22,22,Clark,3

@@ -16,3 +16,6 @@ __pycache__/
 CLAUDE.md
 .claude/
 .DS_Store
+
+# Downloaded GTFS feed (tools/gtfs_build.py input)
+data/gtfs/
