@@ -28,7 +28,9 @@ This adds detail to the base spec's iPhone app section: screens, navigation, loo
 | Tapping a drawn line | The list filters to that line's cards. |
 | Pet | A small pet in the "Near *place*" label, using the handheld's mood rules. Tapping it opens Pet settings. |
 | Device setup | An AirPods-style "Dock found · Set up" card for unpaired devices, plus the same steps under Settings → Devices. |
-| Style | San Francisco everywhere, except the big arrival minutes and the pet label, which use the devices' pixel font. Light and dark follow the phone. |
+| Style | Apple builds the structure, pixel art carries the character (section 4.6). San Francisco everywhere, except the big arrival minutes and the pet label, which use the devices' pixel font. Light and dark follow the phone. |
+| Cards | Inset, with Apple's continuous rounded corners. |
+| Polish | Built in as each screen is made, not saved for a final pass. |
 
 ## 3. Screens and navigation
 
@@ -78,7 +80,7 @@ Map (full screen, always there)
 
 ### 4.3 Card
 
-- **Background:** the line's CTA color, full width. All buses share one color (base spec 6.5).
+- **Shape:** an inset card filled with the line's CTA color, with 16 pt side margins, 8 pt gaps, and a 16 pt continuous corner radius. All buses share one color (base spec 6.5).
 - **Text color:** white, or a dark color on any line color where white fails WCAG 4.5:1 (Yellow at least). A test checks every pair (section 9).
 - **Left:** the big route number for buses ("22") or a line badge for trains ("Red Line"); an arrow and the destination ("→ Howard"); the stop name. No CTA logo.
 - **Right:** big minutes in the pixel font with a live icon. Under 1 minute shows "Due". A timetable-only arrival (`live: false`) shows a clock time ("10:05") with no live icon.
@@ -92,10 +94,49 @@ Map (full screen, always there)
 
 ### 4.5 Pet
 
-- About 28 pt tall in the "Near *place*" label, drawn by `PetSprites` with the user's color preset.
+- 32 pt tall in the "Near *place*" label (one art pixel per point), drawn by `PetSprites` with the user's color preset.
 - Its mood uses the base spec's device-mood rules (6.3) over the listed stops. Only the 3 closest stops of either kind count for Hyped, the same as the handheld's `close` list. No location yet means Sleepy.
 - Weather accessories follow base spec 6.3, from Open-Meteo every 15 min while the app is in the foreground.
 - Tapping it opens Settings → Pet.
+
+### 4.6 Visual design (whole app)
+
+Apple builds the structure; pixel art carries the character.
+
+- **Native structure:** the system sheet, lists, navigation, materials, SF Symbols, and San Francisco. Pixel art appears only in the pet, the big minutes, the live signal, vehicle markers, and the device art in setup.
+- **Pixel scaling:**
+  - Pixel art is drawn at whole-number scales only, with nearest-neighbor sampling (`.interpolation(.none)`), on whole points.
+  - The pet is 32 pt (label), 64 pt (widgets, Pet settings preview), or 128 pt (setup and empty states).
+  - Pixel art is never rotated, blurred, or smoothed. A vehicle's heading is a separate SF Symbol arrow beside its unrotated pixel glyph.
+- **Type:**
+  - San Francisco text styles everywhere, following Dynamic Type.
+  - The pixel font appears only in the big minutes and the pet label. At every text size, its point size snaps to a whole multiple of the font's pixel grid.
+- **Color:**
+  - CTA line colors and the amber Delayed badge are the only saturated colors.
+  - Everything else uses system grays, labels, and materials.
+  - Pixel art uses its own 16-slot palette.
+- **Shape and spacing:**
+  - A 4 pt grid (4, 8, 12, 16, 24, 32).
+  - Cards as in 4.3.
+  - Map buttons are 44 pt circles, and the "Near" label a capsule, both on regular material like Apple Maps.
+- **Motion:**
+  - The UI moves on springs: `.smooth` for the map camera and sheet, `.snappy` for selection.
+  - Pixel elements step instead of tweening. Sprite frames run at 4 fps. Minutes change with a two-frame destination-sign flip over 150 ms. The live glyph blinks in 2 frames once a second.
+  - Vehicle markers glide (section 5.2), since they're map positions, not pixel animation.
+  - With Reduce Motion on, the pet holds its first frame, minutes change without the flip, the live glyph stays lit, and the camera jumps instead of flying.
+- **Haptics:**
+  - selection feedback on the switch and the line filter
+  - a light impact on ★
+  - success when setup finishes
+  - error when pairing or Wi-Fi fails
+- **Accessibility:**
+  - The contrast test (section 9).
+  - Every screen works at the largest accessibility text size.
+  - VoiceOver reads each card as one sentence ("Red Line to Howard from Belmont, 3 minutes, live, delayed"), and the pet has a label ("Your pet is happy").
+  - Reduce Transparency swaps materials for solid system backgrounds.
+- **Art scope:**
+  - Six pixel glyphs (live, train, bus, alert, dock, handheld), the pet's sprites, and one app icon of the pet. SF Symbols cover everything else: gear, recenter, star, search, chevrons, and the heading arrow.
+  - Glyphs are 16×16 grids in `art/`, built by the same pipeline as the pet, so final art swaps in with no code changes.
 
 ## 5. Stop detail and live tracking
 
@@ -234,11 +275,12 @@ Adds to base spec 9.6.
   - Every BLE message the app writes encodes to 512 bytes or less.
 - **`gtfs_build.py` self-check:** `train_shapes.json` has 8 lines, each with points inside Chicago's bounding box.
 - **Previews:** SwiftUI previews fed from fixtures for every card state (live, sched, delayed, alert, due, no arrivals), in light and dark. No automated UI test suite for the alpha.
+- **Polish check:** each screen is checked on Leo's phone in light and dark, at the largest text size, with VoiceOver, and with Reduce Motion before its work is committed.
 - **On hardware:** a TestFlight build on Leo's phone, walking demo items 3, 4, 5, 8, and 9.
 
 ## 10. Build order
 
-The base spec's rule still holds: the core path comes first (map and cards, stop detail, favorites, BLE setup, dock stops, relay). The drawn train lines and live tracking are built with the other app extras (pet in the label, widgets, find my handheld) and slip first if time runs short.
+The base spec's rule still holds: the core path comes first (map and cards, stop detail, favorites, BLE setup, dock stops, relay). The drawn train lines and live tracking are built with the other app extras (pet in the label, widgets, find my handheld) and slip first if time runs short. Polish is part of every screen's work (section 4.6 and the polish check in section 9), not a final pass, so a slipped extra is missing rather than rough.
 
 ## 11. Base spec edits
 
@@ -264,4 +306,4 @@ Folded into the base spec on 2026-11-04:
 
 ## 13. Out of scope
 
-Trip planning and a Home button, live vehicles without a selected line, bus routes drawn by default, free color pickers, a tab bar, and an automated UI test suite.
+Trip planning and a Home button, live vehicles without a selected line, bus routes drawn by default, free color pickers, a tab bar, an automated UI test suite, and any custom icon set, illustrations, or transitions beyond those in section 4.6.
