@@ -3,6 +3,45 @@ import Foundation
 /// A stop's kind, as `data/stops.json` writes it.
 public enum Kind: String, Codable, Sendable { case bus, station }
 
+/// The list's All · Trains · Buses switch.
+public enum KindFilter: Sendable { case all, trains, buses }
+
+/// A route and direction: one card. `dir` is Bus Tracker's rtdir, or the train line's direction label.
+public struct Line: Codable, Hashable, Sendable {
+    public let route: String
+    public let dir: String
+    public init(route: String, dir: String) { self.route = route; self.dir = dir }
+}
+
+/// A train platform inside its station, with the lines that stop there.
+public struct Platform: Codable, Hashable, Sendable {
+    public let id: String
+    public let lines: [Line]
+    public init(id: String, lines: [Line]) { self.id = id; self.lines = lines }
+}
+
+/// One entry of `data/stops.json`: a bus stop (`lines`) or a station (`platforms`).
+public struct Stop: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public let name: String
+    public let lat: Double
+    public let lon: Double
+    public let kind: Kind
+    public let lines: [Line]?
+    public let platforms: [Platform]?
+    public init(id: String, name: String, lat: Double, lon: Double, kind: Kind, lines: [Line]?, platforms: [Platform]?) {
+        self.id = id; self.name = name; self.lat = lat; self.lon = lon; self.kind = kind
+        self.lines = lines; self.platforms = platforms
+    }
+}
+
+/// A starred card: its stop (bus stop or platform ID) and line (plan 4 decision 1).
+public struct Favorite: Codable, Hashable, Sendable {
+    public let stopID: String
+    public let line: Line
+    public init(stopID: String, line: Line) { self.stopID = stopID; self.line = line }
+}
+
 /// One arrival from a parser: one per `eta` (trains) or `prd` (buses), uncapped.
 public struct Prediction: Hashable, Sendable {
     public let stopID: String   // platform ID (ttarrivals stpId) or bus stop ID (stpid)

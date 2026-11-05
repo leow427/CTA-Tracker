@@ -22,6 +22,12 @@ public enum Config {
 
     public static let cardDimSec: TimeInterval = 120   // cards dim after 2 min (app spec 8)
     public static let busStopsPerCall = 10
+
+    // The list (app spec 4.2 and 8)
+    public static let cardRadiusM: Double = 800
+    public static let fallbackStops = 5
+    public static let farFromChicagoM: Double = 30_000
+    public static let maxFavorites = 3
 }
 
 /// BLE UUIDs (base spec 10). Mirrors firmware/lib/cta/src/ble_ids.h.

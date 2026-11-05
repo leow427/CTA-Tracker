@@ -150,7 +150,7 @@ struct Vehicle: Identifiable { let id: String; let lat: Double; let lon: Double
 Each is small and reversible.
 
 1. **Favorites are cards, not stations.** ★ saves the tapped card's stop and line (route + direction), like a dock pick (base spec 6.1). So the ★ section is always at most 3 cards, and the widget's "first favorite" is one line at one stop.
-2. **Favorite dedupe is by line.** A nearby card whose route + direction matches a favorite is hidden.
+2. **Favorite dedupe is by line, for nearby favorites only.** A nearby card whose route + direction matches a favorite is hidden only when the favorite's own stop is in the list (app spec 4.2). A favorite across town hides nothing. (Changed 2026-11-04 from "any favorite", which hid the nearest card for every starred line.)
 3. **Unknown favorites are dropped.** A favorite whose stop vanished in a GTFS rebuild is left out of the list silently and kept in storage.
 4. **Fetch IDs:** train cards fetch their parent station (`ttarrivals?mapid=`); bus cards fetch their stop (`getpredictions?stpid=`, up to 10 per call).
 5. **Clock times** for scheduled arrivals are formatted in `America/Chicago`, whatever the phone's time zone.
@@ -213,7 +213,7 @@ Leo can send a screen back for polish before the commit.
    - *Tests:* `cd ios/CTAKit && swift test` (macOS, fast), or on the simulator: `xcodebuild test -scheme CTAKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro'` from `ios/CTAKit`.
 2. **Main screen.** Covers old milestones 2–4.
    - **Checkpoint A: stop index and card rules.**
-     - Load `stops.json`, `train_lines.json`, and `train_shapes.json`. Implement `nearest` and within-radius search and `CardBuilder.slots`.
+     - Load `stops.json`. Implement `nearest` and within-radius search and `CardBuilder.slots`.
      - A linear scan over about 11k stops should be fast enough; build a spatial index only if profiling says so.
      - *Tests (`CardBuilderTests`):*
        - 6 stops on one route and direction give 1 slot, at the nearest stop.
@@ -222,9 +222,17 @@ Leo can send a screen back for polish before the commit.
        - Under Trains with no station within 800 m, the 5 nearest stations show.
        - Under All, the fallback runs only when no stop of either kind is within 800 m.
        - Over 30 km from the nearest stop sets `farFromChicago`.
-       - A favorite hides the nearby slot with the same line.
+       - A favorite hides the nearby slot with the same line when its stop is listed; a far favorite hides nothing.
        - An unknown favorite ID is dropped (review focus 2).
        - At most 3 favorites.
+     - *Done (2026-11-04).* `StopIndex` (decode, lookup by stop or platform ID, `byDistance`) and `CardBuilder` with the tests above, on synthetic stops in Plan 1 Task 10's `stops.json` shape. Plan 1 hasn't run yet, so `data/` doesn't exist; the app bundles the real files in checkpoint C.
+     - *Moved:* `TrainLines` to milestone 3 checkpoint B (dock stops, its only user) and `TrainShapes` to milestone 4 (`LineLayer`), so each is written next to the code that reads it.
+     - *Rulings made here:*
+       - One `byDistance(from:kinds:)` serves both nearest and within-radius; ties break by stop ID so the list never reorders between refreshes.
+       - A train favorite's `stopID` is its platform ID (the slot's `stopID`); the index maps platforms to their station for `fetchID`.
+       - A favorite is dropped if its stop is gone *or* its line no longer serves that stop (it would be an empty card).
+       - The All · Trains · Buses switch filters favorites too ("filters the cards", app spec 4.2).
+       - Far from Chicago measures the nearest stop of any kind, whatever the switch.
    - **Checkpoint B: design kit** (app spec 4.6), in `ios/CTATracker/Design/`, before any screen:
      - `Theme.swift`: the 4 pt spacing scale, 16 pt card radius and margins, 8 pt gaps, 44 pt map buttons, materials with the Reduce Transparency fallback, and the springs.
      - `PixelImage`: draws a `PetSprites` image or glyph at a whole-number scale with `.interpolation(.none)`.
@@ -265,7 +273,7 @@ Leo can send a screen back for polish before the commit.
      - `DeviceList` and `DevicePage` show status from `info`. Forget shows the iOS Settings instruction.
      - Error copy exactly per app spec section 8. Passwords are never logged.
    - **Checkpoint B: dock stops, pet, and device settings.**
-     - Dock stops step and dock page: favorites first; trains from `train_lines.json`; buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
+     - Dock stops step and dock page: favorites first; trains from `train_lines.json` (load it here, in `TrainLines`); buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
      - The dock's stops are read back on every connect.
      - Pet step and `PetSettings`: name and the 6 presets from `pet_sprites.json`, with a 64 pt `PixelImage` preview of the pet.
      - `DeviceSettings`: screen and LED brightness, and night hours.
@@ -280,7 +288,7 @@ Leo can send a screen back for polish before the commit.
      - With the handheld's Wi-Fi off, its stops fill from the phone (demo item 8).
 4. **Extras.** Covers old milestones 8–11. Built in this order, so if time runs short the last ones drop. Each part can be committed on its own if the milestone has to stop partway.
    - **Train lines and line taps.**
-     - `LineLayer` draws `TrainShapes` as `MapPolyline`s in line colors, plus a dot per station.
+     - `LineLayer` draws `TrainShapes` (load `train_shapes.json` here) as `MapPolyline`s in line colors, plus a dot per station.
      - A `MapReader` tap goes through `LineHitTest`: the nearest line in screen points, within 20 pt. The result sets a filter chip with × and plays the selection haptic.
      - *Test:* `LineHitTest` picks the nearer of two lines and returns nil beyond 20 pt.
    - **Live tracking.**
