@@ -300,7 +300,7 @@ Leo can send a screen back for polish before the commit.
 
 ## Open questions
 
-- **Bundle ID and App Group ID:** placeholder `io.github.leow427.CTATracker` until Leo picks (needed before TestFlight; the App Group arrives at milestone 2). Simulator builds need no team.
+- **Bundle ID and App Group ID:** placeholder `io.github.leow427.CTATracker` until Leo picks (the App Group arrives at milestone 2). Team ID `5JXMXR2W9L` is set, with automatic signing; device builds need Leo signed in to Xcode.
 - **Pixel font:** chosen with the final art, under a license (such as OFL) that allows bundling in the app and the firmware. Until then the minutes use a system monospaced font.
 - **CTA attribution wording:** confirm from the developer terms when the keys arrive (milestone 4).
 - **`ttarrivals` per call:** if one call can take more than one station, `ArrivalsStore` batches trains too.
