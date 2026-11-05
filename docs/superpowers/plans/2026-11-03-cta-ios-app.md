@@ -159,11 +159,26 @@ Inputs the specs imply but don't spell out, most likely to bite first. Each has 
 2. **Favorites that vanished** after a GTFS rebuild: dropped quietly, never an empty or crashing card. Test in milestone 2.
 3. **Arrival labels at the edges:** 0 min is "Due", 1 min is "1 min", and scheduled times show Chicago time even on a phone set to another zone. Test in milestone 1.
 4. **Coming back after an hour in the background:** cards show dimmed with their age right away, then refresh. Never fresh-looking stale data. Test in milestone 1.
-5. **Largest text sizes and long names:** at accessibility text sizes, with 24-character names, cards wrap instead of clipping the minutes. Preview in milestone 3.
+5. **Largest text sizes and long names:** at accessibility text sizes, with 24-character names, cards wrap instead of clipping the minutes. Preview in milestone 2.
 
 ## Milestones
 
-The core path is milestones 1–7. Milestones 8–11 are the app extras: built after the core path works, and the first to slip (app spec section 10).
+Five milestones, regrouped on 2026-11-04 from twelve. Old numbers map as: 1 → 1, 2–4 → 2, 5–7 → 3, 8–11 → 4, 12 → 5.
+
+- Milestones 1–3 are the core path. Milestone 4 holds the app extras: built after the core path works, and the first to slip (app spec section 10).
+- Each milestone ends in one reviewed commit. The bigger ones (2 and 3) are split into checkpoints: points where the work builds, its tests pass, and Leo can try it on the phone before the milestone goes on.
+
+**Polish bar, for every UI milestone (2–4).** A milestone is done only when its screens:
+- use only the design kit, with no one-off colors, sizes, or fonts
+- follow app spec 4.6
+- look right in light and dark
+- stay usable at the largest accessibility text size
+- read as sentences in VoiceOver
+- respect Reduce Motion and Reduce Transparency
+- have their haptics
+- were checked on Leo's phone, with screenshots in the worker's report
+
+Leo can send a screen back for polish before the commit.
 
 1. **CTAKit core.**
    - Models, parsers into `Prediction`s (including vehicles and patterns), `StopRecord.make`, the stop record codec, mood rules, constants, URL builders, `ArrivalFormat`, and line colors.
@@ -175,105 +190,98 @@ The core path is milestones 1–7. Milestones 8–11 are the app extras: built a
      - Every line color with its text color passes 4.5:1, bus color included.
      - Every BLE message the app writes is 512 bytes or less, including `wifi` with a 32-character SSID and a 63-character password, and a full `nearby`.
    - *Check:* `swift test` in `ios/CTAKit` passes, and a deliberately broken mood rule fails a test.
-2. **Stop index and card rules.**
-   - Load `stops.json`, `train_lines.json`, and `train_shapes.json`. Implement `nearest` and within-radius search and `CardBuilder.slots`.
-   - A linear scan over about 11k stops should be fast enough; build a spatial index only if profiling says so.
-   - *Tests (`CardBuilderTests`):*
-     - 6 stops on one route and direction give 1 slot, at the nearest stop.
-     - A station with 2 lines and 2 platforms gives 4 slots (review focus 1).
-     - The 800 m cutoff.
-     - Under Trains with no station within 800 m, the 5 nearest stations show.
-     - Under All, the fallback runs only when no stop of either kind is within 800 m.
-     - Over 30 km from the nearest stop sets `farFromChicago`.
-     - A favorite hides the nearby slot with the same line.
-     - An unknown favorite ID is dropped (review focus 2).
-     - At most 3 favorites.
-3. **Design kit and main screen.**
-   - **Design kit first** (app spec 4.6), in `ios/CTATracker/Design/`, before any screen:
+2. **Main screen.** Covers old milestones 2–4.
+   - **Checkpoint A: stop index and card rules.**
+     - Load `stops.json`, `train_lines.json`, and `train_shapes.json`. Implement `nearest` and within-radius search and `CardBuilder.slots`.
+     - A linear scan over about 11k stops should be fast enough; build a spatial index only if profiling says so.
+     - *Tests (`CardBuilderTests`):*
+       - 6 stops on one route and direction give 1 slot, at the nearest stop.
+       - A station with 2 lines and 2 platforms gives 4 slots (review focus 1).
+       - The 800 m cutoff.
+       - Under Trains with no station within 800 m, the 5 nearest stations show.
+       - Under All, the fallback runs only when no stop of either kind is within 800 m.
+       - Over 30 km from the nearest stop sets `farFromChicago`.
+       - A favorite hides the nearby slot with the same line.
+       - An unknown favorite ID is dropped (review focus 2).
+       - At most 3 favorites.
+   - **Checkpoint B: design kit** (app spec 4.6), in `ios/CTATracker/Design/`, before any screen:
      - `Theme.swift`: the 4 pt spacing scale, 16 pt card radius and margins, 8 pt gaps, 44 pt map buttons, materials with the Reduce Transparency fallback, and the springs.
      - `PixelImage`: draws a `PetSprites` image or glyph at a whole-number scale with `.interpolation(.none)`.
      - `PixelFont`: the minutes and pet-label font, snapped per Dynamic Type size. Uses system monospaced until the pixel font is chosen.
      - `Haptics`: selection, light impact, success, and error.
      - `RouteCard` is the first component built on the kit.
      - `tools/sprite_build.py` also writes the 6 glyphs (16×16 grids, `art/glyph_*.txt`) into `data/pet_sprites.json`.
-   - **Polish bar, for this and every UI milestone through 11.** A milestone is done only when its screens:
-     - use only the design kit, with no one-off colors, sizes, or fonts
-     - follow app spec 4.6
-     - look right in light and dark
-     - stay usable at the largest accessibility text size
-     - read as sentences in VoiceOver
-     - respect Reduce Motion and Reduce Transparency
-     - have their haptics
-     - were checked on Leo's phone, with screenshots in the worker's report
-
-     Leo can send a screen back for polish before the commit.
-   - *Tests (CTAKit):*
-     - `PixelScale.scale(art: 32, points: 32) == 1`, `(32, 64) == 2`, and a non-multiple rounds down, never below 1.
-     - `PixelFont` sizes are whole multiples of the font's pixel unit at every Dynamic Type size.
-     - `CardSpeech.sentence` gives "Red Line to Howard from Belmont, 3 minutes, live, delayed" for that fixture case.
-   - Project: App Group and `Secrets.xcconfig` wiring.
-   - `MapScreen` with the persistent `RouteSheet`: detents per decision 9, `interactiveDismissDisabled`, and background interaction up through `.medium`. A `NavigationStack` inside the sheet.
-   - `SearchBar`, `KindSwitch` (selection haptic), inset `RouteCard`s with the minutes' destination-sign flip and the blinking live glyph, and an empty `FavoritesSection`.
-   - Map buttons and the "Near" label float on material, per app spec 4.6.
-   - `ArrivalsStore` polls arrivals every 30 s while the list is visible and the app is in the foreground, plus pull-to-refresh, and alerts for the listed routes every 5 min.
-   - `NearLabel` shows text only for now, with a 1 s debounce and "Near you" on failure. Recenter, the list following panning, and bus pins for listed stops.
-   - A `SettingsScreen` shell. The gear on the map sets a flag on `AppModel`, and the sheet's content presents Settings (app spec section 3).
-   - Errors from app spec section 8: location off, far from Chicago, "CTA data unavailable", stale dimming, and "No arrivals" / "No service now".
-   - *Previews:* every card state (live, sched, delayed, alert, due, no arrivals) in light and dark, plus one at the largest accessibility text size with a 24-character name (review focus 5).
-   - *Check (Leo):* on the phone in Chicago, cards fill with live times and refresh.
-4. **Stop detail, favorites, and search.**
-   - Detail pushes inside the sheet at half height and pauses list polling. Its header shows the stop name, ★, and "Live · updated 12 s ago".
-   - The map centers on the stop (milestone 9 adds line framing and vehicles). Going back restores the previous camera.
-   - The whole station, or all routes at the bus stop, grouped by `DetailGroups`, with the tapped group first and up to 4 arrivals per group. Alerts collapsed under ⚠.
-   - ★ saves a `Favorite` (light impact) and fills the ★ section.
-   - Search raises the sheet to full and shows favorites first, then stops and routes matching the name or route number.
-   - *Test:* `DetailGroups` on a station record with 2 lines × 2 directions puts the tapped group first.
-5. **BLE devices and setup.**
-   - `BLEManager`: a CoreBluetooth central with a state-restoration identifier. It scans for the service UUID while in the foreground and reconnects after a disconnect.
-   - First launch: the location prompt, then the one-line explainer, then the Bluetooth prompt.
-   - `FoundCard` for identifiers not in the device list.
-   - `SetupFlow`: Pair → Wi-Fi → Done. Each step shows the 128 pt dock or handheld glyph. Done plays the success haptic, and a pairing or Wi-Fi failure the error haptic.
-     - The SSID is pre-filled with `NEHotspotNetwork.fetchCurrent`, which needs the Access Wi-Fi Information entitlement.
-     - It writes `wifi`, then reads `info` until `wifi.connected`, for up to 20 s.
-   - `DeviceList` and `DevicePage` show status from `info`. Forget shows the iOS Settings instruction.
-   - Error copy exactly per app spec section 8. Passwords are never logged.
-   - *Check (Leo):* a fresh dock gets onto Wi-Fi from the found card (demo item 4).
-6. **Dock stops, pet, and device settings.**
-   - Dock stops step and dock page: favorites first; trains from `train_lines.json`; buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
-   - The dock's stops are read back on every connect.
-   - Pet step and `PetSettings`: name and the 6 presets from `pet_sprites.json`, with a 64 pt `PixelImage` preview of the pet.
-   - `DeviceSettings`: screen and LED brightness, and night hours.
-   - Pet and settings are written to every device on connect and on change.
-   - *Check (Leo):* a pick on the dock's touchscreen shows up in the app, and a preset change shows on both devices (demo items 3 and 9).
-7. **Handheld relay.**
-   - Subscribe to `request`. On each request, take one `CLLocationManager.requestLocation()` fix and write `nearby` with the 10 nearest stations, the 10 nearest bus stops, and `close` (the 3 nearest of either kind).
-   - If the request says `wifi:false`, fetch arrivals for those stops and write one `snapshot` per stop every 60 s while connected.
-   - Background modes: Bluetooth central and location; `NSLocationAlwaysAndWhenInUseUsageDescription`. "While Using" permission still works with the app open.
-   - *Check (Leo):* with the handheld's Wi-Fi off, its stops fill from the phone (demo item 8).
-8. **Extra: train lines and line taps.**
-   - `LineLayer` draws `TrainShapes` as `MapPolyline`s in line colors, plus a dot per station.
-   - A `MapReader` tap goes through `LineHitTest`: the nearest line in screen points, within 20 pt. The result sets a filter chip with × and plays the selection haptic.
-   - *Test:* `LineHitTest` picks the nearer of two lines and returns nil beyond 20 pt.
-9. **Extra: live tracking.**
-   - `LiveLineStore` polls `ttpositions` or `getvehicles` every 30 s for the selected line. The bus path comes from `getpatterns`, cached for the session.
-   - `Framing` fits the stop plus the next 3 vehicles toward it. Vehicles going the other way are dimmed.
-   - A marker is the unrotated pixel train or bus glyph with an SF Symbol heading arrow beside it. Markers glide over 1 s. A vehicle bubble shows destination and next stop.
-   - Polling stops on back, background, or lock. On failure, the last positions stay with their age and are hidden after 120 s.
-   - *Tests:* `Framing` picks the 3 nearest approaching vehicles from the positions and vehicles fixtures; the parsers read both fixtures.
-10. **Extra: pet in the label, and widgets.**
-    - `NearLabel` gets the 32 pt pet, animating at 4 fps (first frame only under Reduce Motion), with a VoiceOver label like "Your pet is happy": device mood over the listed stops, with only the 3 closest counting for Hyped. Weather accessories from Open-Meteo every 15 min in the foreground. Tapping it opens Pet settings.
-    - Widgets: a timeline provider reads the first favorite from the App Group and fetches its arrivals. It shows the 64 pt pet (mood from that one stop) and the next 2 arrivals. The app calls `WidgetCenter.shared.reloadAllTimelines()` after each fetch.
-    - *Test:* device mood over 5 listed stops where only the 4th is due in 2 min is not Hyped.
-11. **Extra: find my handheld and About.**
-    - On a handheld disconnect, save the phone's location and the time to the App Group. Show a map pin with "Last seen at 8:42 AM", or "Connected now".
-    - About shows the version and the CTA attribution line.
-12. **TestFlight and demo check.** Add the app icon first: the pet at a whole-number scale on a line-color ground, rendered from `art/` by `sprite_build.py`. Then archive, upload, and install on Leo's phone. Walk base spec §1 items 3, 4, 5, 8, and 9.
+     - *Tests (CTAKit):*
+       - `PixelScale.scale(art: 32, points: 32) == 1`, `(32, 64) == 2`, and a non-multiple rounds down, never below 1.
+       - `PixelFont` sizes are whole multiples of the font's pixel unit at every Dynamic Type size.
+       - `CardSpeech.sentence` gives "Red Line to Howard from Belmont, 3 minutes, live, delayed" for that fixture case.
+   - **Checkpoint C: map, sheet, and cards.**
+     - Project: App Group and `Secrets.xcconfig` wiring.
+     - `MapScreen` with the persistent `RouteSheet`: detents per decision 9, `interactiveDismissDisabled`, and background interaction up through `.medium`. A `NavigationStack` inside the sheet.
+     - `SearchBar`, `KindSwitch` (selection haptic), inset `RouteCard`s with the minutes' destination-sign flip and the blinking live glyph, and an empty `FavoritesSection`.
+     - Map buttons and the "Near" label float on material, per app spec 4.6.
+     - `ArrivalsStore` polls arrivals every 30 s while the list is visible and the app is in the foreground, plus pull-to-refresh, and alerts for the listed routes every 5 min.
+     - `NearLabel` shows text only for now, with a 1 s debounce and "Near you" on failure. Recenter, the list following panning, and bus pins for listed stops.
+     - A `SettingsScreen` shell. The gear on the map sets a flag on `AppModel`, and the sheet's content presents Settings (app spec section 3).
+     - Errors from app spec section 8: location off, far from Chicago, "CTA data unavailable", stale dimming, and "No arrivals" / "No service now".
+     - *Previews:* every card state (live, sched, delayed, alert, due, no arrivals) in light and dark, plus one at the largest accessibility text size with a 24-character name (review focus 5).
+   - **Checkpoint D: stop detail, favorites, and search.**
+     - Detail pushes inside the sheet at half height and pauses list polling. Its header shows the stop name, ★, and "Live · updated 12 s ago".
+     - The map centers on the stop (milestone 4 adds line framing and vehicles). Going back restores the previous camera.
+     - The whole station, or all routes at the bus stop, grouped by `DetailGroups`, with the tapped group first and up to 4 arrivals per group. Alerts collapsed under ⚠.
+     - ★ saves a `Favorite` (light impact) and fills the ★ section.
+     - Search raises the sheet to full and shows favorites first, then stops and routes matching the name or route number.
+     - *Test:* `DetailGroups` on a station record with 2 lines × 2 directions puts the tapped group first.
+   - *Check (Leo):* on the phone in Chicago, cards fill with live times and refresh, and detail, ★, and search work.
+3. **Devices.** Covers old milestones 5–7.
+   - **Checkpoint A: BLE and setup.**
+     - `BLEManager`: a CoreBluetooth central with a state-restoration identifier. It scans for the service UUID while in the foreground and reconnects after a disconnect.
+     - First launch: the location prompt, then the one-line explainer, then the Bluetooth prompt.
+     - `FoundCard` for identifiers not in the device list.
+     - `SetupFlow`: Pair → Wi-Fi → Done. Each step shows the 128 pt dock or handheld glyph. Done plays the success haptic, and a pairing or Wi-Fi failure the error haptic.
+       - The SSID is pre-filled with `NEHotspotNetwork.fetchCurrent`, which needs the Access Wi-Fi Information entitlement.
+       - It writes `wifi`, then reads `info` until `wifi.connected`, for up to 20 s.
+     - `DeviceList` and `DevicePage` show status from `info`. Forget shows the iOS Settings instruction.
+     - Error copy exactly per app spec section 8. Passwords are never logged.
+   - **Checkpoint B: dock stops, pet, and device settings.**
+     - Dock stops step and dock page: favorites first; trains from `train_lines.json`; buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
+     - The dock's stops are read back on every connect.
+     - Pet step and `PetSettings`: name and the 6 presets from `pet_sprites.json`, with a 64 pt `PixelImage` preview of the pet.
+     - `DeviceSettings`: screen and LED brightness, and night hours.
+     - Pet and settings are written to every device on connect and on change.
+   - **Checkpoint C: handheld relay.**
+     - Subscribe to `request`. On each request, take one `CLLocationManager.requestLocation()` fix and write `nearby` with the 10 nearest stations, the 10 nearest bus stops, and `close` (the 3 nearest of either kind).
+     - If the request says `wifi:false`, fetch arrivals for those stops and write one `snapshot` per stop every 60 s while connected.
+     - Background modes: Bluetooth central and location; `NSLocationAlwaysAndWhenInUseUsageDescription`. "While Using" permission still works with the app open.
+   - *Checks (Leo):*
+     - A fresh dock gets onto Wi-Fi from the found card (demo item 4).
+     - A pick on the dock's touchscreen shows up in the app, and a preset change shows on both devices (demo items 3 and 9).
+     - With the handheld's Wi-Fi off, its stops fill from the phone (demo item 8).
+4. **Extras.** Covers old milestones 8–11. Built in this order, so if time runs short the last ones drop. Each part can be committed on its own if the milestone has to stop partway.
+   - **Train lines and line taps.**
+     - `LineLayer` draws `TrainShapes` as `MapPolyline`s in line colors, plus a dot per station.
+     - A `MapReader` tap goes through `LineHitTest`: the nearest line in screen points, within 20 pt. The result sets a filter chip with × and plays the selection haptic.
+     - *Test:* `LineHitTest` picks the nearer of two lines and returns nil beyond 20 pt.
+   - **Live tracking.**
+     - `LiveLineStore` polls `ttpositions` or `getvehicles` every 30 s for the selected line. The bus path comes from `getpatterns`, cached for the session.
+     - `Framing` fits the stop plus the next 3 vehicles toward it. Vehicles going the other way are dimmed.
+     - A marker is the unrotated pixel train or bus glyph with an SF Symbol heading arrow beside it. Markers glide over 1 s. A vehicle bubble shows destination and next stop.
+     - Polling stops on back, background, or lock. On failure, the last positions stay with their age and are hidden after 120 s.
+     - *Tests:* `Framing` picks the 3 nearest approaching vehicles from the positions and vehicles fixtures; the parsers read both fixtures.
+   - **Pet in the label, and widgets.**
+     - `NearLabel` gets the 32 pt pet, animating at 4 fps (first frame only under Reduce Motion), with a VoiceOver label like "Your pet is happy": device mood over the listed stops, with only the 3 closest counting for Hyped. Weather accessories from Open-Meteo every 15 min in the foreground. Tapping it opens Pet settings.
+     - Widgets: a timeline provider reads the first favorite from the App Group and fetches its arrivals. It shows the 64 pt pet (mood from that one stop) and the next 2 arrivals. The app calls `WidgetCenter.shared.reloadAllTimelines()` after each fetch.
+     - *Test:* device mood over 5 listed stops where only the 4th is due in 2 min is not Hyped.
+   - **Find my handheld and About.**
+     - On a handheld disconnect, save the phone's location and the time to the App Group. Show a map pin with "Last seen at 8:42 AM", or "Connected now".
+     - About shows the version and the CTA attribution line.
+5. **Ship.** Covers old milestone 12. Add the app icon first: the pet at a whole-number scale on a line-color ground, rendered from `art/` by `sprite_build.py`. Then archive, upload to TestFlight, and install on Leo's phone. Walk base spec §1 items 3, 4, 5, 8, and 9.
 
 ## Open questions
 
 - **Bundle ID and App Group ID:** Leo's choice, needed at milestone 3.
 - **Pixel font:** chosen with the final art, under a license (such as OFL) that allows bundling in the app and the firmware. Until then the minutes use a system monospaced font.
-- **CTA attribution wording:** confirm from the developer terms when the keys arrive (milestone 11).
+- **CTA attribution wording:** confirm from the developer terms when the keys arrive (milestone 4).
 - **`ttarrivals` per call:** if one call can take more than one station, `ArrivalsStore` batches trains too.
 - **Daily limits:** from the key emails. The intervals are constants in `Config.swift`.
 - **Stretch, not planned here:** Live Activity, Siri, OTA updates, live navigation.

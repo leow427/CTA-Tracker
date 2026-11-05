@@ -245,7 +245,7 @@ Small JSON in App Group `UserDefaults`: favorites, known devices, pet, device se
 
 ### 7.6 Handheld relay
 
-Unchanged from base spec 9.5 and milestone 7 of the iOS plan.
+Unchanged from base spec 9.5 and milestone 3 (checkpoint C) of the iOS plan.
 
 ## 8. Errors
 
