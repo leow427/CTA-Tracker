@@ -26,14 +26,21 @@ struct CardList: View {
                             // headers stick at the margin's edge, and this one should stick under the controls.
                             Color.clear.frame(height: metrics.restTop - metrics.controlsBottom)
                             Section {
-                                // The navy panel: rows on solid navy, down to the bottom of the screen.
+                                // The cards float over the map; MapScreen fades it to navy toward the bottom.
                                 VStack(spacing: 0) {
                                     if arrivals.unavailable { UnavailableBanner().padding(.horizontal, Theme.cardMargin) }
                                     content(now: context.date)
                                 }
                                 .padding(.bottom, Theme.Space.xl)
                                 .frame(maxWidth: .infinity, minHeight: metrics.full, alignment: .top)
-                                .background(Theme.navy)
+                                // With no panel behind the pinned search bar, cards end at its bottom edge, so none
+                                // peeks through its pixel corners.
+                                .mask(alignment: .top) {
+                                    GeometryReader { g in
+                                        let cut = model.listTop + Theme.searchHeight + Theme.Space.s - g.frame(in: .global).minY
+                                        VStack(spacing: 0) { Color.clear.frame(height: max(0, cut)); Color.black }
+                                    }
+                                }
                             } header: {
                                 header(filter: $model.filter)
                                     .id(Self.top)   // search focus scrolls this to the top
@@ -85,16 +92,11 @@ struct CardList: View {
 
     private static let top = "listTop"
 
-    /// The headlight-yellow search bar sitting on the navy panel's rounded top edge.
+    /// The headlight-yellow search bar at the top of the cards.
     private func header(filter: Binding<KindFilter>) -> some View {
         SearchBar(query: $query, focused: $searching, filter: filter)
             .padding(.horizontal, Theme.cardMargin)
             .padding(.bottom, Theme.Space.s)
-            .background(alignment: .bottom) {
-                Theme.navy
-                    .clipShape(PixelShape(block: 6, bottom: false))
-                    .padding(.top, Theme.searchHeight / 2)
-            }
     }
 
     @ViewBuilder private func content(now: Date) -> some View {

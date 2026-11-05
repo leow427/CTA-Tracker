@@ -42,6 +42,11 @@ struct BasicsTests {
             #expect(LineColors.luminance(card) < LineColors.luminance(rgb), "\(hex) card is darker")
             #expect(LineColors.luminance(text) > LineColors.luminance(rgb), "\(hex) text is lighter")
             #expect(LineColors.contrast(text, card) >= 4.5, "\(hex) text reads on its card")
+            // The gradient's lighter top is still darker than the line, and the text reads there too.
+            let top = LineColors.cardTop(rgb)
+            #expect(LineColors.luminance(card) < LineColors.luminance(top), "\(hex) top is lighter than the bottom")
+            #expect(LineColors.luminance(top) < LineColors.luminance(rgb), "\(hex) top is darker than the line")
+            #expect(LineColors.contrast(text, top) >= 4.5, "\(hex) text reads at the gradient's top")
             #expect(LineColors.contrast(card, LineColors.navy) >= 1.4, "\(hex) card stands off the navy panel")
         }
     }

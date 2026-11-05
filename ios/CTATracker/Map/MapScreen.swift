@@ -17,6 +17,12 @@ struct MapScreen: View {
                            bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded()) { center in
                     model.center = center   // after a pan the list follows the center of the visible map
                 }
+                // The map fades to navy under the cards: clear where the list rests, navy at the bottom.
+                LinearGradient(stops: [.init(color: .clear, location: Theme.listRest - 0.05),
+                                       .init(color: Theme.navy.opacity(0.75), location: 0.8),
+                                       .init(color: Theme.navy, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                    .allowsHitTesting(false)
                 // Its own hosting controller, so the environment is passed in.
                 PassThroughHost(openAbove: model.detailStop == nil ? model.listTop : model.detailTop) {
                     CardList().environment(model).environment(arrivals)

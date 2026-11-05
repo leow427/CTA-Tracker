@@ -180,7 +180,7 @@ private struct DepartureTile: View {
         .padding(.vertical, Theme.Space.l)
         .padding(.horizontal, Theme.Space.s)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .plate(.card(route), rim: lead ? text : text.opacity(0.25), rimWidth: lead ? 3 : 2)
+        .plate(Color.cardGradient(route), rim: lead ? text : text.opacity(0.25), rimWidth: lead ? 3 : 2)
         .opacity(stale ? 0.6 : 1)
         .accessibilityElement(children: .combine)
     }
@@ -218,7 +218,7 @@ private struct LineCard: View {
         }
         .foregroundStyle(Color.cardText(group.line.route))
         .padding(Theme.Space.l)
-        .plate(.card(group.line.route), rim: Color.cardText(group.line.route).opacity(0.25))
+        .plate(Color.cardGradient(group.line.route), rim: Color.cardText(group.line.route).opacity(0.25))
         .contentShape(PixelShape())
     }
 }

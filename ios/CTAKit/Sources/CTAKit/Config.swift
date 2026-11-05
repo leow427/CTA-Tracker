@@ -84,16 +84,23 @@ public enum LineColors {
     }
 
     /// A line's card (redesign revision 2): the color darkened toward one shared depth, so every card is
-    /// unmistakably its line yet dark enough for light text. Always at least 15% darker.
-    public static func card(_ rgb: UInt32) -> UInt32 {
-        let factor = min(0.85, pow(0.05 / luminance(rgb), 1 / 2.2))   // sRGB is ~gamma 2.2: scale to luminance 0.05
-        func scale(_ shift: UInt32) -> UInt32 { UInt32((Double(rgb >> shift & 0xFF) * factor).rounded()) << shift }
-        return scale(16) | scale(8) | scale(0)
+    /// unmistakably its line yet dark enough for light text. Always at least 15% darker. The gradient's bottom.
+    public static func card(_ rgb: UInt32) -> UInt32 { shaded(rgb, luminance: 0.04, atMost: 0.85) }
+
+    /// The top of a card's gradient: lighter than `card`, still at least 5% darker than the line.
+    public static func cardTop(_ rgb: UInt32) -> UInt32 { shaded(rgb, luminance: 0.09, atMost: 0.95) }
+
+    /// The text on a line's card: the color lightened (at least 30% toward white) until it reads at 4.5:1 on the
+    /// gradient's lighter top, so it reads everywhere on the card.
+    public static func cardText(_ rgb: UInt32) -> UInt32 {
+        lifted(rgb, on: cardTop(rgb), minimum: 4.5, from: 3)
     }
 
-    /// The text on a line's card: the color lightened (at least 30% toward white) until it reads at 4.5:1.
-    public static func cardText(_ rgb: UInt32) -> UInt32 {
-        lifted(rgb, on: card(rgb), minimum: 4.5, from: 3)
+    /// `rgb` scaled toward black to about `luminance`, by at most `atMost` of itself.
+    static func shaded(_ rgb: UInt32, luminance target: Double, atMost cap: Double) -> UInt32 {
+        let factor = min(cap, pow(target / luminance(rgb), 1 / 2.2))   // sRGB is ~gamma 2.2
+        func scale(_ shift: UInt32) -> UInt32 { UInt32((Double(rgb >> shift & 0xFF) * factor).rounded()) << shift }
+        return scale(16) | scale(8) | scale(0)
     }
 
     /// `rgb` mixed toward white in 10% steps, starting at `from` steps, until it reaches `minimum` on `background`.

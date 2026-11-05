@@ -61,7 +61,7 @@ struct RouteCard: View {
         .foregroundStyle(text)
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plate(.card(line.route), rim: text.opacity(0.25))
+        .plate(Color.cardGradient(line.route), rim: text.opacity(0.25))
         .contentShape(PixelShape())
         .opacity(freshness == .fresh ? 1 : 0.55)   // stale cards recede (app spec 8)
         .accessibilityElement(children: .ignore)

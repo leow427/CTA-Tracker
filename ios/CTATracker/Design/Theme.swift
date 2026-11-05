@@ -107,7 +107,7 @@ nonisolated struct PixelShape: InsettableShape {
 /// A raised pixel plate, like a game tile: a solid fill lit from the top, a rim, and a hard darker edge under it,
 /// so it sits up off the panel instead of lying flat.
 struct Plate: ViewModifier {
-    let fill: Color
+    let fill: AnyShapeStyle
     var rim = Color.white.opacity(0.22)
     var rimWidth: CGFloat = 2
     var edge: CGFloat = 5
@@ -135,9 +135,9 @@ struct PressableCard: ButtonStyle {
 }
 
 extension View {
-    func plate(_ fill: Color = Theme.raised, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
+    func plate(_ fill: some ShapeStyle = Theme.raised, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
                shape: PixelShape = PixelShape()) -> some View {
-        modifier(Plate(fill: fill, rim: rim, rimWidth: rimWidth, edge: edge, shape: shape))
+        modifier(Plate(fill: AnyShapeStyle(fill), rim: rim, rimWidth: rimWidth, edge: edge, shape: shape))
     }
 }
 
@@ -145,4 +145,9 @@ extension Color {
     /// A line's card fill and its text (redesign revision 2).
     static func card(_ route: String) -> Color { Color(rgb: LineColors.card(LineColors.accent(route))) }
     static func cardText(_ route: String) -> Color { Color(rgb: LineColors.cardText(LineColors.accent(route))) }
+    /// A line's card fill: its lighter top shade down to its dark shade.
+    static func cardGradient(_ route: String) -> LinearGradient {
+        LinearGradient(colors: [Color(rgb: LineColors.cardTop(LineColors.accent(route))), card(route)],
+                       startPoint: .top, endPoint: .bottom)
+    }
 }
