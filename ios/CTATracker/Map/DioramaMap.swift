@@ -12,7 +12,6 @@ struct DioramaMap: View {
     /// How much of the map's bottom is covered, so the camera centers in the part left visible. Applied on each
     /// camera move: it changes only when detail opens or closes, and both move the camera.
     let bottomInset: CGFloat
-    let preset: LightPreset
     /// The center of the visible part, reported when the camera settles after the user moved it.
     let onCenter: (CLLocationCoordinate2D) -> Void
 
@@ -45,14 +44,13 @@ struct DioramaMap: View {
                 GeoJSONSource(id: "bus").data(.featureCollection(busFeatures))
                 CircleLayer(id: "bus", source: "bus")
                     .circleRadius(6)
-                    .circleColor(UIColor(Color(rgb: LineColors.busTile)))   // Ink, as on the bus tiles
+                    .circleColor(UIColor(Color(rgb: LineColors.busAccent)))   // the bus blue, as in the rows
                     .circleStrokeColor(.white)
                     .circleStrokeWidth(Theme.pinRim)
                     .circleEmissiveStrength(1)
                     .slot(.top)
             }
-            .mapStyle(.standard(theme: .faded, lightPreset: Self.style(preset), showPointOfInterestLabels: false,
-                                show3dObjects: true))
+            .mapStyle(Self.navyStyle)
             .ornamentOptions(OrnamentOptions(
                 scaleBar: ScaleBarViewOptions(visibility: .hidden),
                 compass: CompassViewOptions(visibility: .hidden),
@@ -96,14 +94,24 @@ struct DioramaMap: View {
 
     // MARK: - Static style pieces
 
-    static func style(_ p: LightPreset) -> StandardLightPreset {
-        switch p {
-        case .dawn: .dawn
-        case .day: .day
-        case .dusk: .dusk
-        case .night: .night
-        }
-    }
+    /// Dark navy Chicago (Transit-style): Standard's night light over navy land, roads, water, and buildings,
+    /// still in 3D, so the L lines and the list's colors carry the brightness.
+    static let navyStyle = MapStyle.standard(
+        lightPreset: .day,   // daylight shading over the navy palette keeps roads and 3D buildings visible
+        showPointOfInterestLabels: false,
+        showTransitLabels: false,
+        show3dObjects: true,
+        colorBuildings: StyleColor(UIColor(Color(rgb: 0x1E3460))),
+        colorCommercial: StyleColor(UIColor(Color(rgb: 0x132650))),
+        colorEducation: StyleColor(UIColor(Color(rgb: 0x132650))),
+        colorGreenspace: StyleColor(UIColor(Color(rgb: 0x123A44))),
+        colorLand: StyleColor(UIColor(Color(rgb: 0x10224A))),
+        colorMedical: StyleColor(UIColor(Color(rgb: 0x132650))),
+        colorMotorways: StyleColor(UIColor(Color(rgb: 0x2D4A86))),
+        colorRoadLabels: StyleColor(UIColor(Color(rgb: 0x8FA6D6))),
+        colorRoads: StyleColor(UIColor(Color(rgb: 0x2A4377))),
+        colorTrunks: StyleColor(UIColor(Color(rgb: 0x2D4A86))),
+        colorWater: StyleColor(UIColor(Color(rgb: 0x0A1730))))
 
     /// Every train shape as one line feature with its `route`.
     static let lines: FeatureCollection = {

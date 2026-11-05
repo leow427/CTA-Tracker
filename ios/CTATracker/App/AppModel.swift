@@ -28,6 +28,10 @@ import SwiftUI
     var listTop: CGFloat = .infinity
     /// Stop detail's content top on screen, the same for detail.
     var detailTop: CGFloat = .infinity
+    /// What the map shows big over open stop detail: the chosen line and its stop (for ★).
+    var detailHero: DetailHero?
+    /// The red × over the map bumps this; the list pops its detail.
+    var closeDetail = 0
 
     init() {
         let url = Bundle.main.url(forResource: "stops", withExtension: "json")
@@ -72,6 +76,13 @@ import SwiftUI
         guard let index else { return }
         slots = CardBuilder.slots(center: center, filter: filter, favorites: favorites, index: index)
     }
+}
+
+/// The line stop detail is showing, drawn big over the map with ★ and × beside it.
+struct DetailHero: Equatable {
+    let line: Line
+    let kind: Kind
+    let stopID: String   // the group's platform or bus stop, which ★ saves
 }
 
 /// When In Use location, as SwiftUI-friendly state.

@@ -17,29 +17,26 @@ struct BasicsTests {
         #expect(LineColors.rgb("22") == 0x565A5C)   // every bus route
     }
 
-    // iOS redesign task 4: tile colors and their edges (redesign spec 3, 5).
-    @Test func edgeDarkensByAQuarter() {
-        #expect(LineColors.edge(0xFFFFFF) == 0xBFBFBF)
-        #expect(LineColors.edge(0x00A1DE) == 0x0078A6)
-        #expect(LineColors.edge(0x000000) == 0x000000)
-    }
-
-    @Test func busTileContrast() {
-        #expect(LineColors.busTile == 0x1C2A4A)
-        #expect(LineColors.textColor(on: LineColors.busTile) == 0xFFFFFF)
-        #expect(LineColors.contrast(0xFFFFFF, LineColors.busTile) >= 4.5)
-    }
-
-    @Test func tilesUseTrainColorsAndInkForBuses() {
-        for line in LineColors.trains { #expect(LineColors.tile(line.route) == line.rgb) }
-        #expect(LineColors.tile("red") == 0xC60C30)   // ttpositions writes lowercase
-        #expect(LineColors.tile("66") == LineColors.busTile)
-        #expect(LineColors.rgb("66") == LineColors.bus)   // the devices keep CTA's bus gray
+    // Navy restyle: line colors as text on the navy panel and map (Transit-style rows).
+    @Test func onNavyReadsOnNavy() {
+        for rgb in LineColors.trains.map(\.rgb) + [LineColors.busAccent] {
+            let text = LineColors.onNavy(rgb)
+            #expect(LineColors.contrast(text, LineColors.navy) >= 4.5, "\(String(rgb, radix: 16))")
+        }
+        #expect(LineColors.onNavy(0xF9E300) == 0xF9E300)   // already reads: unchanged
+        #expect(LineColors.onNavy(0x62361B) != 0x62361B)   // Brown is lifted toward white
+        for rgb in LineColors.trains.map(\.rgb) {   // large text only needs 3:1, so it keeps truer color
+            let big = LineColors.onNavy(rgb, minimum: 3)
+            #expect(LineColors.contrast(big, LineColors.navy) >= 3, "\(String(rgb, radix: 16))")
+            #expect(LineColors.contrast(big, LineColors.navy) <= LineColors.contrast(LineColors.onNavy(rgb), LineColors.navy))
+        }
+        #expect(LineColors.accent("66") == LineColors.busAccent)
+        #expect(LineColors.accent("Red") == 0xC60C30)
     }
 
     @Test func everyLineTextColorPassesContrast() {
-        let colors = LineColors.trains.map(\.rgb) + [LineColors.bus, LineColors.busTile]
-        #expect(colors.count == 10)
+        let colors = LineColors.trains.map(\.rgb) + [LineColors.bus]
+        #expect(colors.count == 9)
         for rgb in colors {
             #expect(LineColors.contrast(LineColors.textColor(on: rgb), rgb) >= 4.5, "\(String(rgb, radix: 16))")
         }
@@ -52,10 +49,7 @@ struct BasicsTests {
                 let dim = LineColors.dimmed(rgb, dark: dark)
                 let name = "\(dark ? "dark" : "light") \(String(rgb, radix: 16))"
                 #expect(dim != rgb, "\(name)")
-                // Ink is darker than the dark gray it mixes toward, so in dark mode it washes out instead of receding.
-                if !(dark && rgb == LineColors.busTile) {
-                    #expect(LineColors.contrast(dim, background) <= LineColors.contrast(rgb, background), "\(name)")
-                }
+                #expect(LineColors.contrast(dim, background) <= LineColors.contrast(rgb, background), "\(name)")
                 #expect(LineColors.contrast(LineColors.textColor(on: dim), dim) >= 4.5, "\(name)")
             }
         }

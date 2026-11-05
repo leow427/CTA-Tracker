@@ -9,6 +9,17 @@ The first build works but looks basic. This redesign gives the app character: a 
 
 Reference: the scratch mockup in `docs/ideas/2026-11-05-ios-diorama-mockup.html`. Its map look carries over. Its bottom panel and white cards do not.
 
+## 0. Revision: night navy (2026-11-05, after the first build)
+
+Leo's verdict on the first build: it still looked like the old app, and the Liquid Glass had to go. The look below replaces sections 3, 4 (layout), 5, and 6 (light) wherever they disagree. Mechanics stay: the list over the map, pass-through touches, search pinning, the zoom into detail.
+
+- **Identity.** Night navy (`0x0B1A36`) for the map and every panel, with headlight yellow (`0xFFD95A`, the pixel pet's yellow) as the signature color. The pixel pet, live glyph, and alert glyph carry the character. The app is always dark.
+- **No Liquid Glass.** Controls and chips are solid raised navy (`0x17294F`) with a faint rim.
+- **Map.** Mapbox Standard in daylight with a navy palette for land, roads, water, and buildings, still in 3D, so the L lines glow. It no longer follows the sun, and the on-phone sun times are removed.
+- **Main screen.** At top left is the pet in a cream circle with a gear badge (Settings), with the "Near place" pill tucked under it. Recenter is a round button that turns yellow while following. A headlight-yellow search bar sits on the navy panel's rounded top edge, and the All · Trains · Buses menu is at its end. The list is rows on navy, with no cards: a huge route number in its line color, "→ destination" in color ("West to Downtown" for buses), the stop, and big minutes on the right. Rows are split by hairlines.
+- **Line colors on navy.** Big type is lifted toward white until it reaches 3:1, and smaller text until it reaches 4.5:1 (`LineColors.onNavy`). Buses use a bright blue (`0x2F7BFF`).
+- **Stop detail.** The line's huge number sits over the map, with a red × (close) and ★ down the right. The navy page has "→ destination", big departure tiles (the next one solid in the line color, the later ones tinted navy), the chips (Delayed, freshness), the alerts, and the stop's other lines on a timeline in their colors.
+
 ## 1. Decisions
 
 | Topic | Decision |

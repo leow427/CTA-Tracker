@@ -7,7 +7,6 @@ struct CardList: View {
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var path: [DetailRoute] = []
     @State private var searching = false   // the search field has focus
@@ -22,13 +21,18 @@ struct CardList: View {
                 ScrollView {
                     // One clock for every card, outside the lazy stack, so cards are built only as they scroll in.
                     TimelineView(.periodic(from: .now, by: 15)) { context in
-                        LazyVStack(spacing: Theme.cardGap, pinnedViews: [.sectionHeaders]) {
+                        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                             // The open map above the resting list. A spacer, not a content margin: pinned
                             // headers stick at the margin's edge, and this one should stick under the controls.
-                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom - Theme.cardGap)
+                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom)
                             Section {
-                                if arrivals.unavailable { UnavailableBanner() }
-                                content(now: context.date)
+                                // The navy panel: rows on solid navy, down to the bottom of the screen.
+                                VStack(spacing: 0) {
+                                    if arrivals.unavailable { UnavailableBanner().padding(.horizontal, Theme.cardMargin) }
+                                    content(now: context.date)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: metrics.full, alignment: .top)
+                                .background(Theme.navy)
                             } header: {
                                 header(filter: $model.filter)
                                     .id(Self.top)   // search focus scrolls this to the top
@@ -38,8 +42,6 @@ struct CardList: View {
                                     }
                             }
                         }
-                        .padding(.horizontal, Theme.cardMargin)
-                        .padding(.bottom, Theme.Space.xxl)
                         // Always tall enough to pin the header, even with a short list or few search results.
                         .frame(minHeight: metrics.full + metrics.restTop, alignment: .top)
                     }
@@ -55,8 +57,6 @@ struct CardList: View {
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await arrivals.refresh() }
                 .safeAreaPadding(.top, metrics.controlsBottom - metrics.safeTop)
-                // Once the header nears the top controls, a solid background fades in behind the cards.
-                .background { background(metrics).ignoresSafeArea() }
                 .toolbar(.hidden, for: .navigationBar)
                 .containerBackground(.clear, for: .navigation)
                 .navigationDestination(for: DetailRoute.self) {
@@ -70,12 +70,13 @@ struct CardList: View {
             }
             .environment(\.listMetrics, metrics)
         }
-        .tint(.primary)   // no system blue: line colors and amber are the saturated colors (redesign spec 5)
+        .tint(Theme.headlight)
         .sheet(isPresented: $model.showSettings) { SettingsScreen() }
         .onAppear { track() }
         .onChange(of: model.slots) { track() }
         .onChange(of: model.location.denied) { track() }
         .onChange(of: path) { opened() }
+        .onChange(of: model.closeDetail) { if !path.isEmpty { path.removeLast() } }   // the red × over the map
         // Polls only while the list is on screen: the app is active and nothing covers it (app spec 4.4).
         .onChange(of: scenePhase, initial: true) { updatePolling() }
         .onChange(of: model.showSettings) { updatePolling() }
@@ -83,19 +84,16 @@ struct CardList: View {
 
     private static let top = "listTop"
 
+    /// The headlight-yellow search bar sitting on the navy panel's rounded top edge.
     private func header(filter: Binding<KindFilter>) -> some View {
-        VStack(spacing: Theme.Space.m) {
-            SearchBar(query: $query, focused: $searching)
-            KindSwitch(filter: filter)
-        }
-        .padding(Theme.Space.m)
-        .glassBackground(.rect(cornerRadius: Theme.cardRadius + Theme.Space.m, style: .continuous))
-        .padding(.bottom, Theme.Space.xs)
-    }
-
-    private func background(_ metrics: ListMetrics) -> some View {
-        let fade = min(1, max(0, (metrics.controlsBottom + Theme.listFade - model.listTop) / Theme.listFade))
-        return (scheme == .dark ? Theme.ink : Theme.paper).opacity(fade)
+        SearchBar(query: $query, focused: $searching, filter: filter)
+            .padding(.horizontal, Theme.cardMargin)
+            .padding(.bottom, Theme.Space.s)
+            .background(alignment: .bottom) {
+                Theme.navy
+                    .clipShape(.rect(topLeadingRadius: Theme.panelRadius, topTrailingRadius: Theme.panelRadius))
+                    .padding(.top, Theme.searchHeight / 2)
+            }
     }
 
     @ViewBuilder private func content(now: Date) -> some View {
@@ -130,7 +128,7 @@ struct CardList: View {
         NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)) {
             Card(slot: slot, now: now)
         }
-        .buttonStyle(TileStyle(rgb: LineColors.tile(slot.line.route)))
+        .buttonStyle(RowStyle())
         .matchedTransitionSource(id: slot.id, in: zoom)
     }
 
@@ -143,7 +141,7 @@ struct CardList: View {
             NavigationLink(value: DetailRoute(stopID: hit.stop.id, tapped: nil, source: hit.stop.id)) {
                 StopRow(stop: hit.stop, meters: hit.meters)
             }
-            .buttonStyle(PressableCard())
+            .buttonStyle(RowStyle())
             .matchedTransitionSource(id: hit.stop.id, in: zoom)
         }
         if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -206,62 +204,84 @@ enum Night {
     }
 }
 
-/// The search field at the top of the list. Focusing it scrolls the list up (redesign spec 2).
+/// The search field on the panel's edge, in headlight yellow, with the All · Trains · Buses menu at its end.
+/// Focusing it scrolls the list up (redesign spec 2).
 struct SearchBar: View {
     @Binding var query: String
     @Binding var focused: Bool
+    @Binding var filter: KindFilter
     @FocusState private var hasFocus: Bool
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
-            Image(systemName: "magnifyingglass").foregroundStyle(Theme.secondaryText)
-            TextField("Search", text: $query, prompt: Text("Search stops and routes").foregroundStyle(Theme.secondaryText))
+        HStack(spacing: Theme.Space.m) {
+            Image(systemName: "magnifyingglass").font(.title3.weight(.bold))
+            TextField("Search", text: $query, prompt: Text("Search stops and routes").foregroundStyle(Theme.navy.opacity(0.6)))
                 .focused($hasFocus)
                 .submitLabel(.search)
                 .autocorrectionDisabled()
             if !query.isEmpty {
-                Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .accessibilityLabel("Clear")
             }
+            Rectangle().fill(Theme.navy.opacity(0.2)).frame(width: 1, height: 28)
+            KindMenu(filter: $filter)
         }
-        .font(.body)
-        .padding(.horizontal, Theme.Space.m)
-        .frame(height: Theme.mapButton)
-        // Opaque, so the placeholder keeps 4.5:1 even where the translucent sheet shows the map through.
-        .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: Theme.Space.m, style: .continuous))
+        .font(Theme.rounded(.title3, .semibold))
+        .foregroundStyle(Theme.navy)
+        .tint(Theme.navy)
+        .padding(.horizontal, Theme.Space.l)
+        .frame(height: Theme.searchHeight)
+        .background(Theme.headlight, in: .rect(cornerRadius: Theme.Space.l + 2, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
         .onChange(of: hasFocus) { focused = hasFocus }
     }
 }
 
-/// All · Trains · Buses (app spec 4.2), with selection feedback.
-struct KindSwitch: View {
+/// All · Trains · Buses (app spec 4.2) as a menu at the end of the search bar, with selection feedback.
+struct KindMenu: View {
     @Binding var filter: KindFilter
 
     var body: some View {
-        Picker("Show", selection: $filter) {
-            Text("All").tag(KindFilter.all)
-            Text("Trains").tag(KindFilter.trains)
-            Text("Buses").tag(KindFilter.buses)
+        Menu {
+            Picker("Show", selection: $filter) {
+                Label("All", systemImage: "square.stack.fill").tag(KindFilter.all)
+                Label("Trains", systemImage: "tram.fill").tag(KindFilter.trains)
+                Label("Buses", systemImage: "bus.fill").tag(KindFilter.buses)
+            }
+        } label: {
+            Image(systemName: filter == .trains ? "tram.fill" : filter == .buses ? "bus.fill" : "line.3.horizontal.decrease")
+                .frame(width: Theme.Space.xxl, height: Theme.Space.xxl)
+                .contentShape(.rect)
         }
-        .pickerStyle(.segmented)
         .sensoryFeedback(.selection, trigger: filter)
+        .accessibilityLabel("Show \(filter == .trains ? "trains" : filter == .buses ? "buses" : "all")")
     }
 }
 
-/// A small section title in the list ("Favorites", "Nearby", "Stops").
+/// A row presses by lighting its background.
+struct RowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Theme.raised : Color.clear)
+            .animation(Theme.snappy, value: configuration.isPressed)
+    }
+}
+
+/// A small section title in the list ("Favorites", "Nearby", "Stops"), in mist on navy.
 struct SectionHeader: View {
     let title: String
     let symbol: String
 
     var body: some View {
         Label(title, systemImage: symbol)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)   // on the glass sheet, gray can't keep 4.5:1 over a dark map
-            .padding(.horizontal, Theme.Space.m)
-            .padding(.vertical, Theme.Space.s)
-            .glassBackground(Capsule())   // readable over the open map
-            .fixedSize()
+            .font(Theme.rounded(.footnote, .heavy))
+            .textCase(.uppercase)
+            .tracking(1)
+            .foregroundStyle(Theme.mist)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.cardMargin)
+            .padding(.top, Theme.Space.l)
+            .padding(.bottom, Theme.Space.xs)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -280,7 +300,7 @@ struct StopRow: View {
         let dirs = Array(Set((stop.lines ?? []).map(\.dir))).sorted()
         HStack(spacing: Theme.Space.m) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                Text(stop.name).font(.body.weight(.semibold)).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                Text(stop.name).font(Theme.rounded(.title3, .bold)).foregroundStyle(.white).multilineTextAlignment(.leading)
                 if stop.kind == .bus, !dirs.isEmpty {
                     Text(dirs.joined(separator: " · ")).font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText)
                 }
@@ -289,7 +309,7 @@ struct StopRow: View {
                     pills(routes, short: false)
                     pills(routes, short: true)
                     HStack(spacing: Theme.Space.xs) {
-                        ForEach(routes, id: \.self) { Circle().fill(Color(rgb: LineColors.rgb($0))).frame(width: Theme.Space.m, height: Theme.Space.m) }
+                        ForEach(routes, id: \.self) { Circle().fill(Color(rgb: LineColors.accent($0))).frame(width: Theme.Space.m, height: Theme.Space.m) }
                     }
                 }
             }
@@ -298,14 +318,16 @@ struct StopRow: View {
                 .font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText).fixedSize()
             Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.secondaryText)
         }
-        .padding(Theme.Space.l)
-        .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: Theme.cardRadius, style: .continuous))
+        .padding(.horizontal, Theme.cardMargin)
+        .padding(.vertical, Theme.Space.l)
+        .contentShape(.rect)
+        .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1).padding(.leading, Theme.cardMargin) }
     }
 
     private func pills(_ routes: [String], short: Bool) -> some View {
         HStack(spacing: Theme.Space.xs) {
             ForEach(routes, id: \.self) { route in
-                let rgb = LineColors.rgb(route)
+                let rgb = LineColors.accent(route)
                 let full = LineColors.train(route)?.name ?? route   // "Brown Line"; short is "Brown", never "Brn"
                 let name = stop.kind == .bus ? route : short ? full.replacingOccurrences(of: " Line", with: "") : full
                 Text(name)

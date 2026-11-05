@@ -16,6 +16,7 @@ struct CTATrackerApp: App {
             MapScreen()
                 .environment(model)
                 .environment(arrivals)
+                .preferredColorScheme(.dark)   // the app lives on night navy
         }
     }
 }

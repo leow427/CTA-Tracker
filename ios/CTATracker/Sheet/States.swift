@@ -13,7 +13,8 @@ struct EmptyState<Actions: View>: View {
                 .padding(.bottom, Theme.Space.s)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(Theme.rounded(.title3, .bold))
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
@@ -26,7 +27,6 @@ struct EmptyState<Actions: View>: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Space.xxl)
         .padding(.horizontal, Theme.Space.l)
-        .glassBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
     }
 }
 
@@ -47,8 +47,9 @@ struct LocationOff: View {
             }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
-            .tint(.primary)   // system blue is off-palette (app spec 4.6); label color passes in both modes
-            .foregroundStyle(Color(uiColor: .systemBackground))
+            .tint(Theme.headlight)
+            .foregroundStyle(Theme.navy)
+            .font(Theme.rounded(.headline, .bold))
             .padding(.top, Theme.Space.xs)
         }
     }
@@ -62,7 +63,9 @@ struct UnavailableBanner: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
-            .glassBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
+            .foregroundStyle(.white)
+            .surface(.rect(cornerRadius: Theme.Space.l, style: .continuous))
+            .padding(.top, Theme.Space.m)
             .accessibilityAddTraits(.isStaticText)
     }
 }

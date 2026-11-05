@@ -20,7 +20,6 @@ public enum Config {
     public static let alertsPollSec: TimeInterval = 300
     public static let weatherPollSec: TimeInterval = 900
 
-    public static let twilightMin: Double = 45   // dawn and dusk light this close to sunrise and sunset (redesign spec 6)
     public static let cardDimSec: TimeInterval = 120   // cards dim after 2 min (app spec 8)
     public static let departedGraceSec: TimeInterval = 60   // an arrival this far past still reads "Due", then drops
     public static let busStopsPerCall = 10
@@ -70,16 +69,26 @@ public enum LineColors {
 
     public static func rgb(_ route: String) -> UInt32 { train(route)?.rgb ?? bus }
 
-    /// The app's bus tiles: Ink, richer than the devices' bus gray (redesign spec 5).
-    public static let busTile: UInt32 = 0x1C2A4A
+    /// The app's navy panel and map (Transit-style restyle).
+    public static let navy: UInt32 = 0x0B1A36
+    /// Buses on navy: a bright blue, since the devices' gray and Ink vanish there.
+    public static let busAccent: UInt32 = 0x2F7BFF
 
-    /// A card or tile's fill: the train's color, Ink for every bus.
-    public static func tile(_ route: String) -> UInt32 { train(route)?.rgb ?? busTile }
+    /// A route's accent: the train's color, the bus blue for every bus.
+    public static func accent(_ route: String) -> UInt32 { train(route)?.rgb ?? busAccent }
 
-    /// A tile's bottom edge: its color with each channel at 75%, rounded down (redesign spec 3).
-    public static func edge(_ rgb: UInt32) -> UInt32 {
-        func dark(_ shift: UInt32) -> UInt32 { ((rgb >> shift & 0xFF) * 3 / 4) << shift }
-        return dark(16) | dark(8) | dark(0)
+    /// The color as text on navy: mixed toward white in 10% steps until it reaches `minimum` (4.5:1 for text,
+    /// 3:1 for large type), so Brown and Purple read and the big numbers keep their color.
+    public static func onNavy(_ rgb: UInt32, minimum: Double = 4.5) -> UInt32 {
+        var c = rgb
+        for step in 1...10 where contrast(c, navy) < minimum {
+            func mix(_ shift: UInt32) -> UInt32 {
+                let v = Double(rgb >> shift & 0xFF)
+                return UInt32((v + (255 - v) * Double(step) / 10).rounded()) << shift
+            }
+            c = mix(16) | mix(8) | mix(0)
+        }
+        return c
     }
 
     /// A stale card's fill: the line color halfway to the background's gray (systemGray5 in light, systemGray4 in dark),

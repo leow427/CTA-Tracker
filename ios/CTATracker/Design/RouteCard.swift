@@ -1,8 +1,8 @@
 import CTAKit
 import SwiftUI
 
-/// One card, the face of a thick tile filled with its line's color (app spec 4.3, redesign spec 3).
-/// `TileStyle` adds the edge, highlight, shadows, and press.
+/// One route and direction as a row on the navy panel: a huge route number in its line color, "→ destination" and
+/// the stop under it, and big minutes on the right. Color is the accent, not the surface (app spec 4.3).
 struct RouteCard: View {
     let line: Line
     let kind: Kind
@@ -16,13 +16,8 @@ struct RouteCard: View {
     let now: Date
 
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .largeTitle) private var routeSize: CGFloat = 60
 
-    // Stale cards dim their fill, not the whole card, so the text keeps 4.5:1 (app spec 8).
-    private var rgb: UInt32 {
-        let base = LineColors.tile(line.route)
-        return freshness == .fresh ? base : LineColors.dimmed(base, dark: scheme == .dark)
-    }
     private var next: Prediction? { predictions.first }
     private var later: [Prediction] { Array(predictions.dropFirst().prefix(2)) }
 
@@ -34,33 +29,42 @@ struct RouteCard: View {
     }
 
     var body: some View {
-        let text = Color(rgb: LineColors.textColor(on: rgb))
+        let accent = Color(rgb: LineColors.onNavy(LineColors.accent(line.route), minimum: 3))   // large type
         let layout = row(.top, Theme.Space.m)
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             layout {
-                VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                    // The big route number ("66") or line name ("Blue"), rounded heavy (redesign spec 3).
-                    Text(kind == .bus ? line.route : Self.shortName(line))
-                        .font(Theme.rounded(.largeTitle, .heavy)).tracking(-0.5)
-                        .lineLimit(1).minimumScaleFactor(0.6)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: Theme.Space.s) {
+                        Text(kind == .bus ? line.route : Self.shortName(line))
+                            .font(.system(size: routeSize, weight: .heavy, design: .rounded)).tracking(-1)
+                            .lineLimit(1).minimumScaleFactor(0.5)
+                        if alert { GlyphIcon(image: Glyphs.alert).padding(.top, Theme.Space.m) }
+                    }
                     Label {
-                        Text(next?.dest ?? line.dir)
+                        Text(Self.heading(line, kind: kind, dest: next?.dest))
                     } icon: {
                         Image(systemName: "arrow.right.circle.fill")
                     }
-                    .font(Theme.rounded(.title3, .bold))
+                    .font(Theme.rounded(.title2, .bold))
                     .labelStyle(TightLabel())
-                    Text(stopName).font(Theme.rounded(.subheadline, .medium))
+                    .lineLimit(2)
+                    Text(stopName).font(Theme.rounded(.headline, .medium))
+                        .foregroundStyle(Color(rgb: LineColors.onNavy(LineColors.accent(line.route))))
+                        .padding(.top, 2)
                 }
                 if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-                ArrivalView(next: next, night: night, unknown: unknown, fresh: freshness == .fresh, now: now).layoutPriority(1)
+                ArrivalView(next: next, night: night, unknown: unknown, fresh: freshness == .fresh, now: now)
+                    .layoutPriority(1)
             }
             footer
         }
-        .foregroundStyle(text)
-        .padding(Theme.Space.l)
+        .foregroundStyle(accent)
+        .opacity(freshness == .fresh ? 1 : 0.55)   // stale rows recede (app spec 8)
+        .padding(.horizontal, Theme.cardMargin)
+        .padding(.vertical, Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(rgb: rgb), in: .rect(cornerRadius: Theme.cardRadius, style: .continuous))
+        .contentShape(.rect)
+        .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1).padding(.leading, Theme.cardMargin) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(CardSpeech.sentence(line: line, kind: kind, stopName: stopName, next: next, later: later,
                                                 alert: alert, freshness: freshness, now: now, night: night))
@@ -71,9 +75,8 @@ struct RouteCard: View {
         let delayed = next?.delayed == true
         let aged: Int? = if case .aged(let m) = freshness { m } else { nil }
         let layout = row(.center, Theme.Space.s)
-        if also != nil || delayed || alert || aged != nil {
+        if also != nil || delayed || aged != nil {
             layout {
-                if let also { Text(also).font(Theme.rounded(.footnote, .semibold)) }
                 if delayed {
                     Text("Delayed").font(Theme.rounded(.caption, .bold))
                         .foregroundStyle(.black)
@@ -81,18 +84,21 @@ struct RouteCard: View {
                         .background(Theme.amber, in: .capsule)
                         .fixedSize()
                 }
-                if alert {
-                    GlyphIcon(image: Glyphs.alert)
-                        .padding(.horizontal, Theme.Space.s).padding(.vertical, Theme.Space.xs)
-                        .background(.white.opacity(0.2), in: .capsule)   // a chip on the tile (redesign spec 3)
-                }
-                if let aged { Text("updated \(aged) min ago").font(Theme.rounded(.footnote, .medium)) }
+                if let also { Text(also).font(Theme.rounded(.subheadline, .semibold)).foregroundStyle(Theme.mist) }
+                if let aged { Text("updated \(aged) min ago").font(Theme.rounded(.subheadline, .medium)).foregroundStyle(Theme.mist) }
             }
         }
     }
 }
 
 extension RouteCard {
+    /// "North to Howard" for a bus ("Northbound" + its destination); just the destination for a train.
+    static func heading(_ line: Line, kind: Kind, dest: String?) -> String {
+        let to = dest ?? line.dir
+        guard kind == .bus, line.dir.hasSuffix("bound"), dest != nil else { return to }
+        return "\(line.dir.dropLast(5)) to \(to)"
+    }
+
     /// "Blue", "Brown", "Purple": a train line's name without " Line".
     static func shortName(_ line: Line) -> String {
         (LineColors.train(line.route)?.name ?? line.route).replacingOccurrences(of: " Line", with: "")
@@ -123,18 +129,18 @@ private struct ArrivalView: View {
     let now: Date
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 46
+    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 56
 
     /// The big part and the small unit under it: ("3", "min"), ("Due", nil), or ("10:05", nil).
     private var parts: (big: String, unit: String?)? {
         guard let p = next else { return nil }
         let m = ArrivalFormat.minutes(until: p.at, now: now)
-        return p.live && m >= 1 ? ("\(m)", "min") : (ArrivalFormat.label(p, now: now), nil)
+        return p.live && m >= 1 ? ("\(m)", "minutes") : (ArrivalFormat.label(p, now: now), nil)
     }
 
     var body: some View {
         if let parts {
-            VStack(alignment: .trailing, spacing: 0) {
+            VStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .top, spacing: Theme.Space.xs) {
                     Text(parts.big)
                         .font(.system(size: size, weight: .heavy, design: .rounded))
@@ -143,11 +149,12 @@ private struct ArrivalView: View {
                         .fixedSize()
                     if next?.live == true { LiveGlyph(blinks: fresh).padding(.top, Theme.Space.s) }
                 }
-                if let unit = parts.unit { Text(unit).font(Theme.rounded(.footnote, .bold)).padding(.top, -Theme.Space.xs) }
+                if let unit = parts.unit { Text(unit).font(Theme.rounded(.subheadline, .semibold)).padding(.top, -Theme.Space.s) }
             }
             .animation(reduceMotion ? nil : Theme.snappy, value: parts.big)
         } else {
-            Text(unknown ? "—" : night ? "No service now" : "No arrivals").font(Theme.rounded(.headline, .bold)).fixedSize()
+            Text(unknown ? "—" : night ? "No service now" : "No arrivals").font(Theme.rounded(.headline, .bold))
+                .foregroundStyle(Theme.mist).fixedSize()
         }
     }
 }
@@ -176,14 +183,12 @@ enum PreviewData {
     }
     static let redN = Line(route: "Red", dir: "Howard")
 
-    /// A card as the list draws it: the face of a tile.
-    @MainActor static func tile(_ card: RouteCard) -> some View {
-        Button {} label: { card }.buttonStyle(TileStyle(rgb: LineColors.tile(card.line.route)))
-    }
+    /// A row as the list draws it.
+    @MainActor static func tile(_ card: RouteCard) -> some View { card }
 
     @MainActor static var cards: some View {
         ScrollView {
-            VStack(spacing: Theme.cardGap) {
+            VStack(spacing: 0) {
                 tile(RouteCard(line: redN, kind: .station, stopName: "Belmont",
                           predictions: [p("Red", "Howard", 3), p("Red", "Howard", 12), p("Red", "Howard", 20)], now: now))
                 tile(RouteCard(line: Line(route: "Brn", dir: "Kimball"), kind: .station, stopName: "Belmont",
@@ -209,8 +214,7 @@ enum PreviewData {
     }
 }
 
-#Preview("Cards, light") { PreviewData.cards }
-#Preview("Cards, dark") { PreviewData.cards.preferredColorScheme(.dark) }
+#Preview("Rows") { PreviewData.cards.background(Theme.navy).preferredColorScheme(.dark) }
 #Preview("Largest text, long name") {
     ScrollView {
         VStack(spacing: Theme.cardGap) {
