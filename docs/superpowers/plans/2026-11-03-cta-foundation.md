@@ -3,6 +3,8 @@
 > **For agentic workers:** Execute natively with superpowers:executing-plans, one task at a time, following `docs/Agent-Workflow.md` (fresh reviewers, at most 3 rounds, report every Blocker and Should fix to Leo). Steps use checkbox (`- [ ]`) syntax for tracking. Don't start until Leo says go.
 >
 > **This plan is a reference, not a script.** Expect it to change as the code teaches us things; update it when you deviate (see the workflow's rules). The spec is the contract.
+>
+> **The UI is subject to change, and likely will.** Screen layouts, sizes, colors, fonts, copy, and pet art here are starting points, not final designs. Build them so they're easy to change; don't treat a UI detail in this plan as fixed.
 
 **Goal:** Prove the firmware toolchain on both boards, and build everything the dock, handheld, and app share: the C++ transit library, the CTA fixtures, the GTFS data tool, and the pet art pipeline.
 

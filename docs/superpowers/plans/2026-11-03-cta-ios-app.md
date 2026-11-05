@@ -3,6 +3,8 @@
 > **Reference plan, not a script.** This lays out milestones, module boundaries, interfaces, and the decisions made so far. Expect it to change as the code teaches us things. When the code shows a better way, take it, say so, and update this file in the same commit. The specs are the contract.
 >
 > **For agentic workers:** execute natively with superpowers:executing-plans, one milestone at a time, following `docs/Agent-Workflow.md` (worker plus fresh reviewers). Don't start until Leo says go.
+>
+> **The UI is subject to change, and likely will.** Screen layouts, sizes, colors, fonts, copy, and pet art here are starting points, not final designs. Build them so they're easy to change; don't treat a UI detail in this plan as fixed.
 
 **Goal:** The required companion app: a Transit-style map with live CTA arrivals, stop detail and favorites, setup and control of the dock and handheld over BLE, the handheld relay, and the app extras (drawn train lines, live tracking, pet in the label, widgets, find my handheld). No logins.
 

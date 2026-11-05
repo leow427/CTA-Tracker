@@ -1,6 +1,8 @@
 # CTA Tracker Handheld Firmware Plan (Plan 3 of 4)
 
 > **Reference plan, not a script.** This lays out milestones, module boundaries, and the decisions made so far. Expect it to change as the hardware and libraries teach us things. When the code shows a better way, take it, say so, and update this file in the same commit. The spec is the contract. Execute natively, one milestone at a time, following `docs/Agent-Workflow.md`.
+>
+> **The UI is subject to change, and likely will.** Screen layouts, sizes, colors, fonts, copy, and pet art here are starting points, not final designs. Build them so they're easy to change; don't treat a UI detail in this plan as fixed.
 
 **Goal:** Handheld firmware for the Waveshare 1.75" round AMOLED: the pet on a dim always-on home screen, Trains and Buses tabs of nearby stops with a detail view, location and data from the app over BLE, its own polling on Wi-Fi, and sleeping when docked.
 
