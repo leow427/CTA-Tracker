@@ -13,9 +13,11 @@ struct MapScreen: View {
         GeometryReader { geo in
             // The sheet covers the bottom; up to half height the map keeps working behind it (app spec 3).
             let covered = min(max(0, geo.size.height - model.sheetTop), geo.size.height * 0.55)
-            DioramaMap(following: $following, focus: model.detailStop, busStops: busPins, bottomInset: covered,
-                       preset: .day) { center in
-                model.center = center   // after a pan the list follows the center of the visible map
+            TimelineView(.everyMinute) { context in
+                DioramaMap(following: $following, focus: model.detailStop, busStops: busPins, bottomInset: covered,
+                           preset: preset(at: context.date)) { center in
+                    model.center = center   // after a pan the list follows the center of the visible map
+                }
             }
         }
         .ignoresSafeArea()
@@ -51,6 +53,12 @@ struct MapScreen: View {
         }
         .padding(.horizontal, Theme.Space.l)
         .padding(.top, Theme.Space.xs)
+    }
+
+    /// The map's light follows the sun at the list's center (redesign spec 6); polar days and nights read as day.
+    private func preset(at now: Date) -> LightPreset {
+        guard let sun = SunTimes.riseSet(on: now, lat: model.center.latitude, lon: model.center.longitude) else { return .day }
+        return SunTimes.preset(at: now, rise: sun.rise, set: sun.set)
     }
 
     /// Changes with each new fix (the location service filters them to every 30 m).

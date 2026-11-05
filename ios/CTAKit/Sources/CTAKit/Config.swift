@@ -20,6 +20,7 @@ public enum Config {
     public static let alertsPollSec: TimeInterval = 300
     public static let weatherPollSec: TimeInterval = 900
 
+    public static let twilightMin: Double = 45   // dawn and dusk light this close to sunrise and sunset (redesign spec 6)
     public static let cardDimSec: TimeInterval = 120   // cards dim after 2 min (app spec 8)
     public static let departedGraceSec: TimeInterval = 60   // an arrival this far past still reads "Due", then drops
     public static let busStopsPerCall = 10

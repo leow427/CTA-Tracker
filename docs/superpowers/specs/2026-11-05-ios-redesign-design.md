@@ -97,7 +97,7 @@ Replaces app spec 4.6 where they differ. Haptics, accessibility, and Reduce Moti
 ## 6. Map
 
 - **Style:** Mapbox Standard with a muted theme (`faded` or `monochrome`, picked on the phone), 3D buildings on, POI labels off, pitch about 55°.
-- **Light:** the preset follows the sun: dawn and dusk within 45 minutes of sunrise and sunset, night after dark. Sunrise and sunset come from the Open-Meteo call the pet's weather already makes (app spec 4.5). With no weather yet, it uses day from 7 to 19.
+- **Light:** the preset follows the sun: dawn and dusk within 45 minutes of sunrise and sunset, night after dark. Sunrise and sunset are computed on the phone for the map center (NOAA's sunrise equation), so the light needs no network. Where the sun doesn't rise or set that day, it uses day.
 - **L lines:** a GeoJSON source from the bundled `train_shapes.json`, one line layer with a white casing, in the line colors. They stay bright at night (emissive strength 1) and show through buildings at reduced opacity where hidden.
 - **Station dots, bus pins, and vehicles** keep the app spec's rules, drawn as Mapbox layers (dots, pins) and view annotations (vehicles).
 - **Attribution:** the Mapbox logo and info button must stay visible. They sit at the bottom of the open map area, above the list's resting top.
