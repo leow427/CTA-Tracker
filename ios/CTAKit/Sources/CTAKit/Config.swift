@@ -68,6 +68,14 @@ public enum LineColors {
 
     public static func rgb(_ route: String) -> UInt32 { train(route)?.rgb ?? bus }
 
+    /// A stale card's fill: the line color halfway to the background's gray (systemGray5 in light, systemGray4 in dark),
+    /// so it recedes in both modes. Opaque, so its text color still passes 4.5:1.
+    public static func dimmed(_ rgb: UInt32, dark: Bool) -> UInt32 {
+        let gray: UInt32 = dark ? 0x3A3A3C : 0xE5E5EA
+        func mix(_ shift: UInt32) -> UInt32 { (((rgb >> shift & 0xFF) + (gray >> shift & 0xFF)) / 2) << shift }
+        return mix(16) | mix(8) | mix(0)
+    }
+
     /// White when it reaches WCAG 4.5:1 on the line color, black otherwise (plan 4 decision 6).
     public static func textColor(on rgb: UInt32) -> UInt32 {
         contrast(0xFFFFFF, rgb) >= 4.5 ? 0xFFFFFF : 0x000000

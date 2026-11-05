@@ -1,6 +1,6 @@
 import Foundation
 
-public enum Freshness: Equatable, Sendable { case fresh, dim, aged(minutes: Int) }
+public enum Freshness: Equatable, Sendable { case fresh, dim(minutes: Int), aged(minutes: Int) }
 
 public enum ArrivalFormat {
     /// Whole minutes until `at`, floored and never negative (the firmware's rule).
@@ -26,6 +26,6 @@ public enum ArrivalFormat {
     public static func freshness(fetched: Date, now: Date) -> Freshness {
         let age = now.timeIntervalSince(fetched)
         if age > Config.staleSec { return .aged(minutes: Int(age / 60)) }
-        return age > Config.cardDimSec ? .dim : .fresh
+        return age > Config.cardDimSec ? .dim(minutes: Int(age / 60)) : .fresh
     }
 }

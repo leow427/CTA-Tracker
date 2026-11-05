@@ -29,7 +29,8 @@ struct ArrivalFormatTests {
 
     @Test(arguments: [
         (119.0, Freshness.fresh),
-        (121.0, .dim),
+        (121.0, .dim(minutes: 2)),
+        (299.0, .dim(minutes: 4)),
         (301.0, .aged(minutes: 5)),
         (3_600.0, .aged(minutes: 60)),
     ])

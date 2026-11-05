@@ -23,6 +23,19 @@ struct BasicsTests {
         for rgb in colors {
             #expect(LineColors.contrast(LineColors.textColor(on: rgb), rgb) >= 4.5, "\(String(rgb, radix: 16))")
         }
+        #expect(LineColors.dimmed(0x000000, dark: false) == 0x727275)   // halfway to the light background gray
+        #expect(LineColors.dimmed(0xFFFFFF, dark: true) == 0x9C9C9D)    // halfway to the dark background gray
+        // Stale cards dim their fill toward the background, never away from it, and their text still passes (app spec 8).
+        for dark in [false, true] {
+            let background: UInt32 = dark ? 0x000000 : 0xFFFFFF
+            for rgb in colors {
+                let dim = LineColors.dimmed(rgb, dark: dark)
+                let name = "\(dark ? "dark" : "light") \(String(rgb, radix: 16))"
+                #expect(dim != rgb, "\(name)")
+                #expect(LineColors.contrast(dim, background) <= LineColors.contrast(rgb, background), "\(name)")
+                #expect(LineColors.contrast(LineColors.textColor(on: dim), dim) >= 4.5, "\(name)")
+            }
+        }
         #expect(LineColors.textColor(on: LineColors.rgb("Y")) == 0x000000)
         #expect(LineColors.textColor(on: LineColors.rgb("Red")) == 0xFFFFFF)
     }

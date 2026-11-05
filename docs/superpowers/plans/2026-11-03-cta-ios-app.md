@@ -62,12 +62,14 @@ ios/CTAKit/Sources/CTAKit/          local Swift package shared by app + widget (
   DetailGroups.swift    stop detail grouping
   LineHitTest.swift     nearest drawn line to a tap
   Framing.swift         which vehicles to fit on the live map
-  PetSprites.swift      sprite grid + palette → CGImage
+  Pixel.swift           PixelScale, PixelFont.snap, PetSprites (grid + palette → CGImage)
+  CardSpeech.swift      the card's VoiceOver sentence; ArrivalFormat.also
 ios/CTAKit/Tests/CTAKitTests/       Swift Testing; reads fixtures/cta from the repo root via #filePath
 ios/CTATracker/
   App/       CTATrackerApp, AppModel
   Map/       MapScreen, NearLabel, LineLayer, VehicleLayer
-  Sheet/     RouteSheet, SearchBar, KindSwitch, RouteCard, FavoritesSection
+  Design/    Theme, Pixel (PixelImage, pixelFont, Glyphs), RouteCard
+  Sheet/     RouteSheet, SearchBar, KindSwitch, FavoritesSection
   Stop/      StopDetail
   Data/      ArrivalsStore, LiveLineStore
   Devices/   BLEManager, FoundCard, SetupFlow (+ steps), DeviceList, DevicePage
@@ -120,7 +122,7 @@ enum CardBuilder {
 }
 
 // ArrivalFormat.swift
-enum Freshness: Equatable { case fresh, dim, aged(minutes: Int) }
+enum Freshness: Equatable { case fresh, dim(minutes: Int), aged(minutes: Int) }
 enum ArrivalFormat {
   static func label(_ p: Prediction, now: Date) -> String   // "Due", "3 min", "10:05"
   static func freshness(fetched: Date, now: Date) -> Freshness
@@ -179,13 +181,14 @@ Five milestones, regrouped on 2026-11-04 from twelve. Old numbers map as: 1 → 
 
 **Polish bar, for every UI milestone (2–4).** A milestone is done only when its screens:
 - use only the design kit, with no one-off colors, sizes, or fonts
-- follow app spec 4.6
-- look right in light and dark
-- stay usable at the largest accessibility text size
-- read as sentences in VoiceOver
-- respect Reduce Motion and Reduce Transparency
+- follow app spec 4.6, except the accessibility items on hold below
+- respect Reduce Motion (app spec 4.6 Motion): the camera jumps instead of flying, the pet holds its first frame, the minutes skip the flip, and the live glyph stays lit
+- look right in light and dark, and look polished: Transit-level craft is the bar (Leo, 2026-11-04)
+- keep text at 4.5:1 on its background (readability, not just accessibility)
 - have their haptics
 - were checked on Leo's phone, with screenshots in the worker's report
+
+**Accessibility is on hold for the demo (Leo, 2026-11-04).** Workers don't build, and reviewers don't flag, layouts for the largest accessibility text sizes, VoiceOver checks, or Reduce Transparency on new screens. What checkpoint B already built stays: `CardSpeech` and the stacking card at accessibility sizes. Reduce Motion is not on hold. Proposed spec edit for Leo: mark the accessibility items in app spec 4.6 and 9 as post-demo.
 
 Leo can send a screen back for polish before the commit.
 
@@ -244,6 +247,21 @@ Leo can send a screen back for polish before the commit.
        - `PixelScale.scale(art: 32, points: 32) == 1`, `(32, 64) == 2`, and a non-multiple rounds down, never below 1.
        - `PixelFont` sizes are whole multiples of the font's pixel unit at every Dynamic Type size.
        - `CardSpeech.sentence` gives "Red Line to Howard from Belmont, 3 minutes, live, delayed" for that fixture case.
+     - *Done (2026-11-04).* `Theme`, `PixelImage`, `pixelFont()`, and `RouteCard` (every state, flip and blink included, with previews) in `ios/CTATracker/Design/`; `PixelScale`, `PixelFont.snap`, `PetSprites` (grid + palette → `CGImage`), `CardSpeech`, and `ArrivalFormat.also` in CTAKit. The placeholder screen shows the card gallery until checkpoint C.
+     - *Changed:*
+       - No `Haptics` file: SwiftUI's `.sensoryFeedback` (iOS 17) gives selection, light impact, success, and error at each call site.
+       - The glyph export is waiting on Plan 1 Task 11: `art/` and `tools/sprite_build.py` don't exist yet. `Glyphs.live` (8×8) and `Glyphs.alert` (16×16) are placeholder grids marked `shortcut:` until then. Milestone 3 checkpoint A now owns the export and the loading, since its setup steps need the dock and handheld glyphs.
+     - *Rulings made here:*
+       - Buses read "Route 22 to …" in VoiceOver. No arrivals reads "no arrivals" (or "no service now" at night), a scheduled arrival reads "at 10:05, scheduled", later arrivals add "also 12 minutes and at 10:05", an alert adds "service alert", and an aged card ends "updated 7 minutes ago", so VoiceOver never hears stale data as fresh.
+       - A stale card dims its fill instead of its opacity: `LineColors.dimmed(_:dark:)` mixes the line color halfway toward the background's gray (systemGray5 0xE5E5EA in light, systemGray4 0x3A3A3C in dark), so it always recedes. Text color is picked against the dimmed fill. Tests cover all 18 pairs: text passes 4.5:1, and the dimmed fill never contrasts more with the background than the fresh one. A stale card's live glyph stays lit and still.
+       - Footer order follows app spec 4.3: later departures, then Delayed and ⚠, then the age. Badge padding and the label gap sit on the 4 pt grid.
+       - At accessibility text sizes both the header and the footer stack vertically, badges never wrap, and the live glyph scales with the text (still at whole multiples).
+       - "also 12, 20 min" when every later arrival is live and at least 1 min away; otherwise each label ("also 12 min, 10:05").
+       - The flip is two stepped frames (old, then new, at half height, 75 ms each), not a tween. One-color glyphs draw as templates in the card's text color, so they pass contrast on Yellow.
+       - The pixel-font stand-in snaps to a 2 pt grid.
+       - ⚠ on cards is a pixel glyph (Leo, 2026-11-04), a placeholder `Glyphs.alert` until the art lands. Proposed spec edit for Leo: add "the alert badge" to app spec 4.6's list of where pixel art appears.
+       - A dimmed card (2–5 min) speaks its age too (Leo, 2026-11-04): `Freshness.dim` now carries its minutes.
+       - Card look (Transit as the polish benchmark): trains get an outlined uppercase line badge; buses a black-weight route number; the destination leads with `arrow.right.circle.fill` as the hero line; minutes are departure-board style, a big pixel-font number with a small "min" under it and the live glyph at its corner, held on one line so the left column wraps instead. Cards get a soft shadow in light mode only, and `PressableCard` (0.97 on touch-down, `.snappy`) is ready for checkpoint D's taps.
    - **Checkpoint C: map, sheet, and cards.**
      - Project: App Group and `Secrets.xcconfig` wiring.
      - `MapScreen` with the persistent `RouteSheet`: detents per decision 9, `interactiveDismissDisabled`, and background interaction up through `.medium`. A `NavigationStack` inside the sheet.
@@ -264,6 +282,7 @@ Leo can send a screen back for polish before the commit.
    - *Check (Leo):* on the phone in Chicago, cards fill with live times and refresh, and detail, ★, and search work.
 3. **Devices.** Covers old milestones 5–7.
    - **Checkpoint A: BLE and setup.**
+     - Glyphs first (from milestone 2 checkpoint B; needs Plan 1 Task 11): draw the 6 one-color 16×16 glyph grids (`art/glyph_{live,train,bus,alert,dock,handheld}.txt`, live as 2 frames) and extend `tools/sprite_build.py` to accept 16×16 for `glyph_*` files and write them, with the pet grids and default palette, into `data/pet_sprites.json`. Load it in CTAKit's `PetSprites`, bundle it, and replace the placeholder `Glyphs.live` and `Glyphs.alert`. The setup steps below need the dock and handheld glyphs.
      - `BLEManager`: a CoreBluetooth central with a state-restoration identifier. It scans for the service UUID while in the foreground and reconnects after a disconnect.
      - First launch: the location prompt, then the one-line explainer, then the Bluetooth prompt.
      - `FoundCard` for identifiers not in the device list.
@@ -273,6 +292,7 @@ Leo can send a screen back for polish before the commit.
      - `DeviceList` and `DevicePage` show status from `info`. Forget shows the iOS Settings instruction.
      - Error copy exactly per app spec section 8. Passwords are never logged.
    - **Checkpoint B: dock stops, pet, and device settings.**
+     - Presets: write `art/presets.txt` (6 lines: name, slot 2 color, slot 3 color) and add the presets to `data/pet_sprites.json` through `sprite_build.py`.
      - Dock stops step and dock page: favorites first; trains from `train_lines.json` (load it here, in `TrainLines`); buses through `getroutes`, `getdirections`, and `getstops`. Writes `config.stops`.
      - The dock's stops are read back on every connect.
      - Pet step and `PetSettings`: name and the 6 presets from `pet_sprites.json`, with a 64 pt `PixelImage` preview of the pet.
