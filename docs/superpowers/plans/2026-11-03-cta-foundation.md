@@ -37,7 +37,7 @@ These fill gaps in the spec. Each one is small and reversible.
 4. **Hyped needs fresh data:** the qualifying stop's data must be no more than 5 min old.
 5. **Rain beats cold:** a rain code with a temperature below 0 °C gives the umbrella, not the scarf.
 6. **Tool dependencies:** Python tools use only the standard library.
-7. **Generated data location:** `data/stops.json` and `data/train_lines.json` (for the app) are committed. The downloaded GTFS zip (`data/gtfs/`) is not.
+7. **Generated data location:** `data/stops.json`, `data/train_lines.json`, and `data/train_shapes.json` (for the app) are committed. The downloaded GTFS zip (`data/gtfs/`) is not.
 
 ## Review Focus
 
@@ -499,8 +499,8 @@ TEST_ASSERT_EQUAL_HEX8(0b1000000, cta::litMaskBuses(rows + 1, 1, v, 6));
 ### Task 10: GTFS build tool
 
 **Files:**
-- Create: `tools/gtfs_build.py`, `tools/test_gtfs_build.py`, `fixtures/gtfs-mini/{routes,stops,trips,stop_times}.txt`, `firmware/lib/cta/src/train_sequences.h`
-- Generate: `firmware/lib/cta/src/train_sequences.cpp`, `data/stops.json`, `data/train_lines.json`
+- Create: `tools/gtfs_build.py`, `tools/test_gtfs_build.py`, `fixtures/gtfs-mini/{routes,stops,trips,stop_times,shapes}.txt`, `firmware/lib/cta/src/train_sequences.h`
+- Generate: `firmware/lib/cta/src/train_sequences.cpp`, `data/stops.json`, `data/train_lines.json`, `data/train_shapes.json`
 - Modify: `.gitignore` (add `data/gtfs/`)
 
 **Interfaces:**
@@ -514,14 +514,22 @@ extern const size_t kTrainLineCount;
 }
 ```
 
-- Produces: `data/train_lines.json` = `[{"route":"Red","dir":"95th/Dan Ryan","stops":[{"id":"30xxx","name":"Howard"}, …]}]` and `data/stops.json` = `[{"id","name","lat","lon","kind":"bus"|"station"}]`. Train platforms are excluded from `stops.json` because the handheld's train rows are per station.
-- CLI: `python3 tools/gtfs_build.py <gtfs.zip or dir> [--check] [--bustracker-key KEY]`. It writes the three generated files.
+- Produces: `data/train_lines.json` = `[{"route":"Red","dir":"95th/Dan Ryan","stops":[{"id":"30xxx","name":"Howard"}, …]}]`.
+- Produces: `data/stops.json` = a list of
+  - bus stops: `{"id","name","lat","lon","kind":"bus","lines":[{"route":"22","dir":"Northbound"}]}`
+  - stations: `{"id","name","lat","lon","kind":"station","platforms":[{"id":"30xxx","lines":[{"route":"Red","dir":"95th/Dan Ryan"}]}]}`
+
+  Platforms appear only inside their station, because the handheld's train rows are per station. The app's one-card-per-route-and-direction rule (app design spec 4.2) keys on `lines[].route` + `lines[].dir`.
+- Produces: `data/train_shapes.json` = `[{"route":"Red","points":[[41.97732,-87.66688], …]}]`, one entry per train route, for drawing the lines on the app's map.
+- CLI: `python3 tools/gtfs_build.py <gtfs.zip or dir> [--check] [--bustracker-key KEY]`. It writes the four generated files.
 - Rules:
   - Train routes are `route_type == 1`.
   - For each (route, direction_id), the sequence is the most common ordered tuple of platform `stop_id`s across trips; `dirLabel` is that pattern's most common `trip_headsign`; names come from each platform's parent station.
-  - Bus stops are `location_type` 0 or empty, with no `parent_station`, and not used by any train trip.
+  - A platform's `lines` are every (route, `dirLabel`) whose trips stop there.
+  - Bus stops are `location_type` 0 or empty, with no `parent_station`, and not used by any train trip. A bus stop's `lines` are every (route, direction) whose trips stop there. The direction comes from CTA's non-standard `direction` column in `trips.txt` ("North" → "Northbound", matching Bus Tracker). Fail loudly if the column is missing.
   - Stations are `location_type == 1`.
-  - Stream `stop_times.txt` with `csv`, keeping only train trips.
+  - A train route's shape is the most common `shape_id` among its direction-0 trips that follow the most common pattern. Simplify it with Douglas–Peucker at 5 m and round to 5 decimals.
+  - Stream `stop_times.txt` once with `csv`: train trips feed the sequences, and bus trips feed only each bus stop's `lines`.
 
 **Mini fixture contents:**
 - Route `Red` (type 1) and route `22` (type 3).
@@ -529,15 +537,18 @@ extern const size_t kTrainLineCount;
 - Platforms 30001–30003 (direction 0) and 30011–30013 (direction 1), parented to the matching stations.
 - Bus stops 1001 and 1002.
 - Trips:
-  - T1 and T2: Red, direction 0, headsign "Charlie", 30001→30002→30003
-  - T3: Red, direction 0, headsign "Bravo", 30001→30002
+  - T1 and T2: Red, direction 0, headsign "Charlie", shape S1, 30001→30002→30003
+  - T3: Red, direction 0, headsign "Bravo", shape S2, 30001→30002
   - T4: Red, direction 1, headsign "Alpha", 30013→30012→30011
-  - B1: route 22, 1001→1002
+  - B1: route 22, `direction` "North", 1001→1002
+- Shapes: S1 has 3 points where the middle one lies on the line between the others; S2 has 2 points.
 
 - [ ] **Step 1: Write the mini fixture and the failing tests** in `test_gtfs_build.py`:
   - `test_most_common_pattern`: the Red "Charlie" line's ids are `[30001, 30002, 30003]` and its names are `[Alpha, Bravo, Charlie]`.
   - `test_both_directions`: the Red lines are exactly the "Charlie" and "Alpha" directions.
-  - `test_stops_kinds`: `stops.json` has 3 stations and 2 bus stops, and no 3xxxx IDs.
+  - `test_stops_kinds`: `stops.json` has 3 stations and 2 bus stops, and no 3xxxx IDs at the top level.
+  - `test_stop_lines`: bus stop 1001's `lines` are `[{"route":"22","dir":"Northbound"}]`; station 40002's platforms are 30002 with `[{"route":"Red","dir":"Charlie"}]` and 30012 with `[{"route":"Red","dir":"Alpha"}]`.
+  - `test_train_shapes`: `train_shapes.json` has exactly one entry, Red, built from S1, with 2 points (the collinear middle point simplified away).
   - `test_cpp_output`: the generated `.cpp` contains `kTrainLineCount = 2`.
 - [ ] **Step 2: Run and confirm failure.** `python3 -m unittest discover -s tools -v`. Expected: ImportError or failures.
 - [ ] **Step 3: Implement** `gtfs_build.py`, standard library only.
@@ -545,14 +556,15 @@ extern const size_t kTrainLineCount;
 - [ ] **Step 5: Generate from the real feed.** Download `https://www.transitchicago.com/downloads/sch_data/google_transit.zip` to `data/gtfs/`, then run `python3 tools/gtfs_build.py data/gtfs/google_transit.zip --check`. `--check` asserts:
   - the train route IDs are exactly {Red, Blue, Brn, G, Org, P, Pink, Y}
   - in the Red line direction whose label contains "95th", Belmont comes before Fullerton, and Fullerton before Clark/Division
-  - `stops.json` has more than 10,000 bus stops
+  - `stops.json` has more than 10,000 bus stops, and every bus stop has at least one line
+  - `train_shapes.json` has the same 8 routes, every point is inside Chicago's bounding box (lat 41.6–42.1, lon −88.0 to −87.5), and the file is under 200 KB
 
   Pass: exit code 0. Check that `pio test -e native` still builds with the generated `.cpp`.
-- [ ] **Step 6 (once the Bus Tracker key arrives): check bus IDs.** Run with `--bustracker-key`. It calls `getdirections` and `getstops` for route 22 and asserts every returned `stpid` is in `stops.json`, exiting non-zero on any mismatch.
+- [ ] **Step 6 (once the Bus Tracker key arrives): check bus IDs.** Run with `--bustracker-key`. It calls `getdirections` and `getstops` for route 22 and asserts every returned `stpid` is in `stops.json` with a 22 line whose `dir` matches the Bus Tracker direction, exiting non-zero on any mismatch.
 - [ ] **Step 7: Commit.**
 
 ```bash
-git add tools/gtfs_build.py tools/test_gtfs_build.py fixtures/gtfs-mini firmware/lib/cta/src/train_sequences.* data/stops.json data/train_lines.json .gitignore
+git add tools/gtfs_build.py tools/test_gtfs_build.py fixtures/gtfs-mini firmware/lib/cta/src/train_sequences.* data/stops.json data/train_lines.json data/train_shapes.json .gitignore
 git commit -m "feat(tools): GTFS build for train sequences and stop list"
 ```
 

@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-04
 - **Owner:** Leo
-- **Status:** Draft for review
+- **Status:** Approved 2026-11-04
 - **Extends:** `2026-11-03-cta-tracker-design.md` (the base spec), section 9
 
 This adds detail to the base spec's iPhone app section: screens, navigation, look, and the main flows. Once approved, it wins over the base spec for the app wherever the two disagree. Section 11 lists the base spec edits that fold these decisions back in.
@@ -94,6 +94,7 @@ Map (full screen, always there)
 
 - About 28 pt tall in the "Near *place*" label, drawn by `PetSprites` with the user's color preset.
 - Its mood uses the base spec's device-mood rules (6.3) over the listed stops. Only the 3 closest stops of either kind count for Hyped, the same as the handheld's `close` list. No location yet means Sleepy.
+- Weather accessories follow base spec 6.3, from Open-Meteo every 15 min while the app is in the foreground.
 - Tapping it opens Settings → Pet.
 
 ## 5. Stop detail and live tracking
@@ -241,14 +242,16 @@ The base spec's rule still holds: the core path comes first (map and cards, stop
 
 ## 11. Base spec edits
 
-To fold in once this doc is approved:
+Folded into the base spec on 2026-11-04:
 
-- **§5 build-time data:** add `train_shapes.json`.
-- **§6.6 polling:** add an app column: list every 30 s while on screen; selected line's positions every 30 s while stop detail is open; nothing in the background except the relay.
+- **§2 scope:** the drawn train lines, live tracking, and the pet in the label join the app extras.
+- **§5 build-time data:** add `train_shapes.json`, and give `stops.json` routes, bus directions, and station platforms (the card rule needs them).
+- **§6.6 polling:** add an app column: list every 30 s while on screen; selected line's positions every 30 s while stop detail is open; weather every 15 min; nothing in the background except the relay and widgets.
 - **§9.1 main screen:** replace the Trains | Buses toggle with the mixed list and All · Trains · Buses switch. Add the pinned favorites, the one-card-per-route-and-direction rule, the 800 m radius, the drawn train lines, line taps, and the pet in the label.
 - **§9.2 stop detail:** shown inside the sheet, covers the whole station or all routes at the bus stop, and drives the live map.
 - **§9.3 gear menu:** add the found card and setup steps, pet color presets, About, and how Forget works.
 - **§9.6 errors:** point to this doc's section 8.
+- **§12 security:** the app never logs or stores Wi-Fi passwords.
 - **§13 testing:** add the CTAKit cases from section 9.
 
 ## 12. Open items

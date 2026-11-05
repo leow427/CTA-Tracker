@@ -32,7 +32,7 @@ The demo passes when all of these work:
 | Handheld: pet, nearby Trains/Buses tabs, stop detail | Pet journal (weekly moods, "trains caught") | Tamagotchi care (feeding, neglect) |
 | App: map + route cards, stop detail, favorites | Siri / Shortcuts ("When's my train?") | Countdown or approach view on the handheld |
 | App: Wi-Fi setup, dock stops, BLE relay | Firmware updates over BLE | Any backend server |
-| App extras: pet name + colors, device settings, widgets, find my handheld | Live navigation | Dead-front OLED and custom ESP32 PCB from the old notes |
+| App extras: pet name + colors, device settings, widgets, find my handheld, drawn train lines, live tracking for the selected line, pet in the "Near" label | Live navigation | Dead-front OLED and custom ESP32 PCB from the old notes |
 | | GPS module on the handheld as a backup location source | Device-hosted Wi-Fi setup page |
 | | Phone-hotspot fallback for the handheld | |
 | | Raise-to-wake on the handheld (IMU) | |
@@ -102,7 +102,8 @@ The dock and handheld share one C++ library (`firmware/lib/cta`) for the CTA cli
 
 **Build-time data** (`tools/gtfs_build.py`):
 
-- `stops.json` for the app: every bus stop and train platform with ID, name, lat/lon, routes, and direction. Train platforms carry their parent station ID.
+- `stops.json` for the app: every bus stop and train station with ID, name, and lat/lon. Each bus stop lists the routes that serve it, with their direction. Each station lists its platforms, and each platform the lines that serve it, with their direction.
+- `train_shapes.json` for the app: one simplified path per train line, for drawing the lines on the map, using the same most-common-pattern rule as the dock's sequences.
 - `train_sequences.h` for the dock: for each train line and direction, the ordered list of platform IDs. Where a line has branches or runs the Loop, use the most common trip pattern.
 - The script checks that GTFS bus stop IDs match Bus Tracker stop IDs, and fails loudly if a sample doesn't match.
 
@@ -174,13 +175,15 @@ The CTA's published line colors are used for train cards, LEDs, and badges: Red,
 
 ### 6.6 Polling and time
 
-| What | Dock | Handheld (on Wi-Fi) |
-|---|---|---|
-| Arrivals | every 30 s | 3 closest train stations every 60 s; other train stations every 3 min; all bus stops in one batched call every 60 s |
-| Vehicle positions | every 30 s | not used |
-| Alerts | every 5 min | every 5 min |
-| Weather | every 15 min | every 15 min |
-| Night hours or docked | everything every 5 min | everything every 5 min |
+| What | Dock | Handheld (on Wi-Fi) | App (in the foreground) |
+|---|---|---|---|
+| Arrivals | every 30 s | 3 closest train stations every 60 s; other train stations every 3 min; all bus stops in one batched call every 60 s | listed stops and favorites every 30 s while the list is on screen; one stop every 30 s while its detail is open |
+| Vehicle positions | every 30 s | not used | the selected line only, every 30 s while its stop detail is open |
+| Alerts | every 5 min | every 5 min | every 5 min |
+| Weather | every 15 min | every 15 min | every 15 min, for the pet's accessories |
+| Night hours or docked | everything every 5 min | everything every 5 min | no change |
+
+In the background the app polls nothing, except the handheld relay (9.5) and the widgets' own timelines (9.4).
 
 - Intervals are constants in the shared library, so they can be tuned once the daily limits from the key emails are known. If the Bus Tracker limit is tight, dock bus polling moves to 60 s first.
 - Night hours default to 1:00–5:00 and can be changed from the app.
@@ -260,27 +263,32 @@ The firmware reads location through one interface with a single alpha implementa
 
 SwiftUI, iOS 17 or later (needed for MapKit in SwiftUI). No login or account.
 
+The app's screens, flows, and look are detailed in `2026-11-04-ios-app-design.md`. It wins for the app wherever the two differ.
+
 ### 9.1 Main screen
 
 The layout follows the Transit app pattern Leo shared, with CTA colors and the pet instead of that app's branding.
 
-- **Top half:** map with the location dot and CTA stop pins. Gear button at the top left.
-- **"Near *place*" pill:** the place name comes from Apple's reverse geocoding. The list follows the map center when the map is panned, and a recenter button snaps back to the user.
-- **Bottom sheet (draggable):**
-  - Trains | Buses toggle and a search field (line, route, or stop name).
-  - Route cards: line or route number on its CTA color, direction and destination, stop name, big live minutes on the right with a "live" icon, later departures stacked below. Timetable-only times show as clock times (10:05 AM).
+- **Map (full screen):** the location dot, all 8 train lines in their colors with a dot per station, and pins for the listed bus stops. Gear button at the top left.
+- **"Near *place*" label:** the pet, then the place name from Apple's reverse geocoding of the map center. The list follows the map center when the map is panned, and a recenter button snaps back to the user.
+- **Bottom sheet (native, always up, three heights):**
+  - A search bar (line, route, or stop name), then an All · Trains · Buses switch.
+  - A ★ section with up to 3 favorites, live from anywhere.
+  - Route cards for stops within 800 m, one card per route and direction at its nearest stop: line or route number on its CTA color, direction and destination, stop name, big live minutes on the right with a "live" icon, later departures in one line below. Timetable-only times show as clock times (10:05 AM).
+- Tapping a drawn line filters the list to that line.
 - Arrivals refresh every 30 s while visible, plus pull-to-refresh.
 
 ### 9.2 Stop detail
 
-All arrivals grouped by line and direction, the badges, the full alert text from Customer Alerts, and a ★ to save the stop as a favorite. Favorites are stored on the phone.
+Tapping a card shows its stop's detail inside the sheet: all arrivals at the station (or all routes at the bus stop) grouped by line and direction, the badges, the full alert text from Customer Alerts, and a ★ to save the stop as a favorite. Favorites are stored on the phone. While detail is open, the map zooms to that line and shows its trains or buses live.
 
 ### 9.3 Gear menu
 
-- **Devices:** scan for and pair the dock and handheld; Wi-Fi setup (1 network on the dock; up to 3 on the handheld, the first labeled Home because docking checks for it); pick the dock's 3 stops with the same picker as search; status (online, last update, handheld battery).
-- **Pet:** name and color scheme, written to both devices' `config`.
+- **Devices:** scan for and pair the dock and handheld; Wi-Fi setup (1 network on the dock; up to 3 on the handheld, the first labeled Home because docking checks for it); pick the dock's 3 stops with the same picker as search; status (online, last update, handheld battery). While the app is open, an unpaired device nearby slides up a "Dock found · Set up" card that runs the same setup steps. Forget removes a device from the app; iOS requires the user to remove the Bluetooth pairing in iOS Settings.
+- **Pet:** name and one of 6 color presets, written to both devices' `config`.
 - **Device settings:** screen brightness, LED brightness, night hours.
 - **Find my handheld:** when the handheld disconnects, the app saves the phone's location and time and shows them as a map pin.
+- **About:** the app version and the CTA's data attribution line.
 
 ### 9.4 Widgets
 
@@ -298,6 +306,7 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 - **No location permission:** Nearby shows a prompt to enable it, and search still works.
 - **CTA error or bad key:** a "CTA data unavailable" banner, with the last results kept and their age shown.
 - **BLE disconnect:** automatic reconnect, and the Devices list shows "Not connected."
+- The full list of app error states is in the app design spec, section 8.
 
 ## 10. BLE protocol
 
@@ -363,13 +372,13 @@ fixtures/cta/         recorded CTA responses used by both test suites
 ## 12. Security and secrets
 
 - The repo is public. API keys live only in untracked `firmware/secrets.h` and `ios/Secrets.xcconfig`. Committed `*.example` versions show the format. `.gitignore` covers the real files.
-- Wi-Fi passwords cross BLE only on an encrypted, passkey-authenticated link, and are stored in each ESP32's flash (NVS).
+- Wi-Fi passwords cross BLE only on an encrypted, passkey-authenticated link, and are stored in each ESP32's flash (NVS). The app never logs or stores them.
 - No accounts and no analytics. The only outside services are CTA, Open-Meteo, and ipapi.co (dock only, once a day; it sees the home IP address, as every server does). The phone's location goes only to Open-Meteo and the handheld. Find-my-handheld locations stay on the phone.
 
 ## 13. Testing
 
 - **Shared C++ library:** unit tests with PlatformIO's native environment (Unity), run on the laptop. They cover parsing every fixture, the stop moods and device mood (every row of 6.3, including ties and the Hyped rule), the approach-row mapping for a train and a bus, and the stop record's size limit.
-- **iOS:** Swift Testing over the same fixtures and the same mood and approach cases, plus the nearest-stop search.
+- **iOS:** Swift Testing over the same fixtures and the same mood and approach cases, plus the nearest-stop search, the card list rules (one card per route and direction, the 800 m radius and its fallbacks), line-color text contrast, and BLE message sizes. App design spec section 9 has the full list.
 - **Fixtures:** `fixtures/cta/` holds recorded responses for arrivals, positions, predictions, vehicles, patterns, and alerts, including a delayed arrival, an alert, and an empty prediction list. Both suites read the same files, so the C++ and Swift logic must agree.
 - **Tools:** `gtfs_build.py` and `sprite_build.py` each carry an assert-based self-check (for example: a known station appears in the right order, a sprite grid has 32 rows).
 - **On hardware:** the demo checklist in section 1, plus the battery discharge test in 8.5.
@@ -397,4 +406,4 @@ fixtures/cta/         recorded CTA responses used by both test suites
 | iOS background relay | Force-quit stops the relay; "Always" location permission is needed in the background | Demo runs with the app open. Stretch: GPS backup and hotspot fallback. |
 | Branching train lines | "6 stops before" is ambiguous after a branch merge or on the Loop | Use the most common trip pattern from GTFS (5). |
 | Battery life | Dim always-on may not last a day | Measured in the discharge test; dim level and frame rate are constants. |
-| Scope | Four app extras on top of the core path in 20 days | Extras are built last and slip first (section 2). |
+| Scope | Seven app extras on top of the core path in 20 days | Extras are built last and slip first (section 2). |
