@@ -20,6 +20,10 @@ Leo's verdict on the first build: it still looked like the old app, and the Liqu
 - **Line colors on navy.** Big type is lifted toward white until it reaches 3:1, and smaller text until it reaches 4.5:1 (`LineColors.onNavy`). Buses use a bright blue (`0x2F7BFF`).
 - **Stop detail.** The line's huge number sits over the map, with a red × (close) and ★ down the right. The navy page has "→ destination", big departure tiles (the next one solid in the line color, the later ones tinted navy), the chips (Delayed, freshness), the alerts, and the stop's other lines on a timeline in their colors.
 
+### Name: Trackie (2026-11-05)
+
+The app and its pet are called **Trackie**: he's a train that runs on tracks, and he tracks your buses and trains. It's the app's name on the Home Screen and the pet's default name. The project, repo, Xcode target, and bundle ID keep the CTA Tracker name.
+
 ### Revision 2: line cards and pixels (2026-11-05)
 
 Leo's verdict on the navy build: the rows and the stop page looked flat, and the app needed more personality. This overrides the rows and tiles above.
