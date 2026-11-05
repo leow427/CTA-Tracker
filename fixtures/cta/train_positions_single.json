@@ -1,0 +1,3 @@
+{"ctatt":{"tmst":"2026-11-05T08:00:00","errCd":"0","errNm":null,"route":[{"@name":"red","train":
+{"rn":"811","destSt":"30089","destNm":"95th/Dan Ryan","trDr":"5","nextStaId":"40005","nextStpId":"30005","nextStaNm":"Wilson","prdt":"2026-11-05T07:59:30","arrT":"2026-11-05T08:01:30","isApp":"0","isDly":"0","flags":null,"lat":"41.97350","lon":"-87.65853","heading":"178"}
+}]}}

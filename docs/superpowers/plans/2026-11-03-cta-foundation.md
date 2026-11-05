@@ -28,6 +28,7 @@
 - Time zone string: `CST6CDT,M3.2.0,M11.1.0`.
 - BLE UUIDs exactly as listed in spec section 10.
 - Line colors live in one table (Task 2), mirrored later by the app.
+- `fixtures/cta/` is shared with the app's tests (iOS milestone 1 wrote it). Any edit there must also pass `cd ios/CTAKit && swift test`.
 
 ## Decisions Beyond the Spec
 
@@ -80,7 +81,7 @@ firmware/lib/pet/src/pet_sprites.cpp       Task 11 (generated)
 firmware/native/platformio.ini             Task 2: laptop test runner
 firmware/native/test/fixture.h             Task 2: reads fixtures/cta/*
 firmware/native/test/test_<area>/test_main.cpp  one per task
-fixtures/cta/*.json                        Tasks 4–6 (synthetic until keys arrive)
+fixtures/cta/*.json                        Tasks 4–6 (synthetic until keys arrive; already written by iOS milestone 1)
 fixtures/gtfs-mini/*.txt                   Task 10
 tools/gtfs_build.py, tools/test_gtfs_build.py      Task 10
 tools/sprite_build.py, tools/test_sprite_build.py  Task 11
@@ -247,7 +248,7 @@ TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
 
 **Files:**
 - Create: `firmware/lib/cta/src/train_parse.{h,cpp}`, `firmware/native/test/test_train/test_main.cpp`
-- Create fixtures (synthetic, following the Train Tracker API docs' JSON shape, `outputType=JSON`): `fixtures/cta/train_arrivals_station.json`, `train_arrivals_midnight.json`, `train_error.json`, `train_positions_red.json`, `train_positions_single.json`
+- Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them) (synthetic, following the Train Tracker API docs' JSON shape, `outputType=JSON`): `fixtures/cta/train_arrivals_station.json`, `train_arrivals_midnight.json`, `train_error.json`, `train_positions_red.json`, `train_positions_single.json`
 
 **Fixture contents** (every value the tests rely on):
 - `train_arrivals_station.json`: `ctatt.tmst` `"2026-11-05T08:00:00"`, `errCd` `"0"`, and five `eta` items, all with `staNm` `"Belmont"`:
@@ -267,7 +268,7 @@ TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
   - `bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out)`: sets `type=Train`, `name` (staNm), `route` (rt of the soonest arrival), and `ts=now`. Fills up to 4 arrivals sorted by `min`, where `min = floor((arrT − tmst)/60)` clamped at ≥ 0, `live = isSch=="0"`, `delayed = isDly=="1"`, and `dest = destNm`. Leaves `id`, `dir`, and `alert` as the caller set them. Returns false if `errCd != "0"` or the JSON is malformed; returns true with `count=0` when there are no etas.
   - `int parseTrainPositions(const char* json, size_t len, TrainPos* out, size_t max)`: returns the number of trains written, or −1 on error. Accepts `train` as either an array or a single object.
 
-- [ ] **Step 1: Write the fixtures and the failing tests.**
+- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 cta::StopRecord r{}; strcpy(r.id, "41320");
@@ -294,7 +295,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 
 **Files:**
 - Create: `firmware/lib/cta/src/bus_parse.{h,cpp}`, `firmware/native/test/test_bus/test_main.cpp`
-- Create fixtures (synthetic, Bus Tracker v2 `format=json` shape): `fixtures/cta/bus_predictions.json`, `bus_no_arrivals.json`, `bus_vehicles.json`, `bus_patterns.json`
+- Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them) (synthetic, Bus Tracker v2 `format=json` shape): `fixtures/cta/bus_predictions.json`, `bus_no_arrivals.json`, `bus_vehicles.json`, `bus_patterns.json`
 
 **Fixture contents:**
 - `bus_predictions.json`: `bustime-response.prd`, every item with `tmstmp` "20261105 08:00":
@@ -314,7 +315,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
   - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct `stpid`, in order of first appearance. Sets `type=Bus`, `id`, `name` (stpnm), `route` and `dir` (rt and rtdir of the soonest kept prediction), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor((prdtm − tmstmp)/60)` clamped at ≥ 0; `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count, 0 for a `bustime-response.error` with no `prd`, or −1 if malformed.
   - `int parseBusVehicles(const char* json, size_t len, BusVehicle* out, size_t max)`: accepts numbers or numeric strings for `pid` and `pdist`. Returns −1 on error.
 
-- [ ] **Step 1: Write the fixtures and the failing tests.**
+- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 int n = cta::parseBusPredictions(f.c_str(), f.size(), 1000, nullptr, recs, 5);
@@ -342,7 +343,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
 
 **Files:**
 - Create: `firmware/lib/cta/src/alerts_weather.{h,cpp}`, `firmware/native/test/test_alerts_weather/test_main.cpp`
-- Create fixtures: `fixtures/cta/alerts.json`, `alerts_single.json`, `weather.json`
+- Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them): `fixtures/cta/alerts.json`, `alerts_single.json`, `weather.json`
 
 **Fixture contents:**
 - `alerts.json`: `CTAAlerts.Alert` is an array of 2.
@@ -357,7 +358,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
   - `bool parseWeather(const char* json, size_t len, int& wmo, float& tempC)`.
   - `Accessory accessoryFor(int wmo, float tempC)`: Umbrella for codes 51–67, 80–82, and 95–99. Otherwise Scarf for codes 71–77, 85–86, or tempC < 0. Otherwise None.
 
-- [ ] **Step 1: Write the fixtures and the failing tests.**
+- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 TEST_ASSERT_EQUAL_INT(2, cta::parseAlertRoutes(a.c_str(), a.size(), routes, 8));   // "Red", "22"; station "41320" ignored

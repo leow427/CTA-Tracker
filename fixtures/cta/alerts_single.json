@@ -1,0 +1,4 @@
+{"CTAAlerts":{"TimeStamp":"2026-11-05T08:00:00","ErrorCode":"0","ErrorMessage":null,"Alert":
+{"AlertId":"90003","Headline":"Brown Line elevator out of service at Diversey","ShortDescription":"The elevator at Diversey is temporarily out of service.","FullDescription":{"#cdata-section":"<p>The elevator at Diversey is temporarily out of service.</p>"},"SeverityScore":"10","SeverityColor":"f5a623","SeverityCSS":"minor","Impact":"Elevator Status","EventStart":"2026-11-04T09:00:00","EventEnd":null,"TBD":"1","MajorAlert":"0","AlertURL":{"#cdata-section":"https://www.transitchicago.com/travel-information/alert-detail/?AlertId=90003"},
+ "ImpactedService":{"Service":{"ServiceType":"R","ServiceTypeDescription":"Train Route","ServiceName":"Brown Line","ServiceId":"Brn","ServiceBackColor":"62361b","ServiceTextColor":"ffffff"}},"ttim":"0","GUID":"a3"}
+}}

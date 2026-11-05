@@ -30,7 +30,7 @@
 
 ## Depends on Plan 1
 
-- `fixtures/cta/*.json`: the Swift tests read the same files as the C++ tests.
+- `fixtures/cta/*.json`: the Swift tests read the same files as the C++ tests. Milestone 1 wrote them, to the exact contents Plan 1 tasks 4–6 list (plus the other fields the real APIs send, and `bus_error_key.json`), so the C++ tests reuse them as they are.
 - `data/stops.json` (with `lines` per bus stop and `platforms` per station), `data/train_lines.json`, and `data/train_shapes.json` (Plan 1, Task 10), bundled as resources.
 - `tools/sprite_build.py`, extended here to also write `data/pet_sprites.json`: index grids, the default palette, and the 6 color presets from `art/presets.txt` (one line per preset: name, slot 2 color, slot 3 color).
 
@@ -41,13 +41,20 @@
 ```
 ios/CTATracker.xcodeproj
 ios/Secrets.example.xcconfig        CTA_TRAIN_KEY, CTA_BUS_KEY → Info.plist
-ios/CTAKit/                         local Swift package shared by app + widget
-  Models.swift          Stop, Platform, Line, Prediction, Alert, StopRecord, Arrival, Kind, Mood, Favorite
-  Config.swift          spec constants + line colors (with text color and contrast)
-  TrainParse.swift, BusParse.swift, AlertsWeather.swift, VehicleParse.swift
+ios/CTAKit/Sources/CTAKit/          local Swift package shared by app + widget (standard SwiftPM layout)
+  Models.swift          Kind, Prediction, Mood, Accessory, ServiceAlert, Vehicle, Pattern, CTAError (milestone 1);
+                        Stop, Platform, Line, Favorite, KindFilter arrive with milestone 2
+  Config.swift          spec constants, BLE UUIDs, line colors (with text color and contrast)
+  Time.swift            CTA time differences (naive, like the firmware), Chicago calendar, night hours
+  Decoding.swift        OneOrMany (object-or-array quirk), Loose (numbers as strings; junk becomes nil)
+  Text.swift            24-byte UTF-8-safe truncation
+  TrainParse.swift      arrivals and positions
+  BusParse.swift        predictions, vehicles, and patterns
+  AlertsWeather.swift   alerts, weather, accessory rule
   MoodRules.swift       stopMood / deviceMood mirror
-  StopRecordCodec.swift JSON ≤ 512 bytes, 24-byte UTF-8-safe names
-  CTAClient.swift       async URLSession; URL builders
+  StopRecord.swift      StopRecord, Arrival, make, JSON codec (≤ 512 bytes)
+  BLEMessages.swift     wifi, nearby, config encoders (each ≤ 512 bytes)
+  CTAClient.swift       URL builders (milestone 1); async URLSession fetch (milestone 2)
   StopIndex.swift       loads stops.json; nearest and within-radius by haversine
   TrainLines.swift, TrainShapes.swift
   CardBuilder.swift     radius, fallbacks, one slot per line, favorites dedupe
@@ -56,7 +63,7 @@ ios/CTAKit/                         local Swift package shared by app + widget
   LineHitTest.swift     nearest drawn line to a tap
   Framing.swift         which vehicles to fit on the live map
   PetSprites.swift      sprite grid + palette → CGImage
-ios/CTAKit/Tests/                   Swift Testing; reads ../../fixtures/cta
+ios/CTAKit/Tests/CTAKitTests/       Swift Testing; reads fixtures/cta from the repo root via #filePath
 ios/CTATracker/
   App/       CTATrackerApp, AppModel
   Map/       MapScreen, NearLabel, LineLayer, VehicleLayer
@@ -95,7 +102,7 @@ struct Prediction: Hashable {
 }
 extension StopRecord {
   // The device-shaped record (base spec 6.2), built with the C++ rules: ≤4 arrivals, 24-byte names
-  static func make(id: String, kind: Kind, name: String, from: [Prediction], alert: Bool, now: Date) -> StopRecord
+  static func make(id: String, kind: Kind, name: String, from: [Prediction], alert: Bool, fetched: Date) -> StopRecord
 }
 
 // CardBuilder.swift
@@ -123,7 +130,7 @@ enum ArrivalFormat {
 @Observable final class ArrivalsStore {
   var predictions: [String: [Prediction]]   // keyed by fetchID
   var fetched: [String: Date]               // keyed by fetchID, for freshness
-  var alerts: [String: [Alert]]             // keyed by route, refreshed every 5 min
+  var alerts: [String: [ServiceAlert]]      // keyed by route, refreshed every 5 min (not `Alert`: SwiftUI has one)
   var lastError: Error?
   func track(_ fetchIDs: Set<String>) // starts/stops the 30 s polling for exactly these
   func refresh() async
@@ -132,8 +139,10 @@ enum ArrivalFormat {
   var vehicles: [Vehicle]; var path: [CLLocationCoordinate2D]?; var updated: Date?
   func select(_ line: Line?, at stop: Stop)  // nil stops polling
 }
-struct Vehicle: Identifiable { let id: String; let coord: CLLocationCoordinate2D
-  let heading: Double; let dest: String; let nextStop: String; let towardStop: Bool }
+struct Vehicle: Identifiable { let id: String; let lat: Double; let lon: Double
+  let heading: Double; let dest: String
+  let nextStopID: String; let nextStop: String   // trains only
+  let pid: Int?; let pdist: Double? }            // buses only; Framing (milestone 4) decides "toward the stop"
 ```
 
 ## Decisions beyond the spec
@@ -190,6 +199,18 @@ Leo can send a screen back for polish before the commit.
      - Every line color with its text color passes 4.5:1, bus color included.
      - Every BLE message the app writes is 512 bytes or less, including `wifi` with a 32-character SSID and a 63-character password, and a full `nearby`.
    - *Check:* `swift test` in `ios/CTAKit` passes, and a deliberately broken mood rule fails a test.
+   - *Done (2026-11-04).* Built as planned, plus a minimal app shell (Leo's call): `ios/CTATracker.xcodeproj` with a placeholder screen of line colors and arrival labels, so the app runs in the simulator from day one. Milestone 2 replaces the screen and adds the App Group and `Secrets.xcconfig`. The project uses synchronized folders, so new files under `ios/CTATracker/` need no project edits.
+   - *Rulings made here:*
+     - Parsers take `fetched:` (when the response arrived), and a prediction's time is `fetched + (arrT − tmst)`, as differences of naive wall-clock times like the firmware. Parsing Chicago times as absolute instants made every arrival read "Due" during the repeated 1 AM hour on fall-back night, and let phone-vs-server clock drift skew minutes.
+     - `StopRecord.make` takes `fetched:`, not `now:`: `ts` is the fetch time (base spec 6.2) and minutes count from it, so a record rebuilt from cached predictions during an outage reads as stale instead of fresh.
+     - `config` fields are cut to the dock's sizes on the way in: ids and routes 7 bytes, names and dirs 24, the pet name 16 (`petName[17]`, Plan 2). Real station names reach 41 bytes, which would push a full `config` past 512.
+     - `WifiMessage` is encode-only, and its descriptions and mirror leave the password out, so a stray log can't leak it.
+     - Bus `prdctdn: "DUE"` sets the prediction's time to `fetched`, so it reads "Due" and 0 min, matching the firmware.
+     - A Bus Tracker error that names no stop, route, or pattern (bad key, daily limit) throws, so the app can show "CTA data unavailable". One that names a stop ("No arrival times") is an empty list. The firmware returns 0 records for both.
+     - Train and bus vehicles, and pattern points, whose coordinates are missing or don't parse are dropped (they can't be drawn); the rest of the response still parses. Numbers may arrive as numbers or strings.
+     - `config.pet.colors` is two 0xRRGGBB numbers, for palette slots 2 and 3 of the chosen preset. The base spec doesn't define the shape yet; Plans 2 and 3 must read the same.
+     - `config.settings.screen` and `led` are percents; `night_start` and `night_end` are minutes after midnight.
+   - *Tests:* `cd ios/CTAKit && swift test` (macOS, fast), or on the simulator: `xcodebuild test -scheme CTAKit -destination 'platform=iOS Simulator,name=iPhone 18 Pro'` from `ios/CTAKit`.
 2. **Main screen.** Covers old milestones 2–4.
    - **Checkpoint A: stop index and card rules.**
      - Load `stops.json`, `train_lines.json`, and `train_shapes.json`. Implement `nearest` and within-radius search and `CardBuilder.slots`.
@@ -279,7 +300,7 @@ Leo can send a screen back for polish before the commit.
 
 ## Open questions
 
-- **Bundle ID and App Group ID:** Leo's choice, needed at milestone 3.
+- **Bundle ID and App Group ID:** placeholder `io.github.leow427.CTATracker` until Leo picks (needed before TestFlight; the App Group arrives at milestone 2). Simulator builds need no team.
 - **Pixel font:** chosen with the final art, under a license (such as OFL) that allows bundling in the app and the firmware. Until then the minutes use a system monospaced font.
 - **CTA attribution wording:** confirm from the developer terms when the keys arrive (milestone 4).
 - **`ttarrivals` per call:** if one call can take more than one station, `ArrivalsStore` batches trains too.

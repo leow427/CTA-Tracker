@@ -1,0 +1,5 @@
+{"bustime-response":{"vehicle":[
+{"vid":"1801","tmstmp":"20261105 08:00","lat":"41.94003","lon":"-87.64416","hdg":"180","pid":100,"rt":"22","des":"Harrison","pdist":4500,"dly":false,"tatripid":"1001","tablockid":"22 -701","zone":""},
+{"vid":"1803","tmstmp":"20261105 08:00","lat":"41.96543","lon":"-87.66012","hdg":"178","pid":"100","rt":"22","des":"Harrison","pdist":"1500","dly":true,"tatripid":"1003","tablockid":"22 -703","zone":""},
+{"vid":"1805","tmstmp":"20261105 08:00","lat":"41.92101","lon":"-87.63711","hdg":"182","pid":200,"rt":"22","des":"Harrison","pdist":3000,"dly":false,"tatripid":"1005","tablockid":"22 -705","zone":""}
+]}}

@@ -1,0 +1,144 @@
+{
+ "bustime-response": {
+  "ptr": [
+   {
+    "pid": 100,
+    "ln": 9000.0,
+    "rtdir": "Southbound",
+    "pt": [
+     {
+      "seq": 1,
+      "lat": 41.96,
+      "lon": -87.655,
+      "typ": "S",
+      "stpid": "2001",
+      "stpnm": "Stop 2001",
+      "pdist": 0.0
+     },
+     {
+      "seq": 2,
+      "lat": 41.957,
+      "lon": -87.6535,
+      "typ": "S",
+      "stpid": "2002",
+      "stpnm": "Stop 2002",
+      "pdist": 1000.0
+     },
+     {
+      "seq": 3,
+      "lat": 41.954,
+      "lon": -87.652,
+      "typ": "S",
+      "stpid": "2003",
+      "stpnm": "Stop 2003",
+      "pdist": 2000.0
+     },
+     {
+      "seq": 4,
+      "lat": 41.951,
+      "lon": -87.6505,
+      "typ": "S",
+      "stpid": "2004",
+      "stpnm": "Stop 2004",
+      "pdist": 3000.0
+     },
+     {
+      "seq": 5,
+      "lat": 41.9455,
+      "lon": -87.6479,
+      "typ": "W",
+      "pdist": 3500.0
+     },
+     {
+      "seq": 6,
+      "lat": 41.948,
+      "lon": -87.649,
+      "typ": "S",
+      "stpid": "2005",
+      "stpnm": "Stop 2005",
+      "pdist": 4000.0
+     },
+     {
+      "seq": 7,
+      "lat": 41.945,
+      "lon": -87.6475,
+      "typ": "S",
+      "stpid": "2006",
+      "stpnm": "Stop 2006",
+      "pdist": 5000.0
+     },
+     {
+      "seq": 8,
+      "lat": 41.942,
+      "lon": -87.646,
+      "typ": "S",
+      "stpid": "2007",
+      "stpnm": "Stop 2007",
+      "pdist": 6000.0
+     },
+     {
+      "seq": 9,
+      "lat": 41.939,
+      "lon": -87.6445,
+      "typ": "S",
+      "stpid": "2008",
+      "stpnm": "Stop 2008",
+      "pdist": 7000.0
+     },
+     {
+      "seq": 10,
+      "lat": 41.936,
+      "lon": -87.643,
+      "typ": "S",
+      "stpid": "2009",
+      "stpnm": "Stop 2009",
+      "pdist": 8000.0
+     },
+     {
+      "seq": 11,
+      "lat": 41.933,
+      "lon": -87.6415,
+      "typ": "S",
+      "stpid": "2010",
+      "stpnm": "Stop 2010",
+      "pdist": 9000.0
+     }
+    ]
+   },
+   {
+    "pid": 200,
+    "ln": 1000.0,
+    "rtdir": "Southbound",
+    "pt": [
+     {
+      "seq": 1,
+      "lat": 41.939,
+      "lon": -87.6445,
+      "typ": "S",
+      "stpid": "2007",
+      "stpnm": "Stop 2007",
+      "pdist": 0.0
+     },
+     {
+      "seq": 2,
+      "lat": 41.936,
+      "lon": -87.643,
+      "typ": "S",
+      "stpid": "2008",
+      "stpnm": "Stop 2008",
+      "pdist": 500.0
+     },
+     {
+      "seq": 3,
+      "lat": 41.933,
+      "lon": -87.6415,
+      "typ": "S",
+      "stpid": "2009",
+      "stpnm": "Stop 2009",
+      "pdist": 1000.0
+     }
+    ]
+   }
+  ]
+ }
+}

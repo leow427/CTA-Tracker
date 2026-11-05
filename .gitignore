@@ -7,6 +7,8 @@ ios/**/Secrets.xcconfig
 build/
 DerivedData/
 xcuserdata/
+.build/
+.swiftpm/
 *.xcuserstate
 __pycache__/
 
