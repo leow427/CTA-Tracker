@@ -10,10 +10,75 @@ public struct Slot: Hashable, Sendable {
     public let meters: Double    // from the list's center
 }
 
+extension Slot: Identifiable {
+    /// A card's identity: its stop and line, not its distance, so cards keep their state while the user moves.
+    public var id: String { "\(stopID)|\(line.route)|\(line.dir)" }
+
+    /// Whether an arrival belongs to this card: its platform (or bus stop) and route, and for buses its direction
+    /// too (a train platform implies the direction; Train Tracker sends no rtdir).
+    public func matches(_ p: Prediction) -> Bool {
+        p.stopID == stopID && p.route == line.route && (kind == .station || p.dir == line.dir)
+    }
+
+    /// This card's arrivals, soonest first, without those more than a minute gone: a stale card must not show
+    /// trains that already left as "Due" (review focus 4).
+    public func predictions(from all: [Prediction], now: Date) -> [Prediction] {
+        all.filter { matches($0) && $0.at.timeIntervalSince(now) > -Config.departedGraceSec }.sorted { $0.at < $1.at }
+    }
+}
+
+/// The list's order (app spec 4.2): by distance to the card's stop, then by soonest arrival; cards with
+/// no arrivals go last at their stop.
+public enum CardOrder {
+    public static func sorted(_ slots: [Slot], predictions: [Prediction], now: Date) -> [Slot] {
+        let soonest = Dictionary(slots.map { ($0, $0.predictions(from: predictions, now: now).first?.at ?? .distantFuture) },
+                                 uniquingKeysWith: { a, _ in a })
+        return slots.enumerated().sorted { a, b in
+            if a.element.meters != b.element.meters { return a.element.meters < b.element.meters }
+            if soonest[a.element]! != soonest[b.element]! { return soonest[a.element]! < soonest[b.element]! }
+            return a.offset < b.offset
+        }.map(\.element)
+    }
+}
+
+/// Arrivals by fetch ID, kept across failures (app spec 8: the last cards stay, dimmed, with their age).
+public struct ArrivalBook: Sendable {
+    public private(set) var predictions: [String: [Prediction]] = [:]
+    public private(set) var fetched: [String: Date] = [:]
+    private var failed: Set<String> = []
+
+    public init() {}
+
+    /// A Bus Tracker chunk answers for up to 10 stops at once: each asked-about stop gets its own list, [] if none.
+    public static func split(_ preds: [Prediction], stops: [String]) -> [String: [Prediction]] {
+        Dictionary(uniqueKeysWithValues: stops.map { id in (id, preds.filter { $0.stopID == id }) })
+    }
+
+    public mutating func record(_ results: [String: [Prediction]], at: Date) {
+        for (id, preds) in results {
+            predictions[id] = preds
+            fetched[id] = at
+            failed.remove(id)
+        }
+    }
+
+    /// The last request for these failed; their last good results stay.
+    public mutating func fail(_ ids: some Sequence<String>) {
+        failed.formUnion(ids)
+    }
+
+    /// Never loaded, and the last try failed: the card says "—" rather than claiming no arrivals.
+    public func unknown(_ id: String) -> Bool { fetched[id] == nil && failed.contains(id) }
+}
+
 public struct SlotList: Hashable, Sendable {
     public let favorites: [Slot]
     public let nearby: [Slot]
     public let farFromChicago: Bool
+
+    public init(favorites: [Slot], nearby: [Slot], farFromChicago: Bool) {
+        self.favorites = favorites; self.nearby = nearby; self.farFromChicago = farFromChicago
+    }
 }
 
 /// The list's card rules (app spec 4.2, 8): radius, fallback, one slot per line, favorites dedupe.

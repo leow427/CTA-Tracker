@@ -9,13 +9,47 @@ public enum PixelScale {
     }
 }
 
-/// The pixel font's sizes snap to whole multiples of its pixel grid at every text size.
+/// The pixel font for the big minutes and the pet label (app spec 4.6): a 5×7 departure-board face drawn as
+/// index grids, rendered through `PetSprites` at whole-number scales. Text it has no glyphs for falls back to
+/// system monospaced, snapped to `unit`.
+/// shortcut: our own stand-in glyphs (0–9, ":", "Due"); swap in the devices' pixel font when it's chosen with the final art.
 public enum PixelFont {
-    /// shortcut: the system monospaced stand-in has no pixel grid, so 2 pt; set the real font's unit when it's chosen.
     public static let unit: Double = 2
+    public static let glyphHeight = 7
 
     public static func snap(_ points: Double) -> Double {
         max(unit, (points / unit).rounded(.down) * unit)
+    }
+
+    public static let glyphs: [Character: [String]] = [
+        "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+        "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+        "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+        "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+        "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+        "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+        "6": [".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."],
+        "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+        "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+        "9": [".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."],
+        ":": [".", ".", "#", ".", "#", ".", "."],
+        "D": ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+        "u": [".....", ".....", "#...#", "#...#", "#...#", "#..##", ".##.#"],
+        "e": [".....", ".....", ".###.", "#...#", "#####", "#....", ".###."],
+    ]
+
+    /// One index grid for the whole text (1 = ink), glyphs one column apart; nil if any character has no glyph.
+    public static func grid(_ text: String) -> [[UInt8]]? {
+        guard !text.isEmpty else { return nil }
+        var rows = Array(repeating: [UInt8](), count: glyphHeight)
+        for (n, char) in text.enumerated() {
+            guard let glyph = glyphs[char] else { return nil }
+            for r in 0..<glyphHeight {
+                if n > 0 { rows[r].append(0) }
+                rows[r] += glyph[r].map { $0 == "#" ? 1 : 0 }
+            }
+        }
+        return rows
     }
 }
 

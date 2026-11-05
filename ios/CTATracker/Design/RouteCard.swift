@@ -10,6 +10,8 @@ struct RouteCard: View {
     var alert = false
     var freshness: Freshness = .fresh
     var night = false
+    /// No data has ever arrived for this stop (CTA unavailable from the start): say nothing rather than "No arrivals".
+    var unknown = false
     let now: Date
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -55,7 +57,7 @@ struct RouteCard: View {
                     Text(stopName).font(.subheadline.weight(.medium))
                 }
                 if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-                ArrivalView(next: next, night: night, fresh: freshness == .fresh, now: now).layoutPriority(1)
+                ArrivalView(next: next, night: night, unknown: unknown, fresh: freshness == .fresh, now: now).layoutPriority(1)
             }
             footer
         }
@@ -110,6 +112,7 @@ private struct GlyphIcon: View {
 private struct ArrivalView: View {
     let next: Prediction?
     let night: Bool
+    let unknown: Bool
     let fresh: Bool
     let now: Date
 
@@ -128,7 +131,7 @@ private struct ArrivalView: View {
         if let parts {
             VStack(alignment: .trailing, spacing: 0) {
                 HStack(alignment: .top, spacing: Theme.Space.xs) {
-                    Text(shown ?? parts.big).pixelFont(40)
+                    PixelText(shown ?? parts.big)
                         .fixedSize()
                         .scaleEffect(x: 1, y: flipping ? 0.5 : 1)   // destination-sign flip: stepped, not tweened
                     if next?.live == true { LiveGlyph(blinks: fresh).padding(.top, Theme.Space.xs) }
@@ -137,7 +140,7 @@ private struct ArrivalView: View {
             }
             .onChange(of: parts.big) { old, new in flip(from: old, to: new) }
         } else {
-            Text(night ? "No service now" : "No arrivals").font(.headline).fixedSize()
+            Text(unknown ? "—" : night ? "No service now" : "No arrivals").font(.headline).fixedSize()
         }
     }
 

@@ -42,6 +42,16 @@ public enum CTAClient {
         URL(string: String(format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code", lat, lon))
     }
 
+    /// GET with a 15 s timeout; throws `CTAError.http` on anything but 200. Never logs the URL (it holds the key).
+    public static func get(_ url: URL, session: URLSession = .shared) async throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard status == 200 else { throw CTAError.http(status: status) }
+        return data
+    }
+
     private static func url(_ base: String, _ query: [(String, String)]) -> URL? {
         var c = URLComponents(string: base)
         c?.queryItems = query.map { URLQueryItem(name: $0.0, value: $0.1) }

@@ -16,9 +16,19 @@ enum Theme {
     static let cardMargin: CGFloat = Space.l
     static let cardGap: CGFloat = Space.s
     static let mapButton: CGFloat = 44
+    static let pinRim: CGFloat = 2
 
     /// The Delayed badge: the only saturated color besides the line colors.
     static let amber = Color(rgb: 0xFFB000)
+
+    /// Secondary text that keeps 4.5:1 on the sheet in both modes (system `.secondary` is about 3.4:1 on white):
+    /// 0x636366 in light, 0xAEAEB2 in dark.
+    static let secondaryText = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0xAE / 255, green: 0xAE / 255, blue: 0xB2 / 255, alpha: 1)
+        : UIColor(red: 0x63 / 255, green: 0x63 / 255, blue: 0x66 / 255, alpha: 1) })
+
+    /// Map controls' symbols: a fixed size like Apple Maps' buttons, since the 44 pt circle doesn't grow.
+    static let mapSymbol = Font.system(size: 17, weight: .semibold)
 
     /// The camera and sheet move on `.smooth`; selection on `.snappy`.
     static let smooth = Animation.smooth
@@ -54,6 +64,11 @@ struct CardShadow: ViewModifier {
     }
 }
 
+/// The soft shadow under floating map controls.
+struct FloatingShadow: ViewModifier {
+    func body(content: Content) -> some View { content.shadow(color: .black.opacity(0.12), radius: 6, y: 2) }
+}
+
 /// Cards press down the instant a finger lands (on touch-down), on a snappy spring.
 struct PressableCard: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -65,6 +80,7 @@ struct PressableCard: ButtonStyle {
 
 extension View {
     func cardShadow() -> some View { modifier(CardShadow()) }
+    func floatingShadow() -> some View { modifier(FloatingShadow()) }
 
     func materialBackground<S: Shape>(_ shape: S) -> some View { modifier(MaterialBackground(shape: shape)) }
 }

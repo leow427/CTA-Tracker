@@ -102,4 +102,6 @@ public struct Pattern: Hashable, Sendable {
 public enum CTAError: Error, Equatable, Sendable {
     /// The API answered with an error instead of data (bad key, over the limit, …).
     case api(code: String, message: String)
+    /// The server answered with a non-200 status, or not over HTTP.
+    case http(status: Int)
 }

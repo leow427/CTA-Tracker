@@ -22,7 +22,7 @@
 - No third-party Swift packages.
 - No login, accounts, or analytics.
 - App and widget share one App Group. Storage is small JSON in App Group `UserDefaults`, nothing else.
-- CTA keys come from `ios/Secrets.xcconfig` through `Info.plist`. The real file is gitignored; `ios/Secrets.example.xcconfig` is committed.
+- CTA keys come from `ios/CTATracker/Secrets.plist` (gitignored; template `ios/Secrets.example.plist`), changed from `Secrets.xcconfig` in milestone 2 checkpoint C.
 - Wi-Fi passwords are never logged or stored on the phone. The phone's location goes only to Open-Meteo and the handheld.
 - Spec values (thresholds, intervals, UUIDs, line colors, radii) live once, in `CTAKit/Config.swift`, mirroring `cta_config.h`, `ble_ids.h`, and `line_colors.*`.
 - No CTA logo anywhere. User-facing copy is exactly as written in the app design spec.
@@ -40,7 +40,8 @@
 
 ```
 ios/CTATracker.xcodeproj
-ios/Secrets.example.xcconfig        CTA_TRAIN_KEY, CTA_BUS_KEY → Info.plist
+ios/Secrets.example.plist           CTA_TRAIN_KEY, CTA_BUS_KEY → copy to ios/CTATracker/Secrets.plist (gitignored)
+ios/CTATracker.entitlements         App Group (placeholder group.io.github.leow427.CTATracker)
 ios/CTAKit/Sources/CTAKit/          local Swift package shared by app + widget (standard SwiftPM layout)
   Models.swift          Kind, Prediction, Mood, Accessory, ServiceAlert, Vehicle, Pattern, CTAError (milestone 1);
                         Stop, Platform, Line, Favorite, KindFilter arrive with milestone 2
@@ -272,6 +273,25 @@ Leo can send a screen back for polish before the commit.
      - A `SettingsScreen` shell. The gear on the map sets a flag on `AppModel`, and the sheet's content presents Settings (app spec section 3).
      - Errors from app spec section 8: location off, far from Chicago, "CTA data unavailable", stale dimming, and "No arrivals" / "No service now".
      - *Previews:* every card state (live, sched, delayed, alert, due, no arrivals) in light and dark, plus one at the largest accessibility text size with a 24-character name (review focus 5).
+     - *Done (2026-11-05).* `AppModel` (location, list center, switch, slots), `ArrivalsStore` (30 s polling while active, bus stops 10 per call, one `ttarrivals` per station, alerts every 5 min, last good results kept per stop, trains and buses failing separately), `MapScreen`, `NearLabel`, `RouteSheet` with `SearchBar`, `KindSwitch`, and favorites as a bare `ForEach` above the nearby cards (checkpoint D adds the ★ header; there's no `FavoritesSection` type), the empty states, and a `SettingsScreen` shell with About. In CTAKit: the bitmap pixel digits, `Slot.predictions(from:)`, `CardOrder`, `CTAClient.get`. `data/stops.json` is bundled through a symlink in `ios/CTATracker/Resources/` (Xcode copies the file). Tests: `PixelDigitsTests`, `CardDataTests`.
+     - *Changed:*
+       - Keys come from a gitignored `ios/CTATracker/Secrets.plist` (template: `ios/Secrets.example.plist`), not `Secrets.xcconfig` through `Info.plist`: the synchronized folder bundles it with no project edits, and a missing file just means "CTA data unavailable".
+       - The App Group entitlement is in `ios/CTATracker.entitlements` with the placeholder ID; simulator builds embed it, and Leo's signed-in device build registers the group. Checkpoint D stores favorites in the App Group's `UserDefaults` (app spec 7.4).
+       - Train lines and station dots stay in milestone 4, as planned; the map shows bus pins for listed stops and the user.
+     - *Rulings made here:*
+       - **Pixel digits (the Apple/pixel hybrid, app spec 4.6):** the big minutes are our own 5×7 departure-board glyphs (0–9, ":", "Due") drawn through `PetSprites` at whole-number scales, scaled by height so every label shares one size. They stand in for the devices' pixel font until it's chosen; text without glyphs falls back to the snapped monospaced font.
+       - **Empty states** show the 128 pt pixel pet (app spec 4.6) over the spec's copy. The pet is a placeholder sleepy grid from Plan 1 Task 11's art brief until `pet_sprites.json` lands.
+       - **The list follows the visible map:** the sheet reports its height, the map pads its bottom by it (up to 55% of the screen), and the list center is the middle of what's left, so recenter puts the user in view instead of behind the sheet.
+       - A card whose stop never loaded shows "—" while CTA data is unavailable, instead of "No arrivals" or "No service now". Before the first fetch it's a redacted placeholder.
+       - Copy the spec doesn't give: the location prompt "Shows the stops and arrivals near you.", the search placeholder "Search stops and routes", the location-off button "Open Settings", Settings rows "Coming in a later build.", and About's "Data provided by Chicago Transit Authority" with "This app is not made or endorsed by the CTA." (CTA developer guidelines).
+       - Map controls: gear top left, the "Near" capsule top center, recenter top right; 44 pt on regular material with a soft shadow.
+       - `-demo` (DEBUG builds only) fills the tracked cards with plausible arrivals for simulator screenshots without keys.
+       - Review round 1 fixes: departed arrivals drop a minute after their time (`Config.departedGraceSec`), so a stale card never shows trains that left as "Due"; a stale card with nothing left shows "—". `ArrivalBook` (CTAKit, tested) keeps the last good results per stop, splits each 10-stop Bus Tracker answer per stop, and marks never-loaded stops whose request failed as unknown ("—"); a poll cancelled by leaving the list records nothing. The map follows the user through `MapCameraPosition.userLocation` (keeps their zoom; a pan stops following; recenter resumes) with a 30 m distance filter, and pads by where the sheet's top edge actually is, so the Maps logo and Legal link stay visible. Cards keep a stable ID (stop + line), so the minutes flip survives moving. With location off, only favorites are fetched and pinned. The app tint is the label color (no system blue), and `Theme.secondaryText` (0x6C6C70 / 0xAEAEB2) keeps secondary text at 4.5:1. The sheet's content scrolls instead of resizing, so pull to refresh works; resize by the grabber or the search area.
+       - Review round 2 fixes: following is the app's own flag, cleared only by a real drag (MapKit marks the camera user-positioned by itself when the sheet changes the map's padding, so the first fix used to be ignored and the list showed the Loop). While following, the list centers on the user's fix (30 m filter), not the camera, so resizing the sheet neither moves the list nor refetches; each new fix puts the camera back on the user if MapKit dropped it. `track` fetches only newly added stops, coalesced over 0.4 s. One 15 s clock wraps the lazy stack, so cards are built only as they scroll in. The label-color tint is scoped to the sheet and Settings, so the map's location dot stays blue. The search field is opaque and `Theme.secondaryText` is 0x636366 in light, so its placeholder keeps 4.5:1 over the translucent sheet.
+       - Review round 3 fixes: a started fetch of added stops can't be cancelled by the next list change; a fetch of added stops leaves the other kind's failure flag alone; polling also stops while Settings covers the list.
+       - Known: `-demo` only fills cards it was asked about, so new cards at an already-fetched station read "No arrivals" until the next poll; real `ttarrivals` returns every line.
+       - Known: SwiftUI `Map` has no annotation z-order, so a bus pin can still overlap the user's dot when standing at a stop.
+       - Proposed spec edit for Leo: base spec §12 names `ios/Secrets.xcconfig`; it's now `ios/CTATracker/Secrets.plist`.
    - **Checkpoint D: stop detail, favorites, and search.**
      - Detail pushes inside the sheet at half height and pauses list polling. Its header shows the stop name, ★, and "Live · updated 12 s ago".
      - The map centers on the stop (milestone 4 adds line framing and vehicles). Going back restores the previous camera.

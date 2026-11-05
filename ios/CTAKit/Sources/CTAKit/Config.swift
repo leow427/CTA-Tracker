@@ -21,6 +21,7 @@ public enum Config {
     public static let weatherPollSec: TimeInterval = 900
 
     public static let cardDimSec: TimeInterval = 120   // cards dim after 2 min (app spec 8)
+    public static let departedGraceSec: TimeInterval = 60   // an arrival this far past still reads "Due", then drops
     public static let busStopsPerCall = 10
 
     // The list (app spec 4.2 and 8)

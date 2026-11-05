@@ -1,6 +1,7 @@
 # Secrets (API keys); commit the *.example files instead
 firmware/**/secrets.h
 ios/**/Secrets.xcconfig
+ios/**/Secrets.plist
 
 # Build output
 .pio/

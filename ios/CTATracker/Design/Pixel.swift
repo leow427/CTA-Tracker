@@ -5,11 +5,12 @@ import SwiftUI
 /// `template` draws it in the foreground style, for one-color glyphs on line colors.
 struct PixelImage: View {
     let image: CGImage
-    let points: CGFloat
+    let points: CGFloat     // the art's width in points (sprites and glyphs are square)
     var template = false
+    var scale: Int? = nil   // an exact scale instead, for wide art like pixel text
 
     var body: some View {
-        let scale = PixelScale.scale(art: image.width, points: points)
+        let scale = scale ?? PixelScale.scale(art: image.width, points: points)
         Image(decorative: image, scale: 1)
             .renderingMode(template ? .template : .original)
             .resizable()
@@ -18,7 +19,30 @@ struct PixelImage: View {
     }
 }
 
-/// The pixel font for the big minutes and the pet label, snapped to its grid at every text size.
+/// Text in the pixel font (the bitmap digits), drawn at the whole-number scale that fits `points` of height,
+/// in the foreground style. Text without glyphs falls back to the snapped system monospaced font.
+struct PixelText: View {
+    let text: String
+    @ScaledMetric private var points: CGFloat
+
+    init(_ text: String, points: CGFloat = 40, relativeTo style: Font.TextStyle = .largeTitle) {
+        self.text = text
+        _points = ScaledMetric(wrappedValue: points, relativeTo: style)
+    }
+
+    var body: some View {
+        if let grid = PixelFont.grid(text), let image = PetSprites.image(grid: grid, palette: [0, 0xFFFFFF]) {
+            // Scaled by height, so "1" and "10:05" share one size.
+            PixelImage(image: image, points: 0, template: true,
+                       scale: PixelScale.scale(art: PixelFont.glyphHeight, points: points))
+                .accessibilityLabel(text)
+        } else {
+            Text(text).pixelFont(points)
+        }
+    }
+}
+
+/// The pixel font's system fallback, snapped to its grid at every text size.
 struct PixelFontModifier: ViewModifier {
     @ScaledMetric private var points: CGFloat
 
@@ -47,6 +71,44 @@ enum Glyphs {
                               ".....KKKKKK.....", ".....KK..KK.....", "....KKK..KKK....", "....KKK..KKK....",
                               "...KKKK..KKKK...", "...KKKK..KKKK...", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..",
                               ".KKKKKK..KKKKKK.", ".KKKKKK..KKKKKK.", "KKKKKKKKKKKKKKKK", "KKKKKKKKKKKKKKKK"])
+
+    // shortcut: a placeholder pet (sleepy) from the art brief in plan 1 task 11, until pet_sprites.json lands.
+    static let pet: CGImage = PetSprites.grid([
+        "................................",
+        "................................",
+        "................................",
+        ".......KKKKKKKKKKKKKKKKKK.......",
+        "......KBBBBBBBBBBBBBBBBBBK......",
+        ".....KBBBBBBBBBBBBBBBBBBBBK.....",
+        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
+        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
+        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
+        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
+        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
+        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
+        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
+        "....KBKWWEEEWWKBBKWWEEEWWKBK....",
+        "....KBKWWWWWWWKBBKWWWWWWWKBK....",
+        "....KBKWWWWWWWKBBKWWWWWWWKBK....",
+        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
+        "....KBCCBBBBBBBBBBBBBBBBCCBK....",
+        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
+        "....KSSSSSSSSSSSSSSSSSSSSSSK....",
+        "....KSSSSSSSSSSSSSSSSSSSSSSK....",
+        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
+        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
+        "....KBBBBBBBBKYYYYKBBBBBBBBK....",
+        "....KBBBBBBBBKYYYYKBBBBBBBBK....",
+        "....KBBBBBBKBBBBBBBBKBBBBBBK....",
+        "....KBBBBBBBKKKKKKKKBBBBBBBK....",
+        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
+        "....KKKKKKKKKKKKKKKKKKKKKKKK....",
+        "................................",
+        "................................",
+        "................................"
+    ], chars: ".KBSWEPCY").flatMap {
+        PetSprites.image(grid: $0, palette: [0, 0x1A1A1A, 0xC0C6CC, 0x00A1DE, 0x2B3A55, 0xFFFFFF, 0x1A1A1A, 0xE27EA6, 0xF9E300])
+    }!
 
     private static func glyph(_ rows: [String]) -> CGImage {
         PetSprites.grid(rows, chars: ".K").flatMap { PetSprites.image(grid: $0, palette: [0, 0xFFFFFF]) }!
