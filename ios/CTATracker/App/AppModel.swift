@@ -14,7 +14,12 @@ import SwiftUI
     /// The list follows this: the user's location, or wherever the map was panned to.
     var center: CLLocationCoordinate2D = AppModel.loop { didSet { rebuild() } }
     var filter: KindFilter = .all { didSet { rebuild() } }
-    var favorites: [Favorite] = [] { didSet { rebuild() } }
+    /// Starred cards (plan 4 decision 1), saved as JSON in the App Group (app spec 7.4) so the widget can read them.
+    var favorites: [Favorite] = AppModel.loadFavorites() {
+        didSet { rebuild(); AppModel.save(favorites) }
+    }
+    /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the sheet).
+    var detailStop: Stop?
     private(set) var slots = SlotList(favorites: [], nearby: [], farFromChicago: false)
 
     /// The gear on the map sets this; the sheet's content presents Settings (app spec 3).
@@ -30,6 +35,35 @@ import SwiftUI
 
     func stop(for slot: Slot) -> Stop? {
         index?.stop(id: slot.fetchID)
+    }
+
+    func isFavorite(_ f: Favorite) -> Bool { favorites.contains(f) }
+
+    /// ★ adds or removes a card. Not capped: the ★ section shows 3 and the rest show under ★ in search (app spec 2).
+    func toggleFavorite(_ f: Favorite) {
+        if let i = favorites.firstIndex(of: f) { favorites.remove(at: i) } else { favorites.append(f) }
+    }
+
+    /// Every favorite that still resolves to a card, for search.
+    var allFavoriteSlots: [Slot] {
+        index.map { CardBuilder.resolved(favorites: favorites, center: center, index: $0) } ?? []
+    }
+
+    /// Stop names folded once for search.
+    @ObservationIgnored private(set) lazy var search: StopSearch.Index? = index.map { StopSearch.Index($0) }
+
+    // MARK: - Storage
+
+    static let appGroup = "group.io.github.leow427.CTATracker"
+    private static let favoritesKey = "favorites"
+    private static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
+
+    private static func loadFavorites() -> [Favorite] {
+        defaults.data(forKey: favoritesKey).flatMap { try? JSONDecoder().decode([Favorite].self, from: $0) } ?? []
+    }
+
+    private static func save(_ favorites: [Favorite]) {
+        if let data = try? JSONEncoder().encode(favorites) { defaults.set(data, forKey: favoritesKey) }
     }
 
     private func rebuild() {

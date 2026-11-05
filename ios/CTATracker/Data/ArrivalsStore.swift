@@ -24,8 +24,12 @@ import Observation
     /// Fetch exactly these cards' stops. Newly added ones are fetched on their own, coalesced over 0.4 s, so a
     /// list that changes several times in a row (the switch, a pan) makes one small request, not a full refresh each.
     func track(_ slots: [Slot]) {
+        let newRoutes = Set(slots.map(\.line.route)).subtracting(self.slots.map(\.line.route)).subtracting(alerts.keys)
+        // A stop fetched within the last poll interval (back from detail, say) doesn't need fetching again.
         let added = Set(slots.map(\.fetchID)).subtracting(self.slots.map(\.fetchID))
+            .filter { fetched[$0].map { Date().timeIntervalSince($0) >= Config.listPollSec } ?? true }
         self.slots = slots
+        if !newRoutes.isEmpty, poll != nil { Task { await refreshAlerts(routes: newRoutes) } }   // ⚠ for new routes now
         guard !added.isEmpty, poll != nil else { return }
         pending.formUnion(added)
         pendingFetch?.cancel()
@@ -149,8 +153,10 @@ import Observation
         guard let url = CTAClient.alertsURL(routes: routes.sorted()),
               let data = try? await CTAClient.get(url),
               let items = try? AlertsWeather.alerts(data) else { return }
-        alertsFetched = Date()
-        alerts = Dictionary(grouping: items.flatMap { a in a.routes.map { ($0, a) } }, by: \.0).mapValues { $0.map(\.1) }
+        if routes == Set(slots.map(\.line.route)) { alertsFetched = Date() }
+        // Merged per route: a fetch for some routes never erases the others' ⚠ (and a route with none clears).
+        let byRoute = Dictionary(grouping: items.flatMap { a in a.routes.map { ($0, a) } }, by: \.0).mapValues { $0.map(\.1) }
+        for route in routes { alerts[route] = byRoute[route] ?? [] }
     }
 
     #if DEBUG

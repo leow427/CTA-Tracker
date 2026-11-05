@@ -1,6 +1,38 @@
 import Foundation
 
 public enum AlertsWeather {
+    /// Customer Alerts' HTML as plain text for stop detail: paragraphs and breaks become new lines, tags go,
+    /// and the common entities decode.
+    static let namedEntities: [String: String] = [
+        "nbsp": " ", "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+        "lsquo": "\u{2018}", "rsquo": "\u{2019}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",
+        "mdash": "\u{2014}", "ndash": "\u{2013}", "hellip": "\u{2026}", "bull": "\u{2022}",
+    ]
+
+    /// Named entities from the table, and every numeric one (&#8217; and &#x2019;).
+    static func decodeEntities(_ text: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: "&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);") else { return text }
+        var out = "", last = text.startIndex
+        for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let whole = Range(m.range, in: text), let name = Range(m.range(at: 1), in: text) else { continue }
+            out += text[last..<whole.lowerBound]
+            let key = String(text[name])
+            let scalar: Unicode.Scalar? = key.hasPrefix("#x") ? UInt32(key.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init)
+                : key.hasPrefix("#") ? UInt32(key.dropFirst()).flatMap(Unicode.Scalar.init) : nil
+            out += scalar.map { String(Character($0)) } ?? namedEntities[key] ?? String(text[whole])
+            last = whole.upperBound
+        }
+        return out + text[last...]
+    }
+
+    public static func plainText(_ html: String) -> String {
+        var s = html.replacingOccurrences(of: "<br\\s*/?>|</p>|</li>|</div>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        s = decodeEntities(s)
+        return s.split(separator: "\n").map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
     /// Customer Alerts (`outputType=JSON`). `Alert` and `Service` may each be one object instead of an array.
     public static func alerts(_ data: Data) throws -> [ServiceAlert] {
         try JSONDecoder().decode(Response.self, from: data).body.alerts?.items.map { a in

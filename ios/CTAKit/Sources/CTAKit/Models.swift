@@ -4,7 +4,18 @@ import Foundation
 public enum Kind: String, Codable, Sendable { case bus, station }
 
 /// The list's All · Trains · Buses switch.
-public enum KindFilter: Sendable { case all, trains, buses }
+public enum KindFilter: Sendable {
+    case all, trains, buses
+
+    /// The stop kinds this setting shows.
+    public var kinds: Set<Kind> {
+        switch self {
+        case .all: [.bus, .station]
+        case .trains: [.station]
+        case .buses: [.bus]
+        }
+    }
+}
 
 /// A route and direction: one card. `dir` is Bus Tracker's rtdir, or the train line's direction label.
 public struct Line: Codable, Hashable, Sendable {

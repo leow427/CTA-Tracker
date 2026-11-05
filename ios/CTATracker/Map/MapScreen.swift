@@ -15,6 +15,10 @@ struct MapScreen: View {
     /// when the sheet's height changes the map's padding, so `camera.followsUserLocation` can't be trusted.
     @State private var following = true
     @State private var detent: PresentationDetent = .medium
+    /// The camera and follow state from before stop detail opened, restored on back (app spec 3).
+    @State private var beforeDetail: (camera: MapCameraPosition, following: Bool)?
+    /// The last camera the map settled on: after a pan, the bound position holds no region to restore.
+    @State private var lastCamera: MapCamera?
 
     var body: some View {
         GeometryReader { geo in
@@ -23,10 +27,11 @@ struct MapScreen: View {
             MapReader { proxy in
                 map
                     .safeAreaPadding(.bottom, covered)
-                    .onMapCameraChange(frequency: .onEnd) { _ in
+                    .onMapCameraChange(frequency: .onEnd) { context in
+                        if model.detailStop == nil { lastCamera = context.camera }
                         // After a pan the list follows the center of the visible map. While following, it uses
                         // the user's fix instead, so resizing the sheet doesn't move the list (or refetch).
-                        guard !following else { return }
+                        guard !following, model.detailStop == nil else { return }   // detail's camera isn't a pan
                         let visible = CGPoint(x: geo.size.width / 2, y: (geo.size.height - covered) / 2)
                         if let c = proxy.convert(visible, from: .local) { model.center = c }
                     }
@@ -37,6 +42,7 @@ struct MapScreen: View {
         .overlay(alignment: .top) { controls }
         .onAppear { model.location.start() }
         .onChange(of: fixKey, initial: true) { followFix() }
+        .onChange(of: model.detailStop?.id) { showDetailStop() }
         .sheet(isPresented: .constant(true)) {
             RouteSheet(detent: $detent)
                 .presentationDetents([.height(140), .medium, .large], selection: $detent)
@@ -54,6 +60,11 @@ struct MapScreen: View {
                     BusPin()
                 }
                 .annotationTitles(.hidden)
+            }
+            if let stop = model.detailStop {   // the open stop, which may not be in the list (opened from search)
+                Marker(stop.name, systemImage: stop.kind == .bus ? "bus.fill" : "tram.fill",
+                       coordinate: CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon))
+                    .tint(Color(rgb: LineColors.rgb(CardBuilder.slots(of: stop, meters: 0).first?.line.route ?? "")))
             }
             UserAnnotation()   // after the pins, so standing at a stop never hides the user's dot
         }
@@ -77,6 +88,25 @@ struct MapScreen: View {
         }
         .padding(.horizontal, Theme.Space.l)
         .padding(.top, Theme.Space.xs)
+    }
+
+    /// Stop detail centers the map on its stop; going back restores the previous camera (app spec 3, 5.1).
+    /// Milestone 4 adds the line framing and live vehicles.
+    private func showDetailStop() {
+        if let stop = model.detailStop {
+            if beforeDetail == nil {
+                beforeDetail = (following ? camera : lastCamera.map { .camera($0) } ?? camera, following)
+            }
+            following = false
+            let region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon),
+                                            latitudinalMeters: 900, longitudinalMeters: 900)
+            withAnimation(reduceMotion ? nil : Theme.smooth) { camera = .region(region) }
+        } else if let before = beforeDetail {
+            beforeDetail = nil
+            following = before.following
+            withAnimation(reduceMotion ? nil : Theme.smooth) { camera = before.camera }
+            if following, let c = model.location.coordinate { model.center = c }
+        }
     }
 
     /// Changes with each new fix (the location service filters them to every 30 m).

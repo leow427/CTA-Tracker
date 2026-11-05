@@ -85,18 +85,11 @@ public struct SlotList: Hashable, Sendable {
 public enum CardBuilder {
     public static func slots(center: CLLocationCoordinate2D, filter: KindFilter,
                              favorites: [Favorite], index: StopIndex) -> SlotList {
-        let kinds: Set<Kind> = switch filter {
-        case .all: [.bus, .station]
-        case .trains: [.station]
-        case .buses: [.bus]
-        }
+        let kinds = filter.kinds
 
-        // Favorites: known stops still served by the line, in the switch's kind, at most 3.
-        let favs = favorites.compactMap { fav -> Slot? in
-            let stop = index.stop(id: fav.stopID) ?? index.station(ofPlatform: fav.stopID)
-            guard let stop, kinds.contains(stop.kind) else { return nil }
-            return slots(of: stop, meters: distance(center, stop)).first { $0.stopID == fav.stopID && $0.line == fav.line }
-        }.prefix(Config.maxFavorites)
+        // Favorites: known stops still served by the line, in the switch's kind; the ★ section shows 3.
+        let favs = resolved(favorites: favorites, center: center, index: index)
+            .filter { kinds.contains($0.kind) }.prefix(Config.maxFavorites)
 
         // Far from Chicago looks at every kind, and beats the fallback.
         let all = index.byDistance(from: center)
@@ -116,7 +109,17 @@ public enum CardBuilder {
         return SlotList(favorites: Array(favs), nearby: nearby, farFromChicago: false)
     }
 
-    static func slots(of stop: Stop, meters: Double) -> [Slot] {
+    /// Every saved favorite that still resolves to a card, in saved order: unknown stops, and lines that no longer
+    /// serve their stop, are left out (plan 4 decision 3). Not capped: past 3 they show under ★ in search (app spec 2).
+    public static func resolved(favorites: [Favorite], center: CLLocationCoordinate2D, index: StopIndex) -> [Slot] {
+        favorites.compactMap { fav -> Slot? in
+            guard let stop = index.stop(id: fav.stopID) ?? index.station(ofPlatform: fav.stopID) else { return nil }
+            return slots(of: stop, meters: distance(center, stop)).first { $0.stopID == fav.stopID && $0.line == fav.line }
+        }
+    }
+
+    /// Every card a stop can make: each line at a bus stop, or each line at each platform of a station.
+    public static func slots(of stop: Stop, meters: Double) -> [Slot] {
         switch stop.kind {
         case .bus:
             (stop.lines ?? []).map { Slot(line: $0, stopID: stop.id, fetchID: stop.id, kind: .bus, meters: meters) }

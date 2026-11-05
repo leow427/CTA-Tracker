@@ -23,10 +23,12 @@ struct PixelImage: View {
 /// in the foreground style. Text without glyphs falls back to the snapped system monospaced font.
 struct PixelText: View {
     let text: String
+    var shrink = 0   // whole pixel scales to step down, for tight spots (ViewThatFits tries 0 first)
     @ScaledMetric private var points: CGFloat
 
-    init(_ text: String, points: CGFloat = 40, relativeTo style: Font.TextStyle = .largeTitle) {
+    init(_ text: String, points: CGFloat = 40, relativeTo style: Font.TextStyle = .largeTitle, shrink: Int = 0) {
         self.text = text
+        self.shrink = shrink
         _points = ScaledMetric(wrappedValue: points, relativeTo: style)
     }
 
@@ -34,7 +36,7 @@ struct PixelText: View {
         if let grid = PixelFont.grid(text), let image = PetSprites.image(grid: grid, palette: [0, 0xFFFFFF]) {
             // Scaled by height, so "1" and "10:05" share one size.
             PixelImage(image: image, points: 0, template: true,
-                       scale: PixelScale.scale(art: PixelFont.glyphHeight, points: points))
+                       scale: max(1, PixelScale.scale(art: PixelFont.glyphHeight, points: points) - shrink))
                 .accessibilityLabel(text)
         } else {
             Text(text).pixelFont(points)
