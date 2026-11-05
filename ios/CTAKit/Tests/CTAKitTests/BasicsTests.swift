@@ -17,9 +17,29 @@ struct BasicsTests {
         #expect(LineColors.rgb("22") == 0x565A5C)   // every bus route
     }
 
+    // iOS redesign task 4: tile colors and their edges (redesign spec 3, 5).
+    @Test func edgeDarkensByAQuarter() {
+        #expect(LineColors.edge(0xFFFFFF) == 0xBFBFBF)
+        #expect(LineColors.edge(0x00A1DE) == 0x0078A6)
+        #expect(LineColors.edge(0x000000) == 0x000000)
+    }
+
+    @Test func busTileContrast() {
+        #expect(LineColors.busTile == 0x1C2A4A)
+        #expect(LineColors.textColor(on: LineColors.busTile) == 0xFFFFFF)
+        #expect(LineColors.contrast(0xFFFFFF, LineColors.busTile) >= 4.5)
+    }
+
+    @Test func tilesUseTrainColorsAndInkForBuses() {
+        for line in LineColors.trains { #expect(LineColors.tile(line.route) == line.rgb) }
+        #expect(LineColors.tile("red") == 0xC60C30)   // ttpositions writes lowercase
+        #expect(LineColors.tile("66") == LineColors.busTile)
+        #expect(LineColors.rgb("66") == LineColors.bus)   // the devices keep CTA's bus gray
+    }
+
     @Test func everyLineTextColorPassesContrast() {
-        let colors = LineColors.trains.map(\.rgb) + [LineColors.bus]
-        #expect(colors.count == 9)
+        let colors = LineColors.trains.map(\.rgb) + [LineColors.bus, LineColors.busTile]
+        #expect(colors.count == 10)
         for rgb in colors {
             #expect(LineColors.contrast(LineColors.textColor(on: rgb), rgb) >= 4.5, "\(String(rgb, radix: 16))")
         }
@@ -32,7 +52,10 @@ struct BasicsTests {
                 let dim = LineColors.dimmed(rgb, dark: dark)
                 let name = "\(dark ? "dark" : "light") \(String(rgb, radix: 16))"
                 #expect(dim != rgb, "\(name)")
-                #expect(LineColors.contrast(dim, background) <= LineColors.contrast(rgb, background), "\(name)")
+                // Ink is darker than the dark gray it mixes toward, so in dark mode it washes out instead of receding.
+                if !(dark && rgb == LineColors.busTile) {
+                    #expect(LineColors.contrast(dim, background) <= LineColors.contrast(rgb, background), "\(name)")
+                }
                 #expect(LineColors.contrast(LineColors.textColor(on: dim), dim) >= 4.5, "\(name)")
             }
         }

@@ -78,8 +78,7 @@ struct CardList: View {
             KindSwitch(filter: filter)
         }
         .padding(Theme.Space.m)
-        .materialBackground(.rect(cornerRadius: Theme.cardRadius + Theme.Space.m, style: .continuous))
-        .floatingShadow()
+        .glassBackground(.rect(cornerRadius: Theme.cardRadius + Theme.Space.m, style: .continuous))
         .padding(.bottom, Theme.Space.xs)
     }
 
@@ -118,7 +117,7 @@ struct CardList: View {
     /// A card that opens its stop's detail, pressing down on touch.
     private func link(_ slot: Slot, now: Date) -> some View {
         NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line)) { Card(slot: slot, now: now) }
-            .buttonStyle(PressableCard())
+            .buttonStyle(TileStyle(rgb: LineColors.tile(slot.line.route)))
     }
 
     /// Search (app spec 3): favorites first, then matching stops, nearest first.
@@ -243,7 +242,7 @@ struct SectionHeader: View {
             .foregroundStyle(.primary)   // on the glass sheet, gray can't keep 4.5:1 over a dark map
             .padding(.horizontal, Theme.Space.m)
             .padding(.vertical, Theme.Space.s)
-            .materialBackground(Capsule())   // readable over the open map
+            .glassBackground(Capsule())   // readable over the open map
             .fixedSize()
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)

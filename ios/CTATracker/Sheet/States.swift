@@ -26,7 +26,7 @@ struct EmptyState<Actions: View>: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Space.xxl)
         .padding(.horizontal, Theme.Space.l)
-        .materialBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
+        .glassBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
     }
 }
 
@@ -62,7 +62,7 @@ struct UnavailableBanner: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
-            .background(Color(uiColor: .secondarySystemFill), in: .rect(cornerRadius: Theme.Space.m, style: .continuous))
+            .glassBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
             .accessibilityAddTraits(.isStaticText)
     }
 }

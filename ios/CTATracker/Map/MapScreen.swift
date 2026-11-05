@@ -73,7 +73,7 @@ struct MapScreen: View {
     }
 }
 
-/// A 44 pt circle on regular material, like Apple Maps' map controls (app spec 4.6).
+/// A 44 pt circle of Liquid Glass, like Apple Maps' map controls (redesign spec 5).
 struct MapButton: View {
     let symbol: String
     let label: String
@@ -85,10 +85,9 @@ struct MapButton: View {
                 .font(Theme.mapSymbol)
                 .foregroundStyle(.primary)
                 .frame(width: Theme.mapButton, height: Theme.mapButton)
-                .materialBackground(Circle())
-                .floatingShadow()
+                .glassBackground(Circle(), interactive: true)
         }
-        .buttonStyle(PressableCard())
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 }
@@ -101,12 +100,11 @@ struct NearLabel: View {
 
     var body: some View {
         Text(place.map { "Near \($0)" } ?? "Near you")
-            .font(.subheadline.weight(.semibold))
+            .font(Theme.rounded(.subheadline, .bold))
             .lineLimit(1)
             .padding(.horizontal, Theme.Space.l)
             .frame(height: Theme.mapButton)
-            .materialBackground(Capsule())
-            .floatingShadow()
+            .glassBackground(Capsule())
             .task(id: "\(center.latitude),\(center.longitude)") {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }

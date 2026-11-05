@@ -44,7 +44,7 @@ struct DioramaMap: View {
                 GeoJSONSource(id: "bus").data(.featureCollection(busFeatures))
                 CircleLayer(id: "bus", source: "bus")
                     .circleRadius(6)
-                    .circleColor(UIColor(Color(rgb: LineColors.bus)))
+                    .circleColor(UIColor(Color(rgb: LineColors.busTile)))   // Ink, as on the bus tiles
                     .circleStrokeColor(.white)
                     .circleStrokeWidth(Theme.pinRim)
                     .circleEmissiveStrength(1)

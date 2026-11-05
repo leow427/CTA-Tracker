@@ -70,6 +70,18 @@ public enum LineColors {
 
     public static func rgb(_ route: String) -> UInt32 { train(route)?.rgb ?? bus }
 
+    /// The app's bus tiles: Ink, richer than the devices' bus gray (redesign spec 5).
+    public static let busTile: UInt32 = 0x1C2A4A
+
+    /// A card or tile's fill: the train's color, Ink for every bus.
+    public static func tile(_ route: String) -> UInt32 { train(route)?.rgb ?? busTile }
+
+    /// A tile's bottom edge: its color with each channel at 75%, rounded down (redesign spec 3).
+    public static func edge(_ rgb: UInt32) -> UInt32 {
+        func dark(_ shift: UInt32) -> UInt32 { ((rgb >> shift & 0xFF) * 3 / 4) << shift }
+        return dark(16) | dark(8) | dark(0)
+    }
+
     /// A stale card's fill: the line color halfway to the background's gray (systemGray5 in light, systemGray4 in dark),
     /// so it recedes in both modes. Opaque, so its text color still passes 4.5:1.
     public static func dimmed(_ rgb: UInt32, dark: Bool) -> UInt32 {

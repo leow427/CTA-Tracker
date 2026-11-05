@@ -1,3 +1,4 @@
+import CTAKit
 import SwiftUI
 
 /// The design kit's values (app spec 4.6). Screens use these, never one-off sizes or colors.
@@ -12,9 +13,12 @@ enum Theme {
         static let xxl: CGFloat = 32
     }
 
-    static let cardRadius: CGFloat = 16
+    static let cardRadius: CGFloat = 22
     static let cardMargin: CGFloat = Space.l
-    static let cardGap: CGFloat = Space.s
+    static let cardGap: CGFloat = Space.m
+    /// A tile's visible bottom edge, and how far its face sinks when pressed (redesign spec 3).
+    static let tileEdge: CGFloat = 4
+    static let pressDepth: CGFloat = 3
     static let mapButton: CGFloat = 44
     static let pinRim: CGFloat = 2
 
@@ -24,6 +28,13 @@ enum Theme {
     static let ink = Color(rgb: 0x1C2A4A)
     /// The light background behind the scrolled-up list.
     static let paper = Color(rgb: 0xF6F2EA)
+    /// The live glyph off the tiles (redesign spec 5).
+    static let signal = Color(rgb: 0x34C759)
+
+    /// SF Pro Rounded (redesign spec 5): heavy for route numbers and minutes, bold for destinations.
+    static func rounded(_ style: Font.TextStyle, _ weight: Font.Weight) -> Font {
+        .system(style, design: .rounded, weight: weight)
+    }
 
     /// The card list rests with its top this far down the screen (redesign spec 2).
     static let listRest: CGFloat = 0.55
@@ -51,31 +62,45 @@ extension Color {
     }
 }
 
-/// Regular material, or a solid system background under Reduce Transparency.
-struct MaterialBackground<S: Shape>: ViewModifier {
+/// Liquid Glass (redesign spec 5), or solid Paper or Ink under Reduce Transparency.
+struct GlassBackground<S: Shape>: ViewModifier {
     let shape: S
+    let interactive: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
         if reduceTransparency {
-            content.background(Color(uiColor: .secondarySystemBackground), in: shape)
+            content.background(scheme == .dark ? Theme.ink : Theme.paper, in: shape)
         } else {
-            content.background(.regularMaterial, in: shape)
+            content.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         }
     }
 }
 
-/// A soft, low shadow in light mode; none in dark, where cards sit on black.
-struct CardShadow: ViewModifier {
-    @Environment(\.colorScheme) private var scheme
-    func body(content: Content) -> some View {
-        content.shadow(color: .black.opacity(scheme == .dark ? 0 : 0.14), radius: 12, y: 6)
-    }
-}
+/// A thick tile (redesign spec 3): the label is the face; this adds the darker bottom edge, a top highlight,
+/// a tight contact shadow and a soft one on the map, and the face sinks onto its edge while pressed.
+struct TileStyle: ButtonStyle {
+    let rgb: UInt32
+    var radius: CGFloat = Theme.cardRadius
 
-/// The soft shadow under floating map controls.
-struct FloatingShadow: ViewModifier {
-    func body(content: Content) -> some View { content.shadow(color: .black.opacity(0.12), radius: 6, y: 2) }
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        configuration.label
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.25), .clear],
+                                                  startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.3)), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(pressed ? 0.1 : 0.18), radius: pressed ? 1 : 2, y: pressed ? 1 : 2)
+            .offset(y: pressed ? Theme.pressDepth : 0)
+            .background { shape.fill(Color(rgb: LineColors.edge(rgb))).offset(y: Theme.tileEdge) }
+            .padding(.bottom, Theme.tileEdge)
+            .shadow(color: .black.opacity(0.12), radius: 16, y: 10)
+            .animation(Theme.snappy, value: pressed)
+            .sensoryFeedback(.impact(weight: .light), trigger: pressed) { _, now in now }
+    }
 }
 
 /// Cards press down the instant a finger lands (on touch-down), on a snappy spring.
@@ -88,8 +113,8 @@ struct PressableCard: ButtonStyle {
 }
 
 extension View {
-    func cardShadow() -> some View { modifier(CardShadow()) }
-    func floatingShadow() -> some View { modifier(FloatingShadow()) }
 
-    func materialBackground<S: Shape>(_ shape: S) -> some View { modifier(MaterialBackground(shape: shape)) }
+    func glassBackground<S: Shape>(_ shape: S, interactive: Bool = false) -> some View {
+        modifier(GlassBackground(shape: shape, interactive: interactive))
+    }
 }
