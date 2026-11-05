@@ -74,43 +74,112 @@ enum Glyphs {
                               "...KKKK..KKKK...", "...KKKK..KKKK...", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..",
                               ".KKKKKK..KKKKKK.", ".KKKKKK..KKKKKK.", "KKKKKKKKKKKKKKKK", "KKKKKKKKKKKKKKKK"])
 
-    // shortcut: a placeholder pet (sleepy) from the art brief in plan 1 task 11, until pet_sprites.json lands.
-    static let pet: CGImage = PetSprites.grid([
+    /// Leo's train pet (32×32): one body, a face per mood drawn on its door, and a little extra that floats beside
+    /// it (heart, excitement lines, sweat drop, Zz; sad has its tears on its face).
+    static func pet(_ mood: Mood) -> CGImage { pets[mood]! }
+    static func petExtra(_ mood: Mood) -> CGImage? { extras[mood] }
+
+    private static let pets = Dictionary(uniqueKeysWithValues: Mood.allCases.map { ($0, petImage(face: petFaces[$0]!)) })
+    private static let extras = petExtras.mapValues { petArt($0) }
+
+    private static let petChars = ".KBLGSWDCRYPUT"
+    private static let petPalette: [UInt32] = [0, 0x0B0D14, 0x2D6BE6, 0x7DB4FF, 0xC3C8CE, 0x8E949B, 0xFFFFFF, 0x5A6069,
+                                               0x9BEFF5, 0xE5333D, 0xFFD43B, 0xF27DAE, 0xA9AEB5, 0x7FD3FF]
+    private static let petBody = [
         "................................",
-        "................................",
-        "................................",
-        ".......KKKKKKKKKKKKKKKKKK.......",
-        "......KBBBBBBBBBBBBBBBBBBK......",
-        ".....KBBBBBBBBBBBBBBBBBBBBK.....",
-        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
-        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
-        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
-        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
-        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
-        "....KBKBBBBBBBKBBKBBBBBBBKBK....",
-        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
-        "....KBKWWEEEWWKBBKWWEEEWWKBK....",
-        "....KBKWWWWWWWKBBKWWWWWWWKBK....",
-        "....KBKWWWWWWWKBBKWWWWWWWKBK....",
-        "....KBKKKKKKKKKBBKKKKKKKKKBK....",
-        "....KBCCBBBBBBBBBBBBBBBBCCBK....",
-        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
-        "....KSSSSSSSSSSSSSSSSSSSSSSK....",
-        "....KSSSSSSSSSSSSSSSSSSSSSSK....",
-        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
-        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
-        "....KBBBBBBBBKYYYYKBBBBBBBBK....",
-        "....KBBBBBBBBKYYYYKBBBBBBBBK....",
-        "....KBBBBBBKBBBBBBBBKBBBBBBK....",
-        "....KBBBBBBBKKKKKKKKBBBBBBBK....",
-        "....KBBBBBBBBBBBBBBBBBBBBBBK....",
-        "....KKKKKKKKKKKKKKKKKKKKKKKK....",
-        "................................",
-        "................................",
+        "..........KKKKKKKKKKKK..........",
+        ".......KBBLLLLLLLLLLLLBBK.......",
+        ".....KBWLLLLKKKKKKKKLLLLBBK.....",
+        "....KBWBBBBBKCCCCCCKBBBBBBBK....",
+        "...KBBBBBBBBKCCCCCCKBBBBBBBBK...",
+        "..KBBBKKKBBBKKKKKKKKBBBKKKBBBK..",
+        ".KGGBKKKKKBBBBBBBBBBBBKKKKKBGGK.",
+        ".KWGBKRWKKBBKKKKKKKKBBKKWRKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKUUUKBKKKKKKKKKKBKUUUKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.",
+        ".KWGBBKKKBBKKKKKKKKKKBBKKKBBGSK.",
+        ".KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.",
+        ".KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.",
+        ".KWGBBBBBBBKKKKKKKKKKBBBBBBBGSK.",
+        ".KWGGBBBBBBBBBBBBBBBBBBBBBBGGSK.",
+        ".KWGGGGGGGGGGGGGGGGGGGGGGGGGGSK.",
+        ".KGGGGGGGGGGGGGGGGGGGGGGGGGGGGK.",
+        "..KKKKKKKKKKKKKKKKKKKKKKKKKKKK..",
+        "...UUUU.DD...UUUUUU...DD.UUUU...",
+        "...UUUU.DD...UUUUUU...DD.UUUU...",
+        "........DD...UUUUUU...DD........",
+        "........DD............DD........",
         "................................"
-    ], chars: ".KBSWEPCY").flatMap {
-        PetSprites.image(grid: $0, palette: [0, 0x1A1A1A, 0xC0C6CC, 0x00A1DE, 0x2B3A55, 0xFFFFFF, 0x1A1A1A, 0xE27EA6, 0xF9E300])
-    }!
+    ]
+    /// Each face covers the door's rows 12–19, columns 11–20; "." keeps the door's black.
+    private static let petFaces: [Mood: [String]] = [
+        .happy: ["..........",
+            "..........",
+            ".WW....WW.",
+            "W..W..W..W",
+            "..........",
+            "PP.W..W.PP",
+            "....WW....",
+            ".........."],
+        .hyped: ["..........",
+            "WW......WW",
+            "..W....W..",
+            "WW......WW",
+            "..........",
+            "PP.WWWW.PP",
+            "....PP....",
+            ".........."],
+        .worried: ["..W....W..",
+            "WW......WW",
+            "..........",
+            ".WW....WW.",
+            ".WW....WW.",
+            "..........",
+            "...W.W.W..",
+            "..W.W.W..."],
+        .sad: ["..........",
+            "..........",
+            "WWW....WWW",
+            ".T......T.",
+            ".T......T.",
+            ".T..WW..T.",
+            ".T.W..W.T.",
+            ".........."],
+        .sleepy: ["..........",
+            "..........",
+            "..........",
+            "WWW....WWW",
+            "..........",
+            "..........",
+            "....WW....",
+            ".........."]
+    ]
+    private static let petExtras: [Mood: [String]] = [
+        .happy: [".PP.PP.", "PPPPPPP", "PPPPPPP", ".PPPPP.", "..PPP..", "...P...", "......."],
+        .hyped: ["....WW.", "..WW...", ".......", "..WWWW.", ".......", "..WW...", "....WW."],
+        .worried: ["...T...", "..TT...", "..TT...", ".TTTT..", ".TTWT..", "..TT...", "......."],
+        .sleepy: ["WWWW...", "..W....", ".W.....", "WWWW...", "....WWW", ".....W.", "....WWW"]
+    ]
+
+    private static func petImage(face: [String]) -> CGImage {
+        var rows = petBody.map(Array.init)
+        for (dy, row) in face.enumerated() {
+            for (dx, c) in row.enumerated() where c != "." { rows[12 + dy][11 + dx] = c }
+        }
+        return petArt(rows.map { String($0) })
+    }
+
+    private static func petArt(_ rows: [String]) -> CGImage {
+        PetSprites.grid(rows, chars: petChars).flatMap { PetSprites.image(grid: $0, palette: petPalette) }!
+    }
 
     private static func glyph(_ rows: [String]) -> CGImage {
         PetSprites.grid(rows, chars: ".K").flatMap { PetSprites.image(grid: $0, palette: [0, 0xFFFFFF]) }!

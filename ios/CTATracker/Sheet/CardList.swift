@@ -31,6 +31,7 @@ struct CardList: View {
                                     if arrivals.unavailable { UnavailableBanner().padding(.horizontal, Theme.cardMargin) }
                                     content(now: context.date)
                                 }
+                                .padding(.bottom, Theme.Space.xl)
                                 .frame(maxWidth: .infinity, minHeight: metrics.full, alignment: .top)
                                 .background(Theme.navy)
                             } header: {
@@ -91,7 +92,7 @@ struct CardList: View {
             .padding(.bottom, Theme.Space.s)
             .background(alignment: .bottom) {
                 Theme.navy
-                    .clipShape(.rect(topLeadingRadius: Theme.panelRadius, topTrailingRadius: Theme.panelRadius))
+                    .clipShape(PixelShape(block: 6, bottom: false))
                     .padding(.top, Theme.searchHeight / 2)
             }
     }
@@ -128,8 +129,10 @@ struct CardList: View {
         NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)) {
             Card(slot: slot, now: now)
         }
-        .buttonStyle(RowStyle())
+        .buttonStyle(PressableCard())
         .matchedTransitionSource(id: slot.id, in: zoom)
+        .padding(.horizontal, Theme.cardMargin)
+        .padding(.vertical, Theme.cardGap / 2)
     }
 
     /// Search (app spec 3): favorites first, then matching stops, nearest first.
@@ -231,8 +234,7 @@ struct SearchBar: View {
         .tint(Theme.navy)
         .padding(.horizontal, Theme.Space.l)
         .frame(height: Theme.searchHeight)
-        .background(Theme.headlight, in: .rect(cornerRadius: Theme.Space.l + 2, style: .continuous))
-        .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
+        .plate(Theme.headlight, rim: .white.opacity(0.35))
         .onChange(of: hasFocus) { focused = hasFocus }
     }
 }
@@ -347,7 +349,7 @@ struct ListMetrics: Equatable {
     var full: CGFloat = 0
     /// The list's resting top edge, about 55% down the screen.
     var restTop: CGFloat = 0
-    /// The bottom of the top controls, where the search header pins.
+    /// The bottom of the top controls (the pet avatar), where the search header pins.
     var controlsBottom: CGFloat = 0
 
     init() {}
@@ -356,7 +358,7 @@ struct ListMetrics: Equatable {
         safeTop = geo.safeAreaInsets.top
         full = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
         restTop = (full * Theme.listRest).rounded()
-        controlsBottom = safeTop + Theme.Space.xs + Theme.mapButton + Theme.Space.s
+        controlsBottom = safeTop + Theme.Space.xs + Theme.avatar + Theme.Space.s
     }
 }
 

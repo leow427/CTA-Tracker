@@ -9,7 +9,7 @@ struct EmptyState<Actions: View>: View {
 
     var body: some View {
         VStack(spacing: Theme.Space.m) {
-            PixelImage(image: Glyphs.pet, points: 128)
+            PixelImage(image: Glyphs.pet(.sad), points: 128)
                 .padding(.bottom, Theme.Space.s)
                 .accessibilityHidden(true)
             Text(title)
@@ -64,7 +64,7 @@ struct UnavailableBanner: View {
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
             .foregroundStyle(.white)
-            .surface(.rect(cornerRadius: Theme.Space.l, style: .continuous))
+            .plate(edge: 4, shape: .small)
             .padding(.top, Theme.Space.m)
             .accessibilityAddTraits(.isStaticText)
     }

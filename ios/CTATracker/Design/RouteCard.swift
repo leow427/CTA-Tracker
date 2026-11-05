@@ -1,8 +1,9 @@
 import CTAKit
 import SwiftUI
 
-/// One route and direction as a row on the navy panel: a huge route number in its line color, "→ destination" and
-/// the stop under it, and big minutes on the right. Color is the accent, not the surface (app spec 4.3).
+/// One route and direction as a card in its line's color (redesign revision 2): a darker shade of the line as the
+/// raised pixel plate, a lighter shade for all its text. A huge route number, "→ destination" and the stop under it,
+/// and big pixel minutes on the right.
 struct RouteCard: View {
     let line: Line
     let kind: Kind
@@ -29,7 +30,7 @@ struct RouteCard: View {
     }
 
     var body: some View {
-        let accent = Color(rgb: LineColors.onNavy(LineColors.accent(line.route), minimum: 3))   // large type
+        let text = Color.cardText(line.route)
         let layout = row(.top, Theme.Space.m)
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             layout {
@@ -48,8 +49,7 @@ struct RouteCard: View {
                     .font(Theme.rounded(.title2, .bold))
                     .labelStyle(TightLabel())
                     .lineLimit(2)
-                    Text(stopName).font(Theme.rounded(.headline, .medium))
-                        .foregroundStyle(Color(rgb: LineColors.onNavy(LineColors.accent(line.route))))
+                    Text(stopName).font(Theme.rounded(.headline, .semibold))
                         .padding(.top, 2)
                 }
                 if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
@@ -58,13 +58,12 @@ struct RouteCard: View {
             }
             footer
         }
-        .foregroundStyle(accent)
-        .opacity(freshness == .fresh ? 1 : 0.55)   // stale rows recede (app spec 8)
-        .padding(.horizontal, Theme.cardMargin)
-        .padding(.vertical, Theme.Space.l)
+        .foregroundStyle(text)
+        .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.rect)
-        .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1).padding(.leading, Theme.cardMargin) }
+        .plate(.card(line.route), rim: text.opacity(0.25))
+        .contentShape(PixelShape())
+        .opacity(freshness == .fresh ? 1 : 0.55)   // stale cards recede (app spec 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(CardSpeech.sentence(line: line, kind: kind, stopName: stopName, next: next, later: later,
                                                 alert: alert, freshness: freshness, now: now, night: night))
@@ -81,11 +80,11 @@ struct RouteCard: View {
                     Text("Delayed").font(Theme.rounded(.caption, .bold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, Theme.Space.s).padding(.vertical, Theme.Space.xs)
-                        .background(Theme.amber, in: .capsule)
+                        .background(Theme.amber, in: PixelShape.small)
                         .fixedSize()
                 }
-                if let also { Text(also).font(Theme.rounded(.subheadline, .semibold)).foregroundStyle(Theme.mist) }
-                if let aged { Text("updated \(aged) min ago").font(Theme.rounded(.subheadline, .medium)).foregroundStyle(Theme.mist) }
+                if let also { Text(also).font(Theme.rounded(.subheadline, .bold)) }
+                if let aged { Text("updated \(aged) min ago").font(Theme.rounded(.subheadline, .semibold)) }
             }
         }
     }
@@ -119,8 +118,8 @@ private struct GlyphIcon: View {
     var body: some View { PixelImage(image: image, points: points, template: true) }
 }
 
-/// The big minutes in rounded heavy type (redesign spec 3) with a small "min" under it and the blinking pixel
-/// live glyph at its corner. A scheduled arrival shows its clock time with no live glyph.
+/// The big minutes in the pixel font, like a departure board, with "minutes" under it and the blinking pixel
+/// live glyph at its corner. A scheduled arrival shows its clock time, smaller, with no live glyph.
 private struct ArrivalView: View {
     let next: Prediction?
     let night: Bool
@@ -129,7 +128,6 @@ private struct ArrivalView: View {
     let now: Date
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 56
 
     /// The big part and the small unit under it: ("3", "min"), ("Due", nil), or ("10:05", nil).
     private var parts: (big: String, unit: String?)? {
@@ -142,19 +140,17 @@ private struct ArrivalView: View {
         if let parts {
             VStack(alignment: .center, spacing: 0) {
                 HStack(alignment: .top, spacing: Theme.Space.xs) {
-                    Text(parts.big)
-                        .font(.system(size: size, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText(countsDown: true))   // minutes roll down as they change
-                        .fixedSize()
+                    PixelText(parts.big, points: 49, shrink: parts.unit == nil ? 3 : 0)   // 7× the 7-pixel digits
+                        .id(parts.big)
+                        .transition(.push(from: .bottom))   // minutes tick over as they change
                     if next?.live == true { LiveGlyph(blinks: fresh).padding(.top, Theme.Space.s) }
                 }
-                if let unit = parts.unit { Text(unit).font(Theme.rounded(.subheadline, .semibold)).padding(.top, -Theme.Space.s) }
+                if let unit = parts.unit { Text(unit).font(Theme.rounded(.subheadline, .bold)).padding(.top, Theme.Space.xs) }
             }
             .animation(reduceMotion ? nil : Theme.snappy, value: parts.big)
         } else {
             Text(unknown ? "—" : night ? "No service now" : "No arrivals").font(Theme.rounded(.headline, .bold))
-                .foregroundStyle(Theme.mist).fixedSize()
+                .fixedSize()
         }
     }
 }
@@ -188,7 +184,7 @@ enum PreviewData {
 
     @MainActor static var cards: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(spacing: Theme.cardGap) {
                 tile(RouteCard(line: redN, kind: .station, stopName: "Belmont",
                           predictions: [p("Red", "Howard", 3), p("Red", "Howard", 12), p("Red", "Howard", 20)], now: now))
                 tile(RouteCard(line: Line(route: "Brn", dir: "Kimball"), kind: .station, stopName: "Belmont",

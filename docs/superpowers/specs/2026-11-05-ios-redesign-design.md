@@ -20,6 +20,15 @@ Leo's verdict on the first build: it still looked like the old app, and the Liqu
 - **Line colors on navy.** Big type is lifted toward white until it reaches 3:1, and smaller text until it reaches 4.5:1 (`LineColors.onNavy`). Buses use a bright blue (`0x2F7BFF`).
 - **Stop detail.** The line's huge number sits over the map, with a red × (close) and ★ down the right. The navy page has "→ destination", big departure tiles (the next one solid in the line color, the later ones tinted navy), the chips (Delayed, freshness), the alerts, and the stop's other lines on a timeline in their colors.
 
+### Revision 2: line cards and pixels (2026-11-05)
+
+Leo's verdict on the navy build: the rows and the stop page looked flat, and the app needed more personality. This overrides the rows and tiles above.
+
+- **Line cards.** Every route is a card in its own line color: the fill is a darker shade of the line (`LineColors.card`: scaled toward one shared depth, at least 15% darker), and all its text is a lighter shade (`LineColors.cardText`: at least 30% toward white, until 4.5:1 on the fill). Buses share the bus blue (per-route bus colors stay out of scope). Stop detail's departure tiles and its "At this stop" lines are cards the same way. The next departure is outlined in the light shade.
+- **Pixel plates.** Cards, tiles, chips, buttons, the search bar, and the panel's top edge have stepped pixel corners (`PixelShape`), a rim, light from the top, and a hard darker edge under them (`.plate`), so they sit up off the navy like game tiles.
+- **Pixel type.** Minutes use the pixel digits again, like a departure board; clock times step down to fit. Route names stay SF Rounded heavy. The detail's huge route name has a hard pixel drop shadow in the line's dark shade.
+- **The pet.** Leo's train (a blue L car front with a face on its door), redrawn as a 32×32 sprite in `Glyphs`. Its face shows the mood from the devices' rules over the listed cards: happy (closed smiling eyes, heart), hyped (> < eyes, open mouth, excitement lines), worried (brows, wavy mouth, sweat drop), sad (T_T with tears), and sleepy (closed eyes, Zz). It sits at the top left, 3× on a cream pixel tile, bobbing one art pixel twice a second (still under Reduce Motion), with a yellow gear badge for Settings, and "says" the Near place in a cream pixel speech bubble.
+
 ## 1. Decisions
 
 | Topic | Decision |

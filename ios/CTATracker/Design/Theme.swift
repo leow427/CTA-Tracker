@@ -13,7 +13,6 @@ enum Theme {
         static let xxl: CGFloat = 32
     }
 
-    static let cardRadius: CGFloat = 22
     static let cardMargin: CGFloat = Space.l
     static let cardGap: CGFloat = Space.m
     static let mapButton: CGFloat = 44
@@ -45,9 +44,10 @@ enum Theme {
     static let listRest: CGFloat = 0.55
     /// Stop detail's page starts this far down, under the map framing the stop and its big route number.
     static let detailRest: CGFloat = 0.5
-    /// The navy panel's rounded top, and the search bar that sits on it.
-    static let panelRadius: CGFloat = 28
+    /// The search bar on the navy panel's top edge.
     static let searchHeight: CGFloat = 58
+    /// The pet avatar's tile at the top left, around 3× its 32-pixel art (96 pt).
+    static let avatar: CGFloat = 108
 
     /// Secondary text: the app is always on navy.
     static let secondaryText = mist
@@ -67,15 +67,61 @@ extension Color {
     }
 }
 
-/// A solid raised surface on navy with a faint rim: no glass, so it reads the same over any map.
-struct Surface<S: InsettableShape>: ViewModifier {
-    let shape: S
-    var fill = Theme.raised
+/// A rectangle whose corners step in whole blocks, like the pet's pixel art (redesign revision 2).
+/// `steps` is how far each row of blocks at a corner is pulled in, in blocks; `bottom: false` squares the bottom.
+nonisolated struct PixelShape: InsettableShape {
+    var block: CGFloat = 4
+    var steps: [CGFloat] = [3, 1, 1]
+    var bottom = true
+    var inset: CGFloat = 0
+
+    /// For chips and buttons.
+    static let small = PixelShape(block: 3, steps: [2, 1])
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: inset, dy: inset)
+        // The top-right corner, clockwise, as (in from the side, down from the top).
+        var corner: [CGPoint] = []
+        for (n, d) in steps.enumerated() {
+            corner += [CGPoint(x: d * block, y: CGFloat(n) * block), CGPoint(x: d * block, y: CGFloat(n + 1) * block)]
+        }
+        corner.append(CGPoint(x: 0, y: CGFloat(steps.count) * block))
+        let low = bottom ? corner : [.zero]
+        let points = corner.map { CGPoint(x: r.maxX - $0.x, y: r.minY + $0.y) }
+            + low.reversed().map { CGPoint(x: r.maxX - $0.x, y: r.maxY - $0.y) }
+            + low.map { CGPoint(x: r.minX + $0.x, y: r.maxY - $0.y) }
+            + corner.reversed().map { CGPoint(x: r.minX + $0.x, y: r.minY + $0.y) }
+        var path = Path()
+        path.addLines(points)
+        path.closeSubpath()
+        return path
+    }
+
+    func inset(by amount: CGFloat) -> PixelShape {
+        var shape = self
+        shape.inset += amount
+        return shape
+    }
+}
+
+/// A raised pixel plate, like a game tile: a solid fill lit from the top, a rim, and a hard darker edge under it,
+/// so it sits up off the panel instead of lying flat.
+struct Plate: ViewModifier {
+    let fill: Color
+    var rim = Color.white.opacity(0.22)
+    var rimWidth: CGFloat = 2
+    var edge: CGFloat = 5
+    var shape = PixelShape()
 
     func body(content: Content) -> some View {
-        content
-            .background(fill, in: shape)
-            .overlay { shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1) }
+        content.background {
+            ZStack {
+                ZStack { shape.fill(fill); shape.fill(.black.opacity(0.45)) }.offset(y: edge)   // the plate's side
+                shape.fill(fill)
+                shape.fill(LinearGradient(colors: [.white.opacity(0.12), .clear], startPoint: .top, endPoint: .center))
+                shape.strokeBorder(rim, lineWidth: rimWidth)
+            }
+        }
     }
 }
 
@@ -89,8 +135,14 @@ struct PressableCard: ButtonStyle {
 }
 
 extension View {
-
-    func surface<S: InsettableShape>(_ shape: S, fill: Color = Theme.raised) -> some View {
-        modifier(Surface(shape: shape, fill: fill))
+    func plate(_ fill: Color = Theme.raised, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
+               shape: PixelShape = PixelShape()) -> some View {
+        modifier(Plate(fill: fill, rim: rim, rimWidth: rimWidth, edge: edge, shape: shape))
     }
+}
+
+extension Color {
+    /// A line's card fill and its text (redesign revision 2).
+    static func card(_ route: String) -> Color { Color(rgb: LineColors.card(LineColors.accent(route))) }
+    static func cardText(_ route: String) -> Color { Color(rgb: LineColors.cardText(LineColors.accent(route))) }
 }

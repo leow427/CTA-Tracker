@@ -80,15 +80,32 @@ public enum LineColors {
     /// The color as text on navy: mixed toward white in 10% steps until it reaches `minimum` (4.5:1 for text,
     /// 3:1 for large type), so Brown and Purple read and the big numbers keep their color.
     public static func onNavy(_ rgb: UInt32, minimum: Double = 4.5) -> UInt32 {
-        var c = rgb
-        for step in 1...10 where contrast(c, navy) < minimum {
-            func mix(_ shift: UInt32) -> UInt32 {
+        lifted(rgb, on: navy, minimum: minimum)
+    }
+
+    /// A line's card (redesign revision 2): the color darkened toward one shared depth, so every card is
+    /// unmistakably its line yet dark enough for light text. Always at least 15% darker.
+    public static func card(_ rgb: UInt32) -> UInt32 {
+        let factor = min(0.85, pow(0.05 / luminance(rgb), 1 / 2.2))   // sRGB is ~gamma 2.2: scale to luminance 0.05
+        func scale(_ shift: UInt32) -> UInt32 { UInt32((Double(rgb >> shift & 0xFF) * factor).rounded()) << shift }
+        return scale(16) | scale(8) | scale(0)
+    }
+
+    /// The text on a line's card: the color lightened (at least 30% toward white) until it reads at 4.5:1.
+    public static func cardText(_ rgb: UInt32) -> UInt32 {
+        lifted(rgb, on: card(rgb), minimum: 4.5, from: 3)
+    }
+
+    /// `rgb` mixed toward white in 10% steps, starting at `from` steps, until it reaches `minimum` on `background`.
+    static func lifted(_ rgb: UInt32, on background: UInt32, minimum: Double, from: Int = 0) -> UInt32 {
+        func mix(_ step: Int) -> UInt32 {
+            func channel(_ shift: UInt32) -> UInt32 {
                 let v = Double(rgb >> shift & 0xFF)
                 return UInt32((v + (255 - v) * Double(step) / 10).rounded()) << shift
             }
-            c = mix(16) | mix(8) | mix(0)
+            return channel(16) | channel(8) | channel(0)
         }
-        return c
+        return (from...10).lazy.map(mix).first { contrast($0, background) >= minimum } ?? 0xFFFFFF
     }
 
     /// A stale card's fill: the line color halfway to the background's gray (systemGray5 in light, systemGray4 in dark),

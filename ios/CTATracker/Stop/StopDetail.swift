@@ -11,7 +11,7 @@ struct DetailRoute: Hashable {
 
 /// Stop detail over the map (app spec 5.1): the map frames the stop with the line's huge number over it
 /// (`DetailHeroView`); the navy page under it has "→ destination", a row of big departure tiles, the chips,
-/// the alerts, and the stop's other lines on a colored timeline.
+/// the alerts, and the stop's other lines, each as a card in its own color.
 struct StopDetail: View {
     let route: DetailRoute
     @Environment(AppModel.self) private var model
@@ -59,8 +59,8 @@ struct StopDetail: View {
                     VStack(alignment: .leading, spacing: Theme.Space.xs) {
                         Label { Text(RouteCard.heading(top.line, kind: top.kind, dest: top.arrivals.first?.dest)) }
                             icon: { Image(systemName: "arrow.right.circle.fill") }
-                            .font(Theme.rounded(.title, .bold))
-                            .foregroundStyle(.white)
+                            .font(Theme.rounded(.title, .heavy))
+                            .foregroundStyle(Color.cardText(top.line.route))
                         Text(stop.name).font(Theme.rounded(.headline, .semibold)).foregroundStyle(Theme.mist)
                     }
                     DepartureRow(group: top, state: state, night: Night.now(now), now: now)
@@ -73,13 +73,12 @@ struct StopDetail: View {
                     Text("At this stop").font(Theme.rounded(.footnote, .heavy)).textCase(.uppercase).tracking(1)
                         .foregroundStyle(Theme.mist)
                         .padding(.top, Theme.Space.s)
-                    VStack(spacing: 0) {
-                        ForEach(Array(others.enumerated()), id: \.element.id) { n, group in
+                    VStack(spacing: Theme.cardGap) {
+                        ForEach(others) { group in
                             Button { withAnimation(Theme.snappy) { selected = group.line } } label: {
-                                TimelineRow(group: group, last: n == others.count - 1, state: state,
-                                            night: Night.now(now), now: now)
+                                LineCard(group: group, state: state, night: Night.now(now), now: now)
                             }
-                            .buttonStyle(RowStyle())
+                            .buttonStyle(PressableCard())
                         }
                     }
                 }
@@ -88,7 +87,7 @@ struct StopDetail: View {
             .padding(.top, Theme.Space.xl)
             .padding(.bottom, Theme.Space.xxl)
             .frame(maxWidth: .infinity, minHeight: metrics.full - metrics.controlsBottom, alignment: .topLeading)
-            .background(Theme.navy, in: .rect(topLeadingRadius: Theme.panelRadius, topTrailingRadius: Theme.panelRadius))
+            .background(Theme.navy, in: PixelShape(block: 6, bottom: false))
             // The page's top edge on screen: touches above it go to the map (PassThroughHost).
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { model.detailTop = $0 }
         }
@@ -102,17 +101,17 @@ struct StopDetail: View {
                 Label { Text("Delayed") } icon: { PixelImage(image: Glyphs.alert, points: 16, template: true) }
                     .font(Theme.rounded(.headline, .bold)).foregroundStyle(.black)
                     .padding(.horizontal, Theme.Space.l).frame(height: Theme.mapButton + Theme.Space.xs)
-                    .background(Theme.amber, in: .rect(cornerRadius: Theme.Space.l, style: .continuous))
+                    .plate(Theme.amber, edge: 4, shape: .small)
             }
             FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, now: now)
                 .padding(.horizontal, Theme.Space.l).frame(height: Theme.mapButton + Theme.Space.xs)
-                .surface(.rect(cornerRadius: Theme.Space.l, style: .continuous))
+                .plate(edge: 4, shape: .small)
         }
     }
 }
 
-/// The chosen line's next departures as big tiles in a row that scrolls sideways: the next one solid in the
-/// line color, the later ones tinted navy.
+/// The chosen line's next departures as big tiles in a row that scrolls sideways, all in the line's card color:
+/// the next one biggest, outlined in the light shade.
 private struct DepartureRow: View {
     let group: DetailGroup
     let state: DetailState
@@ -133,12 +132,12 @@ private struct DepartureRow: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: Theme.Space.m) {
                     ForEach(Array(group.arrivals.enumerated()), id: \.offset) { n, p in
-                        DepartureTile(p: p, accent: LineColors.accent(group.line.route), lead: n == 0,
+                        DepartureTile(p: p, route: group.line.route, lead: n == 0,
                                       stale: state.stale, now: now)
                             .frame(width: n == 0 ? lead : later, height: lead)
                     }
                 }
-                .padding(.vertical, Theme.Space.s)
+                .padding(.top, Theme.Space.s).padding(.bottom, Theme.Space.m)   // room for the plates' edge
             }
             .scrollIndicators(.hidden)
             .scrollClipDisabled()
@@ -146,40 +145,34 @@ private struct DepartureRow: View {
     }
 }
 
-/// One departure: big minutes (or a clock time or Due) over "minutes", then Live, Scheduled, or Delayed.
+/// One departure: big pixel minutes (or a clock time or Due) over "minutes", then Live, Scheduled, or Delayed.
 private struct DepartureTile: View {
     let p: Prediction
-    let accent: UInt32
+    let route: String
     let lead: Bool
     let stale: Bool   // stale data doesn't claim to be live (the chip gives its age)
     let now: Date
-    @ScaledMetric(relativeTo: .largeTitle) private var big: CGFloat = 64
-    @ScaledMetric(relativeTo: .largeTitle) private var small: CGFloat = 52
-
     var body: some View {
         let m = ArrivalFormat.minutes(until: p.at, now: now)
         let minutes = p.live && m >= 1
-        let text = lead ? Color(rgb: LineColors.textColor(on: accent)) : Color.white
-        let shape = RoundedRectangle(cornerRadius: Theme.cardRadius + Theme.Space.xs, style: .continuous)
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 2) {
-                Text(minutes ? "\(m)" : ArrivalFormat.label(p, now: now))
-                    .font(.system(size: lead ? big : small, weight: .heavy, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(countsDown: true))
-                    .lineLimit(1).minimumScaleFactor(0.4)
+        let text = Color.cardText(route)
+        VStack(spacing: Theme.Space.xs) {
+            HStack(alignment: .top, spacing: Theme.Space.xs) {
+                // 8× or 6× the 7-pixel digits; clock times step down 3 scales to fit the tile.
+                PixelText(minutes ? "\(m)" : ArrivalFormat.label(p, now: now), points: lead ? 56 : 42,
+                          shrink: minutes ? 0 : 3)
                 if p.live && !stale { PixelImage(image: Glyphs.live[0], points: 16, template: true).padding(.top, Theme.Space.s) }
             }
-            if minutes { Text("minutes").font(Theme.rounded(.headline, .semibold)).opacity(0.85) }
+            if minutes { Text("minutes").font(Theme.rounded(.headline, .bold)) }
             Spacer(minLength: 0)
             if p.delayed {
                 Text("DELAYED").foregroundStyle(.black)
                     .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
-                    .background(Theme.amber, in: .capsule)
+                    .background(Theme.amber, in: PixelShape.small)
             } else if !p.live {
-                Text("SCHEDULED").foregroundStyle(Theme.navy)
+                Text("SCHEDULED").foregroundStyle(Color.card(route))
                     .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
-                    .background(Theme.mist, in: .capsule)
+                    .background(text, in: PixelShape.small)
             }
         }
         .font(Theme.rounded(.caption, .heavy))
@@ -187,61 +180,46 @@ private struct DepartureTile: View {
         .padding(.vertical, Theme.Space.l)
         .padding(.horizontal, Theme.Space.s)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            if lead {
-                shape.fill(Color(rgb: accent).gradient)   // a touch of light from the top
-            } else {
-                shape.fill(Theme.raised).overlay { shape.fill(Color(rgb: accent).opacity(0.22)) }
-            }
-        }
-        .overlay { shape.strokeBorder(Color.white.opacity(lead ? 0.18 : 0.08), lineWidth: 1) }
-        .shadow(color: lead ? Color(rgb: accent).opacity(0.45) : .black.opacity(0.3), radius: 14, y: 8)
+        .plate(.card(route), rim: lead ? text : text.opacity(0.25), rimWidth: lead ? 3 : 2)
         .opacity(stale ? 0.6 : 1)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// Another line and direction at the stop, on a timeline in its color: name, destination, next arrival.
-private struct TimelineRow: View {
+/// Another line and direction at the stop, as a card in its color: name, destination, next arrival in pixel digits.
+private struct LineCard: View {
     let group: DetailGroup
-    let last: Bool
     let state: DetailState
     let night: Bool
     let now: Date
 
     var body: some View {
-        let accent = Color(rgb: LineColors.onNavy(LineColors.accent(group.line.route), minimum: 3))
         let next = group.arrivals.first
-        HStack(alignment: .top, spacing: Theme.Space.m) {
-            VStack(spacing: 0) {
-                Circle().fill(accent).frame(width: 18, height: 18)
-                    .overlay { Circle().fill(Theme.navy).frame(width: 7, height: 7) }
-                    .padding(.top, Theme.Space.xs)
-                if !last { Rectangle().fill(accent.opacity(0.6)).frame(width: 4) }
-            }
-            .frame(width: 18)
+        HStack(alignment: .center, spacing: Theme.Space.m) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.kind == .bus ? group.line.route : RouteCard.shortName(group.line))
-                    .font(Theme.rounded(.title2, .heavy)).foregroundStyle(accent)
+                    .font(Theme.rounded(.title, .heavy))
                 Text(RouteCard.heading(group.line, kind: group.kind, dest: next?.dest))
-                    .font(Theme.rounded(.headline, .semibold)).foregroundStyle(.white)
+                    .font(Theme.rounded(.headline, .bold))
                     .lineLimit(1)
             }
-            .padding(.bottom, Theme.Space.l)
             Spacer(minLength: 0)
-            Group {
-                if let next {
-                    let m = ArrivalFormat.minutes(until: next.at, now: now)
-                    Text(next.live && m >= 1 ? "\(m) min" : ArrivalFormat.label(next, now: now))
-                } else {
-                    Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service" : "None")
+            if let next {
+                let m = ArrivalFormat.minutes(until: next.at, now: now)
+                let live = next.live && m >= 1
+                VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                    PixelText(live ? "\(m)" : ArrivalFormat.label(next, now: now), points: 28, shrink: live ? 0 : 1)
+                    if live { Text("min").font(Theme.rounded(.subheadline, .bold)) }
                 }
+            } else {
+                Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service" : "None")
+                    .font(Theme.rounded(.title3, .heavy))
             }
-            .font(Theme.rounded(.title3, .heavy)).monospacedDigit()
-            .foregroundStyle(.white)
-            .padding(.top, Theme.Space.xs)
         }
-        .contentShape(.rect)
+        .foregroundStyle(Color.cardText(group.line.route))
+        .padding(Theme.Space.l)
+        .plate(.card(group.line.route), rim: Color.cardText(group.line.route).opacity(0.25))
+        .contentShape(PixelShape())
     }
 }
 
@@ -284,8 +262,7 @@ struct StarButton: View {
                 .font(Theme.mapSymbol)
                 .foregroundStyle(on ? Theme.headlight : .white)
                 .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
-                .surface(Circle())
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+                .plate(edge: 4, shape: .small)
         }
         .buttonStyle(PressableCard())
         .sensoryFeedback(.impact(weight: .light), trigger: toggles)   // only a ★ tap, not a change of group
@@ -332,6 +309,6 @@ private struct AlertsRow: View {
         .foregroundStyle(.primary)
         .padding(Theme.Space.l)
         // Neutral: amber is only for the Delayed badge (app spec 4.6); the pixel ⚠ carries the warning.
-        .surface(.rect(cornerRadius: Theme.Space.l, style: .continuous))
+        .plate(edge: 4, shape: .small)
     }
 }

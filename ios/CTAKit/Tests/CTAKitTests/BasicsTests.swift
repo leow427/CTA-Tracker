@@ -34,6 +34,18 @@ struct BasicsTests {
         #expect(LineColors.accent("Red") == 0xC60C30)
     }
 
+    /// Each line's card (redesign revision 2): a darker version of its color, with a lighter version as the text.
+    @Test func lineCardsAreDarkerWithLighterText() {
+        for rgb in LineColors.trains.map(\.rgb) + [LineColors.busAccent] {
+            let (card, text) = (LineColors.card(rgb), LineColors.cardText(rgb))
+            let hex = String(rgb, radix: 16)
+            #expect(LineColors.luminance(card) < LineColors.luminance(rgb), "\(hex) card is darker")
+            #expect(LineColors.luminance(text) > LineColors.luminance(rgb), "\(hex) text is lighter")
+            #expect(LineColors.contrast(text, card) >= 4.5, "\(hex) text reads on its card")
+            #expect(LineColors.contrast(card, LineColors.navy) >= 1.4, "\(hex) card stands off the navy panel")
+        }
+    }
+
     @Test func everyLineTextColorPassesContrast() {
         let colors = LineColors.trains.map(\.rgb) + [LineColors.bus]
         #expect(colors.count == 9)
