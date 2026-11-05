@@ -25,6 +25,8 @@ struct EmptyState<Actions: View>: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Space.xxl)
+        .padding(.horizontal, Theme.Space.l)
+        .materialBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))   // readable over the map
     }
 }
 

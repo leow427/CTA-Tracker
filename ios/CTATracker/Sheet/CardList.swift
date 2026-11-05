@@ -1,57 +1,91 @@
 import CTAKit
 import SwiftUI
 
-/// The always-up sheet: search bar, All · Trains · Buses, ★ favorites, and the nearby cards (app spec 3, 4.2).
-struct RouteSheet: View {
-    @Binding var detent: PresentationDetent
+/// The card list over the map (redesign spec 2): search, All · Trains · Buses, ★ favorites, and the nearby cards.
+/// It rests partway down the screen and scrolls up over the map; stop detail pushes inside it.
+struct CardList: View {
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var path: [DetailRoute] = []
     @State private var searching = false   // the search field has focus
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack(path: $path) {
-            ScrollView {
-                // One clock for every card, outside the lazy stack, so cards are built only as they scroll in.
-                TimelineView(.periodic(from: .now, by: 15)) { context in
-                    LazyVStack(spacing: Theme.cardGap) {
-                        if arrivals.unavailable { UnavailableBanner() }
-                        content(now: context.date)
+        GeometryReader { geo in
+            let metrics = ListMetrics(geo)
+            NavigationStack(path: $path) {
+                ScrollViewReader { reader in
+                ScrollView {
+                    // One clock for every card, outside the lazy stack, so cards are built only as they scroll in.
+                    TimelineView(.periodic(from: .now, by: 15)) { context in
+                        LazyVStack(spacing: Theme.cardGap, pinnedViews: [.sectionHeaders]) {
+                            // The open map above the resting list. A spacer, not a content margin: pinned
+                            // headers stick at the margin's edge, and this one should stick under the controls.
+                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom - Theme.cardGap)
+                            Section {
+                                if arrivals.unavailable { UnavailableBanner() }
+                                content(now: context.date)
+                            } header: {
+                                header(filter: $model.filter)
+                                    .id(Self.top)   // search focus scrolls this to the top
+                                    // The list's top edge on screen: touches above it go to the map (PassThroughHost).
+                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: {
+                                        model.listTop = $0
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, Theme.cardMargin)
+                        .padding(.bottom, Theme.Space.xxl)
+                        // Always tall enough to pin the header, even with a short list or few search results.
+                        .frame(minHeight: metrics.full + metrics.restTop, alignment: .top)
                     }
-                    .padding(.horizontal, Theme.cardMargin)
-                    .padding(.bottom, Theme.Space.xxl)
+                }
+                .scrollDismissesKeyboard(.immediately)
+                .refreshable { await arrivals.refresh() }
+                .safeAreaPadding(.top, metrics.controlsBottom - metrics.safeTop)
+                // Once the header nears the top controls, a solid background fades in behind the cards.
+                .background { background(metrics).ignoresSafeArea() }
+                .toolbar(.hidden, for: .navigationBar)
+                .containerBackground(.clear, for: .navigation)
+                .navigationDestination(for: DetailRoute.self) { StopDetail(route: $0) }
+                .task(id: searching) {   // focusing search scrolls the header up to the top (redesign spec 2)
+                    guard searching else { return }
+                    withAnimation(Theme.smooth) { reader.scrollTo(Self.top, anchor: .top) }
+                }
                 }
             }
-            .scrollDismissesKeyboard(.immediately)
-            .refreshable { await arrivals.refresh() }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(spacing: Theme.Space.m) {
-                    SearchBar(query: $query, focused: $searching)
-                    KindSwitch(filter: $model.filter)
-                }
-                .padding(.horizontal, Theme.cardMargin)
-                .padding(.top, Theme.Space.l)
-                .padding(.bottom, Theme.Space.m)
-                .background(.bar)
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: DetailRoute.self) { StopDetail(route: $0) }
+            .environment(\.listMetrics, metrics)
         }
-        .tint(.primary)   // no system blue in the sheet: line colors and amber are the only saturated colors (4.6)
-        // Where the sheet's top edge is on screen, so the map frames and follows only what's left visible.
-        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { model.sheetTop = $0 }
+        .tint(.primary)   // no system blue: line colors and amber are the saturated colors (redesign spec 5)
         .sheet(isPresented: $model.showSettings) { SettingsScreen() }
         .onAppear { track() }
         .onChange(of: model.slots) { track() }
         .onChange(of: model.location.denied) { track() }
         .onChange(of: path) { opened() }
-        .onChange(of: searching) { if searching { detent = .large } }   // focusing search raises the sheet (app spec 3)
-        // Polls only while the list is on screen: the app is active and nothing covers the sheet (app spec 4.4).
+        // Polls only while the list is on screen: the app is active and nothing covers it (app spec 4.4).
         .onChange(of: scenePhase, initial: true) { updatePolling() }
         .onChange(of: model.showSettings) { updatePolling() }
+    }
+
+    private static let top = "listTop"
+
+    private func header(filter: Binding<KindFilter>) -> some View {
+        VStack(spacing: Theme.Space.m) {
+            SearchBar(query: $query, focused: $searching)
+            KindSwitch(filter: filter)
+        }
+        .padding(Theme.Space.m)
+        .materialBackground(.rect(cornerRadius: Theme.cardRadius + Theme.Space.m, style: .continuous))
+        .floatingShadow()
+        .padding(.bottom, Theme.Space.xs)
+    }
+
+    private func background(_ metrics: ListMetrics) -> some View {
+        let fade = min(1, max(0, (metrics.controlsBottom + Theme.listFade - model.listTop) / Theme.listFade))
+        return (scheme == .dark ? Theme.ink : Theme.paper).opacity(fade)
     }
 
     @ViewBuilder private func content(now: Date) -> some View {
@@ -101,10 +135,9 @@ struct RouteSheet: View {
         }
     }
 
-    /// Opening detail: half height (app spec 5.1), the map centers on the stop, and only that stop is polled.
+    /// Opening detail: the map centers on the stop, and only that stop is polled.
     private func opened() {
         model.detailStop = path.last.flatMap { model.index?.stop(id: $0.stopID) }
-        if !path.isEmpty { detent = .medium }
         track()
     }
 
@@ -157,7 +190,7 @@ enum Night {
     }
 }
 
-/// The search field at the top of the sheet. Focusing it raises the sheet to full (app spec 3).
+/// The search field at the top of the list. Focusing it scrolls the list up (redesign spec 2).
 struct SearchBar: View {
     @Binding var query: String
     @Binding var focused: Bool
@@ -208,8 +241,11 @@ struct SectionHeader: View {
         Label(title, systemImage: symbol)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.primary)   // on the glass sheet, gray can't keep 4.5:1 over a dark map
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
+            .materialBackground(Capsule())   // readable over the open map
+            .fixedSize()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, Theme.Space.s)
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -265,4 +301,27 @@ struct StopRow: View {
             }
         }
     }
+}
+
+/// Where the list sits on screen (redesign spec 2), shared with stop detail.
+struct ListMetrics: Equatable {
+    var safeTop: CGFloat = 0
+    var full: CGFloat = 0
+    /// The list's resting top edge, about 55% down the screen.
+    var restTop: CGFloat = 0
+    /// The bottom of the top controls, where the search header pins.
+    var controlsBottom: CGFloat = 0
+
+    init() {}
+
+    init(_ geo: GeometryProxy) {
+        safeTop = geo.safeAreaInsets.top
+        full = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
+        restTop = (full * Theme.listRest).rounded()
+        controlsBottom = safeTop + Theme.Space.xs + Theme.mapButton + Theme.Space.s
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var listMetrics = ListMetrics()
 }

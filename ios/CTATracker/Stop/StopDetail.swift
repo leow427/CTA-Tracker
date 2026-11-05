@@ -13,6 +13,8 @@ struct StopDetail: View {
     let route: DetailRoute
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
+    @Environment(\.listMetrics) private var metrics
+    @Environment(\.colorScheme) private var scheme
     @State private var selected: Line?
     @State private var width: CGFloat = 0
     @ScaledMetric(relativeTo: .title2) private var pixelPoints: CGFloat = 24
@@ -42,6 +44,8 @@ struct StopDetail: View {
         let routes = Set(groups.map(\.line.route))
         let alerts = Array(Set(routes.flatMap { arrivals.alerts[$0] ?? [] })).sorted { $0.id < $1.id }
         return ScrollView {
+            // The open map above the page, as on the list (redesign spec 4).
+            Color.clear.frame(height: max(0, metrics.restTop - metrics.controlsBottom))
             VStack(alignment: .leading, spacing: Theme.Space.m) {
                 header(stop, groups: groups, chosen: chosen, failing: failing, now: now)
                 if failing { UnavailableBanner() }   // the list's outage banner, here too (app spec 8)
@@ -54,7 +58,13 @@ struct StopDetail: View {
             .padding(.horizontal, Theme.cardMargin)
             .onGeometryChange(for: CGFloat.self) { [margin = Theme.cardMargin] in $0.size.width - 2 * margin } action: { width = $0 }
             .padding(.bottom, Theme.Space.xxl)
+            .frame(minHeight: metrics.full - metrics.controlsBottom, alignment: .top)
+            .background((scheme == .dark ? Theme.ink : Theme.paper),
+                        in: .rect(topLeadingRadius: Theme.cardRadius * 2, topTrailingRadius: Theme.cardRadius * 2, style: .continuous))
+            // The page's top edge on screen: touches above it go to the map (PassThroughHost).
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { model.detailTop = $0 }
         }
+        .containerBackground(.clear, for: .navigation)
     }
 
     private func header(_ stop: Stop, groups: [DetailGroup], chosen: Line?, failing: Bool, now: Date) -> some View {

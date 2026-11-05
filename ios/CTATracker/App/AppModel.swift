@@ -18,14 +18,16 @@ import SwiftUI
     var favorites: [Favorite] = AppModel.loadFavorites() {
         didSet { rebuild(); AppModel.save(favorites) }
     }
-    /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the sheet).
+    /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the list).
     var detailStop: Stop?
     private(set) var slots = SlotList(favorites: [], nearby: [], farFromChicago: false)
 
-    /// The gear on the map sets this; the sheet's content presents Settings (app spec 3).
+    /// The gear on the map sets this; the card list presents Settings (app spec 3).
     var showSettings = false
-    /// The sheet's top edge on screen, so the map frames and follows only the part left visible.
-    var sheetTop: CGFloat = .infinity
+    /// The card list's top edge on screen: touches above it go to the map (redesign spec 2).
+    var listTop: CGFloat = .infinity
+    /// Stop detail's content top on screen, the same for detail.
+    var detailTop: CGFloat = .infinity
 
     init() {
         let url = Bundle.main.url(forResource: "stops", withExtension: "json")

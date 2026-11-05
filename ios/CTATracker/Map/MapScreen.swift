@@ -2,37 +2,37 @@ import CoreLocation
 import CTAKit
 import SwiftUI
 
-/// The full-screen map under the always-up route sheet (app spec 3, redesign spec 6).
+/// The full-screen map with the card list scrolling over it (redesign spec 2, 6).
 struct MapScreen: View {
     @Environment(AppModel.self) private var model
+    @Environment(ArrivalsStore.self) private var arrivals
     /// Our own follow state: only a real gesture clears it, and recenter sets it again.
     @State private var following = true
-    @State private var detent: PresentationDetent = .medium
 
     var body: some View {
         GeometryReader { geo in
-            // The sheet covers the bottom; up to half height the map keeps working behind it (app spec 3).
-            let covered = min(max(0, geo.size.height - model.sheetTop), geo.size.height * 0.55)
-            TimelineView(.everyMinute) { context in
-                DioramaMap(following: $following, focus: model.detailStop, busStops: busPins, bottomInset: covered,
-                           preset: preset(at: context.date)) { center in
-                    model.center = center   // after a pan the list follows the center of the visible map
+            ZStack {
+                TimelineView(.everyMinute) { context in
+                    // The list covers the bottom at rest, so the camera centers in the part above it.
+                    DioramaMap(following: $following, focus: model.detailStop, busStops: busPins,
+                               bottomInset: (geo.size.height * (1 - Theme.listRest)).rounded(),
+                               preset: preset(at: context.date)) { center in
+                        model.center = center   // after a pan the list follows the center of the visible map
+                    }
+                }
+                // Its own hosting controller, so the environment is passed in.
+                PassThroughHost(openAbove: model.detailStop == nil ? model.listTop : model.detailTop) {
+                    CardList().environment(model).environment(arrivals)
                 }
             }
         }
         .ignoresSafeArea()
-        .overlay(alignment: .top) { controls }
+        // Stop detail has its own back button where the gear sits, so the map controls step aside.
+        .overlay(alignment: .top) { if model.detailStop == nil { controls.transition(.opacity) } }
+        .animation(Theme.snappy, value: model.detailStop == nil)
         .onAppear { model.location.start() }
         .onChange(of: fixKey, initial: true) { followFix() }
         .onChange(of: following) { followFix() }
-        .sheet(isPresented: .constant(true)) {
-            RouteSheet(detent: $detent)
-                .presentationDetents([.height(140), .medium, .large], selection: $detent)
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-                .presentationContentInteraction(.scrolls)   // a pull at the top refreshes instead of resizing
-                .presentationCornerRadius(Theme.cardRadius * 2)
-                .interactiveDismissDisabled()
-        }
     }
 
     /// Pins only for bus stops that are in the list (app spec 4.1): favorites, plus nearby unless location is off.

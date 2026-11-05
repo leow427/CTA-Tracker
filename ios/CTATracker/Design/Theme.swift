@@ -18,8 +18,17 @@ enum Theme {
     static let mapButton: CGFloat = 44
     static let pinRim: CGFloat = 2
 
-    /// The Delayed badge: the only saturated color besides the line colors.
+    /// The Delayed badge.
     static let amber = Color(rgb: 0xFFB000)
+    /// Bus tiles, dark backgrounds, and dark text (redesign spec 5).
+    static let ink = Color(rgb: 0x1C2A4A)
+    /// The light background behind the scrolled-up list.
+    static let paper = Color(rgb: 0xF6F2EA)
+
+    /// The card list rests with its top this far down the screen (redesign spec 2).
+    static let listRest: CGFloat = 0.55
+    /// How far above the top controls the list's background starts fading in.
+    static let listFade: CGFloat = 120
 
     /// Secondary text that keeps 4.5:1 on the sheet in both modes (system `.secondary` is about 3.4:1 on white):
     /// 0x636366 in light, 0xAEAEB2 in dark.
