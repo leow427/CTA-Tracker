@@ -40,6 +40,8 @@ enum Theme {
     static let listRest: CGFloat = 0.55
     /// How far above the top controls the list's background starts fading in.
     static let listFade: CGFloat = 120
+    /// Stop detail's page starts this far down, under the map framing the stop (redesign spec 4).
+    static let detailRest: CGFloat = 0.4
 
     /// Secondary text that keeps 4.5:1 on the sheet in both modes (system `.secondary` is about 3.4:1 on white):
     /// 0x636366 in light, 0xAEAEB2 in dark.
@@ -78,16 +80,16 @@ struct GlassBackground<S: Shape>: ViewModifier {
     }
 }
 
-/// A thick tile (redesign spec 3): the label is the face; this adds the darker bottom edge, a top highlight,
-/// a tight contact shadow and a soft one on the map, and the face sinks onto its edge while pressed.
-struct TileStyle: ButtonStyle {
+/// A thick tile (redesign spec 3): the content is the face; this adds the darker bottom edge, a top highlight,
+/// a tight contact shadow and a soft one on the map, and sinks the face onto its edge while pressed.
+struct TileLook: ViewModifier {
     let rgb: UInt32
     var radius: CGFloat = Theme.cardRadius
+    var pressed = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed
+    func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        configuration.label
+        content
             .clipShape(shape)
             .overlay {
                 shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.25), .clear],
@@ -98,8 +100,19 @@ struct TileStyle: ButtonStyle {
             .background { shape.fill(Color(rgb: LineColors.edge(rgb))).offset(y: Theme.tileEdge) }
             .padding(.bottom, Theme.tileEdge)
             .shadow(color: .black.opacity(0.12), radius: 16, y: 10)
-            .animation(Theme.snappy, value: pressed)
-            .sensoryFeedback(.impact(weight: .light), trigger: pressed) { _, now in now }
+    }
+}
+
+/// A tile as a button: it sinks while pressed, with a light impact.
+struct TileStyle: ButtonStyle {
+    let rgb: UInt32
+    var radius: CGFloat = Theme.cardRadius
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .modifier(TileLook(rgb: rgb, radius: radius, pressed: configuration.isPressed))
+            .animation(Theme.snappy, value: configuration.isPressed)
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, now in now }
     }
 }
 

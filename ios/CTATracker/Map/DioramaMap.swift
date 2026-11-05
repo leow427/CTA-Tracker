@@ -9,7 +9,8 @@ struct DioramaMap: View {
     /// The open stop: the camera flies to it, and clearing it restores the camera from before.
     let focus: Stop?
     let busStops: [Stop]
-    /// How much of the map's bottom is covered, so the camera centers in the part left visible.
+    /// How much of the map's bottom is covered, so the camera centers in the part left visible. Applied on each
+    /// camera move: it changes only when detail opens or closes, and both move the camera.
     let bottomInset: CGFloat
     let preset: LightPreset
     /// The center of the visible part, reported when the camera settles after the user moved it.
@@ -67,7 +68,6 @@ struct DioramaMap: View {
         .ignoresSafeArea()
         .onChange(of: following, initial: true) { if following { move(to: .followPuck(zoom: Self.zoom, bearing: .constant(0), pitch: Self.pitch)) } }
         .onChange(of: focus?.id) { showFocus() }
-        .onChange(of: bottomInset) { viewport = viewport.padding(.bottom, bottomInset) }
     }
 
     private func move(to target: Viewport) {

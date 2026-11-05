@@ -15,7 +15,7 @@ struct MapScreen: View {
                 TimelineView(.everyMinute) { context in
                     // The list covers the bottom at rest, so the camera centers in the part above it.
                     DioramaMap(following: $following, focus: model.detailStop, busStops: busPins,
-                               bottomInset: (geo.size.height * (1 - Theme.listRest)).rounded(),
+                               bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
                                preset: preset(at: context.date)) { center in
                         model.center = center   // after a pan the list follows the center of the visible map
                     }

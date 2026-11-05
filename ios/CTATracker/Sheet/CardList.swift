@@ -11,6 +11,7 @@ struct CardList: View {
     @State private var query = ""
     @State private var path: [DetailRoute] = []
     @State private var searching = false   // the search field has focus
+    @Namespace private var zoom   // a card grows into its stop detail (redesign spec 4)
 
     var body: some View {
         @Bindable var model = model
@@ -43,6 +44,14 @@ struct CardList: View {
                         .frame(minHeight: metrics.full + metrics.restTop, alignment: .top)
                     }
                 }
+                // Cards scrolled past the pinned header disappear under the top controls, not behind them.
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: metrics.controlsBottom)   // where the header pins
+                        Color.black
+                    }
+                    .ignoresSafeArea()
+                }
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await arrivals.refresh() }
                 .safeAreaPadding(.top, metrics.controlsBottom - metrics.safeTop)
@@ -50,7 +59,9 @@ struct CardList: View {
                 .background { background(metrics).ignoresSafeArea() }
                 .toolbar(.hidden, for: .navigationBar)
                 .containerBackground(.clear, for: .navigation)
-                .navigationDestination(for: DetailRoute.self) { StopDetail(route: $0) }
+                .navigationDestination(for: DetailRoute.self) {
+                    StopDetail(route: $0).navigationTransition(.zoom(sourceID: $0.source, in: zoom))
+                }
                 .task(id: searching) {   // focusing search scrolls the header up to the top (redesign spec 2)
                     guard searching else { return }
                     withAnimation(Theme.smooth) { reader.scrollTo(Self.top, anchor: .top) }
@@ -116,8 +127,11 @@ struct CardList: View {
 
     /// A card that opens its stop's detail, pressing down on touch.
     private func link(_ slot: Slot, now: Date) -> some View {
-        NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line)) { Card(slot: slot, now: now) }
-            .buttonStyle(TileStyle(rgb: LineColors.tile(slot.line.route)))
+        NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)) {
+            Card(slot: slot, now: now)
+        }
+        .buttonStyle(TileStyle(rgb: LineColors.tile(slot.line.route)))
+        .matchedTransitionSource(id: slot.id, in: zoom)
     }
 
     /// Search (app spec 3): favorites first, then matching stops, nearest first.
@@ -126,8 +140,11 @@ struct CardList: View {
         ForEach(r.favorites) { link($0, now: now) }
         if !r.stops.isEmpty { SectionHeader(title: "Stops", symbol: "mappin") }
         ForEach(r.stops, id: \.stop.id) { hit in
-            NavigationLink(value: DetailRoute(stopID: hit.stop.id, tapped: nil)) { StopRow(stop: hit.stop, meters: hit.meters) }
-                .buttonStyle(PressableCard())
+            NavigationLink(value: DetailRoute(stopID: hit.stop.id, tapped: nil, source: hit.stop.id)) {
+                StopRow(stop: hit.stop, meters: hit.meters)
+            }
+            .buttonStyle(PressableCard())
+            .matchedTransitionSource(id: hit.stop.id, in: zoom)
         }
         if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
             EmptyState(title: "No stops or routes match “\(query)”")

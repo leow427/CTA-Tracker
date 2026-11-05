@@ -1,14 +1,16 @@
 import CTAKit
 import SwiftUI
 
-/// What the sheet pushes for a stop: the stop (a station or bus stop ID) and the card that was tapped, if any.
+/// What the list pushes for a stop: the stop (a station or bus stop ID), the card that was tapped, if any,
+/// and the view it zooms out of (a card's or a search row's id).
 struct DetailRoute: Hashable {
     let stopID: String
     let tapped: Line?
+    let source: String
 }
 
-/// Stop detail inside the sheet (app spec 5.1): the stop's name, ★, how fresh the data is, its alerts, and
-/// every line and direction at the stop with up to 4 arrivals each, the tapped group first.
+/// Stop detail over the map (app spec 5.1, redesign spec 4): the map frames the stop up top; below it, the chosen
+/// line's big name, a row of departure tiles, a chip row, the alerts, then the stop's other lines.
 struct StopDetail: View {
     let route: DetailRoute
     @Environment(AppModel.self) private var model
@@ -16,8 +18,6 @@ struct StopDetail: View {
     @Environment(\.listMetrics) private var metrics
     @Environment(\.colorScheme) private var scheme
     @State private var selected: Line?
-    @State private var width: CGFloat = 0
-    @ScaledMetric(relativeTo: .title2) private var pixelPoints: CGFloat = 24
 
     var body: some View {
         if let stop = model.index?.stop(id: route.stopID) {
@@ -26,7 +26,7 @@ struct StopDetail: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 content(stop, chosen: chosen, now: context.date)
             }
-            .navigationBarTitleDisplayMode(.inline)   // the header carries the name; the bar only holds back
+            .navigationBarTitleDisplayMode(.inline)   // the page carries the name; the bar only holds back
             .toolbar(.visible, for: .navigationBar)
             .sensoryFeedback(.selection, trigger: chosen)   // set from the start, so only a group tap changes it
         } else {
@@ -38,25 +38,35 @@ struct StopDetail: View {
         let groups = DetailGroups.groups(stop: stop, tapped: route.tapped,
                                          predictions: arrivals.predictions[stop.id] ?? [], now: now)
         let failing = stop.kind == .station ? arrivals.trainsFailing : arrivals.busesFailing
-        let fit = TileFit.choose(groups: groups, width: width, base: PixelScale.scale(art: PixelFont.glyphHeight, points: pixelPoints), now: now)
         let state = DetailState(loaded: arrivals.fetched[stop.id] != nil, unknown: arrivals.book.unknown(stop.id),
                                 stale: arrivals.fetched[stop.id].map { ArrivalFormat.freshness(fetched: $0, now: now) != .fresh } ?? false)
         let routes = Set(groups.map(\.line.route))
         let alerts = Array(Set(routes.flatMap { arrivals.alerts[$0] ?? [] })).sorted { $0.id < $1.id }
+        let top = groups.first { $0.line == chosen } ?? groups.first
         return ScrollView {
-            // The open map above the page, as on the list (redesign spec 4).
-            Color.clear.frame(height: max(0, metrics.restTop - metrics.controlsBottom))
-            VStack(alignment: .leading, spacing: Theme.Space.m) {
-                header(stop, groups: groups, chosen: chosen, failing: failing, now: now)
+            // The open map above the page, framing the stop (redesign spec 4).
+            Color.clear.frame(height: max(0, (metrics.full * Theme.detailRest).rounded() - metrics.controlsBottom))
+            VStack(alignment: .leading, spacing: Theme.Space.l) {
+                if let top {
+                    hero(stop, group: top, state: state, failing: failing, now: now)
+                    DepartureRow(group: top, state: state, night: Night.now(now), now: now)
+                    chips(group: top, stop: stop, failing: failing, now: now)
+                }
                 if failing { UnavailableBanner() }   // the list's outage banner, here too (app spec 8)
                 if !alerts.isEmpty { AlertsRow(alerts: alerts) }
-                ForEach(groups) { group in
-                    GroupCard(group: group, selected: group.line == chosen, state: state, fit: fit, night: Night.now(now), now: now)
-                        .onTapGesture { withAnimation(Theme.snappy) { selected = group.line } }
+                let others = groups.filter { $0.id != top?.id }
+                if !others.isEmpty {
+                    SectionHeader(title: "Also at this stop", symbol: "signpost.right.fill")
+                    ForEach(others) { group in
+                        Button { withAnimation(Theme.snappy) { selected = group.line } } label: {
+                            OtherGroup(group: group, state: state, night: Night.now(now), now: now)
+                        }
+                        .buttonStyle(TileStyle(rgb: LineColors.tile(group.line.route), radius: Theme.cardRadius - Theme.Space.xs))
+                    }
                 }
             }
             .padding(.horizontal, Theme.cardMargin)
-            .onGeometryChange(for: CGFloat.self) { [margin = Theme.cardMargin] in $0.size.width - 2 * margin } action: { width = $0 }
+            .padding(.top, Theme.Space.xl)
             .padding(.bottom, Theme.Space.xxl)
             .frame(minHeight: metrics.full - metrics.controlsBottom, alignment: .top)
             .background((scheme == .dark ? Theme.ink : Theme.paper),
@@ -67,18 +77,153 @@ struct StopDetail: View {
         .containerBackground(.clear, for: .navigation)
     }
 
-    private func header(_ stop: Stop, groups: [DetailGroup], chosen: Line?, failing: Bool, now: Date) -> some View {
-        HStack(alignment: .center, spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                Text(stop.name).font(.title2.weight(.bold))
-                FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, now: now)
+    /// The chosen line's big name ("66", "Blue") and "→ destination", then the stop (redesign spec 4).
+    private func hero(_ stop: Stop, group: DetailGroup, state: DetailState, failing: Bool, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text(group.kind == .bus ? group.line.route : RouteCard.shortName(group.line))
+                .font(Theme.rounded(.largeTitle, .heavy)).tracking(-0.5)
+            Label { Text(group.arrivals.first?.dest ?? group.line.dir) } icon: { Image(systemName: "arrow.right.circle.fill") }
+                .font(Theme.rounded(.title2, .bold))
+            Text(stop.name).font(Theme.rounded(.headline, .medium)).foregroundStyle(Theme.secondaryText)
+        }
+        .foregroundStyle(.primary)
+    }
+
+    /// Delayed, ★, and how fresh the data is (redesign spec 4); the alerts row follows.
+    private func chips(group: DetailGroup, stop: Stop, failing: Bool, now: Date) -> some View {
+        HStack(spacing: Theme.Space.s) {
+            if group.arrivals.first?.delayed == true {
+                Text("Delayed").font(Theme.rounded(.subheadline, .bold)).foregroundStyle(.black)
+                    .padding(.horizontal, Theme.Space.m).frame(height: Theme.mapButton)
+                    .background(Theme.amber, in: .capsule)
+            }
+            StarButton(favorite: Favorite(stopID: group.stopID, line: group.line))
+            FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, now: now)
+                .padding(.horizontal, Theme.Space.m).frame(height: Theme.mapButton)
+                .glassBackground(Capsule())
+        }
+    }
+}
+
+/// The chosen line's next departures as tiles in a row that scrolls sideways: the next one largest and in the line
+/// color, the later ones smaller on its darker edge color (redesign spec 4).
+private struct DepartureRow: View {
+    let group: DetailGroup
+    let state: DetailState
+    let night: Bool
+    let now: Date
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .largeTitle) private var lead: CGFloat = 140
+    @ScaledMetric(relativeTo: .largeTitle) private var later: CGFloat = 100
+
+    var body: some View {
+        if group.arrivals.isEmpty {
+            // "—" when we can't say (never loaded and failed, or stale with everything gone); a placeholder
+            // before the first fetch; only then "No arrivals" / "No service now".
+            Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service now" : "No arrivals")
+                .font(Theme.rounded(.title3, .bold))
+                .foregroundStyle(Theme.secondaryText)
+                .redacted(reason: state.loaded || state.unknown ? [] : .placeholder)
+        } else {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: Theme.Space.m) {
+                    ForEach(Array(group.arrivals.enumerated()), id: \.offset) { n, p in
+                        let base = LineColors.tile(group.line.route)
+                        let face = n == 0 ? base : LineColors.edge(base)
+                        let fill = state.stale ? LineColors.dimmed(face, dark: scheme == .dark) : face
+                        DepartureTile(p: p, rgb: fill, lead: n == 0, stale: state.stale, now: now)
+                            .frame(width: n == 0 ? lead : later)
+                            .modifier(TileLook(rgb: fill))
+                    }
+                }
+                .padding(.vertical, Theme.Space.s)   // room for the edges and shadows
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+        }
+    }
+}
+
+/// One departure: big minutes (or a clock time or Due), then Live, Sched, or Delayed (app spec 5.1).
+private struct DepartureTile: View {
+    let p: Prediction
+    let rgb: UInt32
+    let lead: Bool
+    let stale: Bool   // stale data doesn't claim to be live (the chip row gives its age)
+    let now: Date
+    @ScaledMetric(relativeTo: .largeTitle) private var big: CGFloat = 52
+    @ScaledMetric(relativeTo: .largeTitle) private var small: CGFloat = 38
+
+    var body: some View {
+        let m = ArrivalFormat.minutes(until: p.at, now: now)
+        let minutes = p.live && m >= 1
+        VStack(alignment: .leading, spacing: 0) {
+            Text(minutes ? "\(m)" : ArrivalFormat.label(p, now: now))
+                .font(.system(size: lead ? big : small, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(.numericText(countsDown: true))
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(minutes ? "min" : " ").font(Theme.rounded(.subheadline, .bold))
+            Spacer(minLength: Theme.Space.m)
+            Group {
+                if p.delayed {
+                    Text("Delayed").foregroundStyle(.black)
+                        .padding(.horizontal, Theme.Space.s).padding(.vertical, 2)
+                        .background(Theme.amber, in: .capsule)
+                } else if p.live && !stale {
+                    PixelImage(image: Glyphs.live[0], points: 16, template: true)
+                } else if !p.live {
+                    Text("Sched").textCase(.uppercase)
+                }
+            }
+            .font(Theme.rounded(.caption, .bold))
+            .frame(height: 18, alignment: .leading)
+        }
+        .foregroundStyle(Color(rgb: LineColors.textColor(on: rgb)))
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // The face in its own shape: TileLook's clip alone misses the corners when the minutes shrink to fit.
+        .background(Color(rgb: rgb), in: .rect(cornerRadius: Theme.cardRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Another line and direction at the stop, as a compact tile: its name, destination, and next arrival.
+private struct OtherGroup: View {
+    let group: DetailGroup
+    let state: DetailState
+    let night: Bool
+    let now: Date
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let base = LineColors.tile(group.line.route)
+        let rgb = state.stale ? LineColors.dimmed(base, dark: scheme == .dark) : base
+        let next = group.arrivals.first
+        HStack(spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.kind == .bus ? group.line.route : RouteCard.shortName(group.line))
+                    .font(Theme.rounded(.title3, .heavy))
+                Label { Text(next?.dest ?? group.line.dir) } icon: { Image(systemName: "arrow.right.circle.fill") }
+                    .font(Theme.rounded(.subheadline, .bold))
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if let group = groups.first(where: { $0.line == chosen }) {
-                StarButton(favorite: Favorite(stopID: group.stopID, line: group.line))
+            if let next {
+                let m = ArrivalFormat.minutes(until: next.at, now: now)
+                Text(next.live && m >= 1 ? "\(m) min" : ArrivalFormat.label(next, now: now))
+                    .font(Theme.rounded(.title3, .heavy)).monospacedDigit()
+            } else {
+                Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service now" : "No arrivals")
+                    .font(Theme.rounded(.subheadline, .bold))
             }
         }
-        .padding(.top, Theme.Space.s)
+        .foregroundStyle(Color(rgb: LineColors.textColor(on: rgb)))
+        .padding(.horizontal, Theme.Space.l)
+        .padding(.vertical, Theme.Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(rgb: rgb), in: .rect(cornerRadius: Theme.cardRadius - Theme.Space.xs, style: .continuous))
+        .contentShape(.rect)
     }
 }
 
@@ -93,14 +238,14 @@ private struct FreshnessLine: View {
             if let fetched {
                 let age = max(0, Int(now.timeIntervalSince(fetched)))
                 let fresh = ArrivalFormat.freshness(fetched: fetched, now: now) == .fresh
-                if fresh { PixelImage(image: Glyphs.live[0], points: 12, template: true) }
+                if fresh { PixelImage(image: Glyphs.live[0], points: 16, template: true).foregroundStyle(Theme.signal) }
                 Text(fresh ? "Live · updated \(Self.ago(age))" : "Updated \(Self.ago(age))")
             } else {
                 if !failing { Text("Updating…") }   // when failing, the banner says it once
             }
         }
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(.primary)   // on the glass sheet, gray can't keep 4.5:1 over a dark map
+        .font(Theme.rounded(.subheadline, .semibold))
+        .foregroundStyle(.primary)
     }
 
     static func ago(_ seconds: Int) -> String {
@@ -121,147 +266,19 @@ struct StarButton: View {
                 .font(Theme.mapSymbol)
                 .foregroundStyle(.primary)
                 .frame(width: Theme.mapButton, height: Theme.mapButton)
-                .background(Color(uiColor: .secondarySystemBackground), in: Circle())
+                .glassBackground(Circle(), interactive: true)
         }
-        .buttonStyle(PressableCard())
+        .buttonStyle(.plain)
         .sensoryFeedback(.impact(weight: .light), trigger: toggles)   // only a ★ tap, not a change of group
         .accessibilityLabel(on ? "Remove from favorites" : "Add to favorites")
     }
 }
 
-/// One line and direction: its name, then up to 4 arrival tiles, the soonest filled with the line color.
 /// What detail can honestly say about its stop's data, by the list's rules (checkpoint C).
 struct DetailState {
     let loaded: Bool     // a fetch has landed
     let unknown: Bool    // never loaded and the last request failed
     let stale: Bool      // older than 2 min
-}
-
-/// One pixel scale and unit choice for every tile on the screen, so all rows match: the largest that fits the
-/// widest arrival label four tiles across ("16 min", "12:40"), stepping down a whole pixel scale, then dropping "min".
-struct TileFit: Equatable {
-    let shrink: Int
-    let units: Bool
-
-    static let unitWidth: CGFloat = 22   // "min" in caption semibold
-
-    static func choose(groups: [DetailGroup], width: CGFloat, base: Int, now: Date) -> TileFit {
-        let options = [TileFit(shrink: 0, units: true), TileFit(shrink: 1, units: true), TileFit(shrink: 1, units: false)]
-        guard width > 0 else { return options[0] }
-        let tile = (width - 2 * Theme.Space.l - 3 * Theme.Space.s) / CGFloat(DetailGroups.perGroup) - 2 * Theme.Space.s
-        let labels = groups.flatMap(\.arrivals).map { p -> (cols: Int, minutes: Bool) in
-            let m = ArrivalFormat.minutes(until: p.at, now: now)
-            let big = p.live && m >= 1 ? "\(m)" : ArrivalFormat.label(p, now: now)
-            return (PixelFont.grid(big)?.first?.count ?? 0, p.live && m >= 1)
-        }
-        return options.first { fit in
-            labels.allSatisfy { l in
-                CGFloat(l.cols * max(1, base - fit.shrink)) + (fit.units && l.minutes ? Theme.Space.xs + unitWidth : 0) <= tile
-            }
-        } ?? options[2]
-    }
-}
-
-private struct GroupCard: View {
-    let group: DetailGroup
-    let selected: Bool
-    let state: DetailState
-    let fit: TileFit
-    let night: Bool
-    let now: Date
-
-    var body: some View {
-        let rgb = LineColors.rgb(group.line.route)
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
-            HStack(spacing: Theme.Space.s) {
-                Capsule().fill(Color(rgb: rgb)).frame(width: Theme.Space.xs, height: Theme.Space.l + Theme.Space.xs)
-                Text(group.kind == .bus ? group.line.route : CardSpeech.lineName(group.line, kind: group.kind))
-                    .font(.headline.weight(.bold))
-                Label { Text(group.line.dir) } icon: { Image(systemName: "arrow.right.circle.fill") }
-                    .font(.headline)
-                    .lineLimit(1)
-            }
-            if group.arrivals.isEmpty {
-                // "—" when we can't say (never loaded and failed, or stale with everything gone); a placeholder
-                // before the first fetch; only then "No arrivals" / "No service now".
-                Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service now" : "No arrivals")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.secondaryText)
-                    .redacted(reason: state.loaded || state.unknown ? [] : .placeholder)
-            } else {
-                tiles(rgb)
-            }
-        }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: Theme.cardRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                // Neutral, so the selection (what ★ saves) shows on every line color, Yellow and Brown included.
-                .strokeBorder(Color.primary, lineWidth: selected ? Theme.pinRim : 0)
-        }
-        .contentShape(.rect(cornerRadius: Theme.cardRadius))
-    }
-
-    private func tiles(_ rgb: UInt32) -> some View {
-        HStack(spacing: Theme.Space.s) {
-            ForEach(Array(group.arrivals.enumerated()), id: \.offset) { n, p in
-                Tile(p: p, rgb: rgb, lead: n == 0, stale: state.stale, shrink: fit.shrink, units: fit.units, now: now)
-            }
-            ForEach(group.arrivals.count..<DetailGroups.perGroup, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
-        }
-    }
-}
-
-/// One departure: pixel minutes (or a clock time), its destination, and Live or Sched (app spec 5.1).
-private struct Tile: View {
-    let p: Prediction
-    let rgb: UInt32
-    let lead: Bool
-    let stale: Bool   // dims the lead tile and drops "Live", like a stale card (review focus 4)
-    @Environment(\.colorScheme) private var scheme
-    let shrink: Int
-    let units: Bool
-    let now: Date
-
-    var body: some View {
-        let m = ArrivalFormat.minutes(until: p.at, now: now)
-        let big = p.live && m >= 1 ? "\(m)" : ArrivalFormat.label(p, now: now)
-        let fill = stale ? LineColors.dimmed(rgb, dark: scheme == .dark) : rgb
-        let text = lead ? Color(rgb: LineColors.textColor(on: fill)) : Color.primary
-        VStack(alignment: .leading, spacing: Theme.Space.xs) {
-            minutes(big, unit: units && p.live && m >= 1, shrink: shrink)
-            Text(p.dest.isEmpty ? " " : p.dest).font(.caption.weight(.medium)).lineLimit(1)
-            // One status, on one line, always taking its height so tiles in a row match: Delayed beats Live
-            // (it's the news); stale data doesn't claim to be live (the header gives its age).
-            ZStack(alignment: .leading) {
-                Text("Live").hidden()
-                if p.delayed {
-                    Text("Delayed").foregroundStyle(.black)
-                        .padding(.horizontal, Theme.Space.xs).background(Theme.amber, in: .capsule)
-                } else if !(p.live && stale) {
-                    Text(p.live ? "Live" : "Sched").textCase(.uppercase)
-                }
-            }
-            .font(.caption2.weight(.bold))
-            .lineLimit(1)
-            .fixedSize()
-        }
-        .foregroundStyle(text)
-        .padding(.horizontal, Theme.Space.s)   // 8 pt sides: clock times and "10 min" fit four across at full scale
-        .padding(.vertical, Theme.Space.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(lead ? Color(rgb: fill) : Color(uiColor: .tertiarySystemBackground),
-                    in: .rect(cornerRadius: Theme.Space.m, style: .continuous))
-    }
-
-    private func minutes(_ big: String, unit: Bool, shrink: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.xs) {
-            PixelText(big, points: 24, relativeTo: .title2, shrink: shrink)
-            if unit { Text("min").font(.caption.weight(.semibold)).fixedSize() }
-        }
-        .fixedSize()
-    }
 }
 
 /// The stop's routes' Customer Alerts, collapsed under a ⚠ row (app spec 5.1).
@@ -296,6 +313,6 @@ private struct AlertsRow: View {
         .foregroundStyle(.primary)
         .padding(Theme.Space.l)
         // Neutral: amber is only for the Delayed badge (app spec 4.6); the pixel ⚠ carries the warning.
-        .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: Theme.cardRadius, style: .continuous))
+        .glassBackground(.rect(cornerRadius: Theme.cardRadius, style: .continuous))
     }
 }
