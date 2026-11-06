@@ -1,0 +1,14 @@
+{
+  "name": "cta",
+  "version": "0.1.0",
+  "description": "Shared CTA Tracker transit logic: types, constants, parsing, moods, approach rows.",
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": {
+    "bblanchon/ArduinoJson": "^7"
+  },
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}
