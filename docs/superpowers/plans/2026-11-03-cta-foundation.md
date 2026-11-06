@@ -93,6 +93,35 @@ All C++ is in `namespace cta`, except `firmware/lib/pet`, which uses `namespace 
 
 **Running the laptop tests:** `cd firmware/native && pio test -e native` runs all native tests, and `-f test_<area>` runs one. **Python tests:** `python3 -m unittest discover -s tools -v`.
 
+## Status (2026-11-05)
+
+Tasks 2–9 and 11 were built together with the dock firmware (plan 2), ahead of task 1's hardware steps, which are
+still Leo's. `docs/notes/toolchain.md` records the pinned versions. Deviations from the tasks below:
+
+- **Single objects everywhere:** every CTA list goes through one helper (`json_util.h`, `deserializeList`) that
+  filters it as an array, then again as one object if CTA sent that. JSON documents live in PSRAM on the ESP32s.
+- **Task 4:** `parseTrainArrivals` takes a `routeFilter`, so a platform several lines share (Belmont's Brown and
+  Purple) keeps the picked line.
+- **Task 5:** a Bus Tracker error that names no stop, route or pattern (bad key, limit) returns −1, as the app's
+  parser throws; one that names a stop ("No arrival times") returns 0. Picker parsers `parseBusRoutes`,
+  `parseBusDirections` (v2 `dir` or v3 `id`), `parseBusStops` and fixtures `bus_routes.json`,
+  `bus_directions.json`, `bus_stops.json` were added for the dock.
+- **Task 8:** `TrainPos` carries the train's line and `litMaskTrains` takes the row's route, because the dock asks
+  for all its picked lines in one `ttpositions` call and Brown and Purple share Loop-bound platforms (review).
+- **Task 9:** `trainPositionsUrl` takes a list of routes; picker URLs added; `ctaGet` streams HTTP/1.0 into the
+  caller's buffer. The smoke sketch was skipped: the dock firmware is the on-device test.
+- **Task 11, rebuilt around Trackie:** the app's pet (iOS redesign revision 2) replaced this task's palette and
+  brief. `art/trackie.txt`, `art/palette.txt`, `art/glyphs.txt` and `art/font.txt` are copied from the app's
+  `Pixel.swift` files, and `art/overlays.txt` holds the handheld mockup's umbrella and scarf;
+  `tools/test_sprite_build.py` fails if they drift. The bob and the floating extra are drawn in code (one art
+  pixel, twice a second, like the app), so each state is one frame. `pet_render` draws into ARGB8888 canvases
+  (`drawPet`, `drawSprite`, `drawText`, `weatherIcon`), and `plate.*` rasterizes the app's pixel plates.
+- **Tests:** tasks 4–6 share one suite, `test_parse`. Customer Alerts answers a quiet route with `ErrorCode` "50"
+  and no `Alert` (recorded in `fixtures/cta/alerts_none.json`), so a missing `Alert` means no alerts, as in the app.
+  An empty `config` stop slot is written with every key and `id` "", so the app's `ConfigStop` can decode it.
+- **Line colors:** `line_colors.*` also ports CTAKit's `accent`, `card`, `cardTop`, `cardText` and `onNavy`, so the
+  devices draw the same card shades as the app.
+
 ---
 
 ### Task 1: Day-1 toolchain test (spike, human in the loop)
@@ -144,7 +173,7 @@ struct StopRecord {
   char id[8]; Kind type; char route[8]; char dir[kNameLen + 1]; char name[kNameLen + 1];
   Arrival arrivals[kMaxArrivals]; uint8_t count; bool alert; uint32_t ts;  // ts: Unix time of fetch, 0 = never
 };
-struct TrainPos { char nextStpId[8]; };
+struct TrainPos { char nextStpId[8]; char route[8]; };   // route: the ttpositions group's @name ("red")
 struct BusVehicle { int32_t pid; int32_t pdist; };
 struct ApproachRow { char stops[7][8]; int32_t pdist[7]; int32_t before; int32_t pid; };  // stops[k][0]=='\0' → no stop at LED k
 }
@@ -247,7 +276,7 @@ TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
 ### Task 4: Train Tracker parsing
 
 **Files:**
-- Create: `firmware/lib/cta/src/train_parse.{h,cpp}`, `firmware/native/test/test_train/test_main.cpp`
+- Create: `firmware/lib/cta/src/train_parse.{h,cpp}`, `firmware/native/test/test_parse/test_main.cpp`
 - Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them) (synthetic, following the Train Tracker API docs' JSON shape, `outputType=JSON`): `fixtures/cta/train_arrivals_station.json`, `train_arrivals_midnight.json`, `train_error.json`, `train_positions_red.json`, `train_positions_single.json`
 
 **Fixture contents** (every value the tests rely on):
@@ -284,7 +313,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 // positions: red → 2 trains, [0].nextStpId "30005"; single → 1 train
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_train`.
+- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_parse`.
 - [ ] **Step 3: Implement** both functions. Use a `DeserializationOption::Filter` covering `tmst`, `errCd`, and the eta and train fields that are read.
 - [ ] **Step 4: Run and confirm pass.**
 - [ ] **Step 5: Commit.** `git commit -m "feat(cta): Train Tracker arrivals and positions parsing"`
@@ -294,7 +323,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 ### Task 5: Bus Tracker parsing
 
 **Files:**
-- Create: `firmware/lib/cta/src/bus_parse.{h,cpp}`, `firmware/native/test/test_bus/test_main.cpp`
+- Create: `firmware/lib/cta/src/bus_parse.{h,cpp}`, `firmware/native/test/test_parse/test_main.cpp`
 - Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them) (synthetic, Bus Tracker v2 `format=json` shape): `fixtures/cta/bus_predictions.json`, `bus_no_arrivals.json`, `bus_vehicles.json`, `bus_patterns.json`
 
 **Fixture contents:**
@@ -332,7 +361,7 @@ TEST_ASSERT_EQUAL_INT(3, cta::parseBusVehicles(v.c_str(), v.size(), vs, 10));
 TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdist);
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_bus`.
+- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_parse`.
 - [ ] **Step 3: Implement** both functions, with filters.
 - [ ] **Step 4: Run and confirm pass.**
 - [ ] **Step 5: Commit.** `git commit -m "feat(cta): Bus Tracker predictions and vehicles parsing"`
@@ -342,7 +371,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
 ### Task 6: Alerts and weather
 
 **Files:**
-- Create: `firmware/lib/cta/src/alerts_weather.{h,cpp}`, `firmware/native/test/test_alerts_weather/test_main.cpp`
+- Create: `firmware/lib/cta/src/alerts_weather.{h,cpp}`, `firmware/native/test/test_parse/test_main.cpp`
 - Fixtures (already in the repo from iOS milestone 1; check them against the contents below, don't rewrite them): `fixtures/cta/alerts.json`, `alerts_single.json`, `weather.json`
 
 **Fixture contents:**
@@ -373,7 +402,7 @@ TEST_ASSERT_EQUAL((int)cta::Accessory::Scarf,    (int)cta::accessoryFor(3, -1));
 TEST_ASSERT_EQUAL((int)cta::Accessory::None,     (int)cta::accessoryFor(2, 10));
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_alerts_weather`.
+- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_parse`.
 - [ ] **Step 3: Implement** the three functions.
 - [ ] **Step 4: Run and confirm pass.**
 - [ ] **Step 5: Commit.** `git commit -m "feat(cta): alert route and weather parsing, accessory rule"`
@@ -440,7 +469,7 @@ EQ(Sleepy, deviceMood({Sleepy, Sleepy}, ...));
 - Produces:
   - `bool buildTrainRow(const char* const* seq, size_t n, const char* stopId, ApproachRow& out)`: sets `stops[6] = stopId` and `stops[0..5]` to the 6 preceding IDs (farthest first). Missing leading slots are left empty (`""`), and `pid = −1`. Returns false if `stopId` isn't in `seq`.
   - `int buildBusRows(const char* patternsJson, size_t len, const char* stopId, ApproachRow* out, size_t max)`: one row per pattern containing `stopId`, using only `typ=="S"` points. Sets `pdist[k]`, `before` (the pdist of the stop preceding `stops[0]`, or −1 if none), and `pid`. Returns the row count, or −1 if malformed.
-  - `uint8_t litMaskTrains(const ApproachRow& row, const TrainPos* t, size_t n)`: bit k is set when some train's `nextStpId` equals `stops[k]`.
+  - `uint8_t litMaskTrains(const ApproachRow& row, const char* route, const TrainPos* t, size_t n)`: bit k is set when some train of `route` (case-insensitive) has `nextStpId` equal to `stops[k]`. Lines share platforms (Brown and Purple to the Loop), so other lines' trains never light the row.
   - `uint8_t litMaskBuses(const ApproachRow* rows, size_t nRows, const BusVehicle* v, size_t n)`: for a vehicle on the same `pid`, bit k is set when `pdist[k−1] < v.pdist ≤ pdist[k]`. Empty slots are skipped. For the first non-empty slot, the lower bound is `before` (−1 means no lower bound). Vehicles past `pdist[6]` light nothing.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -450,7 +479,7 @@ const char* seq[] = {"30001","30002","30003","30004","30005","30006","30007","30
 TEST_ASSERT_TRUE(cta::buildTrainRow(seq, 10, "30008", row));
 TEST_ASSERT_EQUAL_STRING("30002", row.stops[0]); TEST_ASSERT_EQUAL_STRING("30008", row.stops[6]);
 cta::TrainPos t[] = {{"30005"}, {"30001"}, {"30008"}};
-TEST_ASSERT_EQUAL_HEX8(0b1001000, cta::litMaskTrains(row, t, 3));   // LED 3 and LED 6 lit; 30001 is outside the row
+TEST_ASSERT_EQUAL_HEX8(0b1001000, cta::litMaskTrains(row, "Red", t, 3));   // LED 3 and LED 6 lit; 30001 is outside the row
 TEST_ASSERT_TRUE(cta::buildTrainRow(seq, 10, "30003", row));        // only 2 stops before it
 TEST_ASSERT_EQUAL_STRING("", row.stops[3]); TEST_ASSERT_EQUAL_STRING("30001", row.stops[4]);
 TEST_ASSERT_FALSE(cta::buildTrainRow(seq, 10, "39999", row));

@@ -1,0 +1,79 @@
+# One-color glyphs and icons ("K" = ink). live and alert are the app's Glyphs (ios/CTATracker/Design/Pixel.swift);
+# the weather and Wi-Fi icons are the handheld mockup's.
+
+== live0
+.......K
+.....K..
+..KK.K.K
+.KKKK.K.
+.KKKK.K.
+..KK.K.K
+.....K..
+.......K
+
+== live1
+........
+........
+..KK....
+.KKKK...
+.KKKK...
+..KK....
+........
+........
+
+== alert
+.......KK.......
+.......KK.......
+......KKKK......
+......KKKK......
+.....KKKKKK.....
+.....KK..KK.....
+....KKK..KKK....
+....KKK..KKK....
+...KKKK..KKKK...
+...KKKK..KKKK...
+..KKKKKKKKKKKK..
+..KKKKKKKKKKKK..
+.KKKKKK..KKKKKK.
+.KKKKKK..KKKKKK.
+KKKKKKKKKKKKKKKK
+KKKKKKKKKKKKKKKK
+
+== sun
+..K..
+K.K.K
+.KKK.
+KKKKK
+.KKK.
+K.K.K
+..K..
+
+== cloud
+.......
+..KK...
+.KKKKK.
+KKKKKKK
+.......
+.K.K.K.
+K.K.K..
+
+== snow
+K.K.K
+.KKK.
+KK.KK
+.KKK.
+K.K.K
+
+== wifi
+.KKKKK.
+K.....K
+..KKK..
+.K...K.
+...K...
+
+== off
+K...K
+.K.K.
+..K..
+.K.K.
+K...K

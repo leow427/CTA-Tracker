@@ -1,0 +1,7 @@
+{
+  "name": "pet",
+  "version": "0.1.0",
+  "description": "Trackie's pixel art (generated from art/ by tools/sprite_build.py) and a whole-scale ARGB8888 renderer",
+  "dependencies": { "cta": "*" },
+  "build": { "srcDir": "src" }
+}
