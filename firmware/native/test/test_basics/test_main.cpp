@@ -78,6 +78,15 @@ static void test_parse_cta_time_rejects() {
     TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-05T08:60:00", t));
     TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-05T08:00:60", t));
     TEST_ASSERT_FALSE(cta::parseCtaTime("2026-1a-05T08:00:00", t));
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-05T08:0a:00", t));   // in range if read as a digit
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-05T08:-1:00", t));   // a negative field
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026-00-05T08:00:00", t));   // month 0
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-00T08:00:00", t));   // day 0
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026/11/05T08:00:00", t));   // ISO separators
+    TEST_ASSERT_FALSE(cta::parseCtaTime("2026-11-05T08.00.00", t));
+    TEST_ASSERT_FALSE(cta::parseCtaTime("20261105-08:00", t));        // Bus Tracker separators
+    TEST_ASSERT_FALSE(cta::parseCtaTime("20261105 08-00", t));
+    TEST_ASSERT_FALSE(cta::parseCtaTime("20261105 08:04-30", t));
     TEST_ASSERT_EQUAL_INT64(42, t);  // untouched on failure
 }
 
@@ -87,6 +96,7 @@ static void test_night_hours() {
     TEST_ASSERT_FALSE(cta::inNightHours(59, 60, 300));
     TEST_ASSERT_TRUE(cta::inNightHours(23 * 60 + 30, 23 * 60, 6 * 60));  // wraps midnight
     TEST_ASSERT_TRUE(cta::inNightHours(0, 23 * 60, 6 * 60));
+    TEST_ASSERT_TRUE(cta::inNightHours(23 * 60, 23 * 60, 6 * 60));  // wrapped start is inclusive
     TEST_ASSERT_FALSE(cta::inNightHours(6 * 60, 23 * 60, 6 * 60));
     TEST_ASSERT_FALSE(cta::inNightHours(7 * 60, 23 * 60, 6 * 60));
     TEST_ASSERT_FALSE(cta::inNightHours(100, 120, 120));  // start == end means never
