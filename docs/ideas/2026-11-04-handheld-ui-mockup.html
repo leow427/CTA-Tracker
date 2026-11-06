@@ -1,50 +1,46 @@
-<title>Railpet Handheld UI</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<title>Trackie Handheld UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap">
 <style>
-/* Layout: the device is the hero on the left, the state panel beside it; contact sheet and design notes below. */
+/* The page wears the app's look too: night navy, raised navy plates with stepped pixel corners, headlight yellow. */
 :root {
-  --bg: #e4e5e2;          /* platform concrete */
-  --panel: #f2f2ef;
-  --ink: #1b1c1e;
-  --ink-2: #55585c;
-  --rule: #c9cbc7;
-  --accent: #a86f00;      /* destination-sign amber, darkened for light ground */
-  --accent-ink: #ffffff;
-  --shell: #2c2b29;
-  --shell-hi: #45433f;
-  --chip: #e6e7e3;
-  --font-display: "Pixelify Sans", "Courier New", monospace;
-  --font-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0e0f10; --panel: #17181a; --ink: #ecebe6; --ink-2: #9b9a94; --rule: #2a2b2d;
-    --accent: #ffb000; --accent-ink: #1a1200; --shell: #26252a; --shell-hi: #3a3940; --chip: #202124;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0e0f10; --panel: #17181a; --ink: #ecebe6; --ink-2: #9b9a94; --rule: #2a2b2d;
-  --accent: #ffb000; --accent-ink: #1a1200; --shell: #26252a; --shell-hi: #3a3940; --chip: #202124;
+  --bg: #0b1a36;          /* night navy */
+  --panel: #17294f;       /* raised */
+  --ink: #ffffff;
+  --ink-2: #9db0d8;       /* mist */
+  --rule: rgba(255, 255, 255, 0.1);
+  --accent: #ffd95a;      /* headlight */
+  --accent-ink: #0b1a36;
+  --shell: #1c2238;
+  --shell-hi: #2e3757;
+  --chip: #10213f;
+  --font: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body {
-  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-weight: 700; font-size: 15px; line-height: 1.5;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 24px 64px;
 }
 .wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
 header { display: flex; flex-direction: column; gap: 6px; }
-h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
-h1 { font-size: clamp(28px, 4vw, 40px); letter-spacing: 0.01em; }
-h2 { font-size: 22px; }
-h3 { font-size: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
+h1, h2, h3 { font-weight: 900; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 4vw, 44px); letter-spacing: -0.01em; }
+h2 { font-size: 24px; }
+h3 { font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
 .lede { color: var(--ink-2); max-width: 68ch; margin: 0; }
-.eyebrow { font-family: var(--font-display); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.eyebrow { font-size: 13px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+
+/* Stepped pixel corners like the app's PixelShape (3 px blocks), and a hard darker edge under the plate. */
+.px {
+  clip-path: polygon(0 6px, 3px 6px, 3px 3px, 6px 3px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 3px, calc(100% - 3px) 3px,
+    calc(100% - 3px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 3px) calc(100% - 6px), calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 6px) calc(100% - 3px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 3px), 3px calc(100% - 3px),
+    3px calc(100% - 6px), 0 calc(100% - 6px));
+}
 
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 32px; align-items: start; }
 @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
@@ -56,7 +52,7 @@ h3 { font-size: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
   position: relative; width: calc(var(--d) * 1.22); height: calc(var(--d) * 1.38); max-width: 100%;
   border-radius: 50% 50% 47% 47% / 56% 56% 44% 44%;
   background: radial-gradient(120% 90% at 30% 18%, var(--shell-hi), var(--shell) 60%);
-  box-shadow: inset 0 -10px 24px rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.25);
+  box-shadow: inset 0 -10px 24px rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.35);
   display: flex; align-items: flex-end; justify-content: center; padding-bottom: calc(var(--d) * 0.12);
 }
 .shell::before { /* keyring loop */
@@ -65,139 +61,138 @@ h3 { font-size: 16px; letter-spacing: 0.04em; text-transform: uppercase; }
   border: calc(var(--d) * 0.028) solid var(--shell); border-bottom-color: transparent;
 }
 .shell .tag { position: absolute; top: calc(var(--d) * 0.07); left: 0; right: 0; text-align: center;
-  font-family: var(--font-display); font-size: max(9px, calc(var(--d) * 0.028)); letter-spacing: .2em; color: #8d8a83; }
-.bezel { border-radius: 50%; background: #000; padding: calc(var(--d) * 0.025); box-shadow: inset 0 0 0 2px #111, 0 0 0 3px #1a1918; }
+  font-weight: 900; font-size: max(9px, calc(var(--d) * 0.03)); letter-spacing: .2em; color: #7d89ad; }
+.bezel { border-radius: 50%; background: #000; padding: calc(var(--d) * 0.025); box-shadow: inset 0 0 0 2px #111, 0 0 0 3px #12172a; }
 #screen { display: block; width: var(--d); height: var(--d); border-radius: 50%; touch-action: none; cursor: grab;
   image-rendering: pixelated; outline: none; }
 #screen:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
 .shell.real #screen { image-rendering: auto; }
 .hint { font-size: 13px; color: var(--ink-2); text-align: center; max-width: 52ch; margin: 0; }
 .meter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(100%, 466px); }
-.meter div { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
-.meter b { display: block; font-family: var(--font-display); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.meter div { background: var(--panel); border-bottom: 4px solid rgba(0,0,0,.35); padding: 10px 12px; }
+.meter b { display: block; font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
 .meter span { font-size: 12px; color: var(--ink-2); }
 
-.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel { background: var(--panel); border-bottom: 5px solid rgba(0,0,0,.35); padding: 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .group { display: flex; flex-direction: column; gap: 6px; }
-.group > label, .group > .lbl { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.group > .lbl { font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
-.seg button, .btn {
-  font: inherit; font-size: 14px; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--rule);
-  background: var(--chip); color: var(--ink); cursor: pointer;
+.seg button {
+  font: inherit; font-size: 14px; font-weight: 800; padding: 7px 11px 5px; border: 0; border-bottom: 3px solid rgba(0,0,0,.4);
+  background: var(--chip); color: var(--ink); cursor: pointer; transition: transform .08s;
 }
-.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
-.seg button:focus-visible, .btn:focus-visible, .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg button:active { transform: translateY(2px); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 900; }
+.seg button:focus-visible, .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
-.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--rule); cursor: pointer; padding: 0; }
-.swatch[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+.swatch { width: 30px; height: 30px; border: 2px solid var(--rule); cursor: pointer; padding: 0; }
+.swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
 .check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.check input { accent-color: var(--accent); }
 .toast { font-size: 13px; color: var(--accent); min-height: 1.4em; margin: 0; }
-pre.grid { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.15; background: var(--chip); padding: 10px; border-radius: 8px; overflow-x: auto; margin: 0; }
 
 .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-.thumb { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; font: inherit; color: var(--ink); }
-.thumb:hover { border-color: var(--accent); }
+.thumb { background: var(--panel); border: 0; border-bottom: 4px solid rgba(0,0,0,.35); padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; font: inherit; color: var(--ink); }
+.thumb:hover { background: #1e3462; }
 .thumb canvas { width: 128px; height: 128px; border-radius: 50%; background: #000; }
-.thumb strong { font-size: 13px; }
+.thumb strong { font-size: 13px; font-weight: 900; }
 .thumb small { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 @media (max-width: 860px) { .notes { grid-template-columns: minmax(0, 1fr); } }
-.note { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.note { background: var(--panel); border-bottom: 5px solid rgba(0,0,0,.35); padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; color: #dfe6f5; font-weight: 600; }
 .note li { max-width: 65ch; }
-.qs { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; }
-.qs ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.qs { border-left: 4px solid var(--accent); padding: 4px 0 4px 16px; }
+.qs ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 section { display: flex; flex-direction: column; gap: 14px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 
 <div class="wrap">
   <header>
-    <span class="eyebrow">CTA Tracker · handheld · 466 × 466 round AMOLED</span>
-    <h1>Railpet</h1>
-    <p class="lede">An interactive mockup of the handheld screens. The pet is a little railcar whose destination sign talks for it. Swipe and tap the screen like the real thing, or use the panel to jump between states.</p>
+    <span class="eyebrow">Trackie · handheld · 466 × 466 round AMOLED</span>
+    <h1>Trackie on the handheld</h1>
+    <p class="lede">An interactive mockup of the handheld screens in the iPhone app's look: night navy, line-colored cards that sit up like game tiles, departure-board pixel minutes, and Trackie on his cream tile saying how he feels. Swipe and tap the screen like the real thing, or use the panel to jump between states.</p>
   </header>
 
   <div class="stage">
     <div class="device-col">
       <div class="shell" id="shell">
-        <span class="tag">CTA-PET-3F2A</span>
+        <span class="tag">TRACKIE-3F2A</span>
         <div class="bezel"><canvas id="screen" width="466" height="466" tabindex="0" aria-label="Handheld screen. Arrow keys navigate, Enter opens, Escape goes back."></canvas></div>
       </div>
-      <p class="hint">Swipe up for stops · swipe down to go home · swipe right to go back · tap the pet to poke it · long-press the pet to cycle moods (stands in for the two-finger debug gesture). Keyboard: arrows, Enter, Esc.</p>
+      <p class="hint">Swipe up for stops · swipe left from Home for the map (drag to pan, tap a stop, swipe in from the left edge to leave) · swipe down to go home · swipe right to go back · tap Trackie to ask why · long-press him to cycle moods (stands in for the two-finger debug gesture). Keyboard: arrows, Enter, Esc, Space.</p>
       <div class="meter" aria-live="polite">
-        <div><b id="mLit">–</b><span>pixels lit (inside the circle)</span></div>
-        <div><b id="mPow">–</b><span>est. panel power vs. an all-white screen</span></div>
+        <div class="px"><b id="mLit">–</b><span>pixels lit (navy counts as lit)</span></div>
+        <div class="px"><b id="mPow">–</b><span>est. panel power vs. an all-white screen</span></div>
       </div>
     </div>
 
-    <aside class="panel" aria-label="Mockup controls">
+    <aside class="panel px" aria-label="Mockup controls">
       <div class="group"><span class="lbl">Screen</span>
         <div class="seg" id="segScreen">
-          <button data-v="home">Home</button><button data-v="trains">Trains</button><button data-v="buses">Buses</button>
-          <button data-v="detail">Stop detail</button><button data-v="pair">Pairing</button><button data-v="first">First run</button>
+          <button class="px" data-v="home">Home</button><button class="px" data-v="trains">Trains</button><button class="px" data-v="buses">Buses</button><button class="px" data-v="map">Map</button>
+          <button class="px" data-v="detail">Stop detail</button><button class="px" data-v="pair">Pairing</button><button class="px" data-v="first">First run</button>
         </div></div>
-      <div class="group"><span class="lbl">Pet mood</span>
+      <div class="group"><span class="lbl">Trackie's mood</span>
         <div class="seg" id="segMood">
-          <button data-v="happy">Happy</button><button data-v="hyped">Hyped</button><button data-v="worried">Worried</button>
-          <button data-v="sad">Sad</button><button data-v="sleepy">Sleepy</button><button data-v="asleep">Docked</button>
+          <button class="px" data-v="happy">Happy</button><button class="px" data-v="hyped">Hyped</button><button class="px" data-v="worried">Worried</button>
+          <button class="px" data-v="sad">Sad</button><button class="px" data-v="sleepy">Sleepy</button><button class="px" data-v="asleep">Docked</button>
         </div></div>
       <div class="group"><span class="lbl">Weather</span>
-        <div class="seg" id="segWeather"><button data-v="clear">Clear 41°</button><button data-v="rain">Rain 48°</button><button data-v="snow">Snow 27°</button></div></div>
+        <div class="seg" id="segWeather"><button class="px" data-v="clear">Clear 41°</button><button class="px" data-v="rain">Rain 48°</button><button class="px" data-v="snow">Snow 27°</button></div></div>
       <div class="group"><span class="lbl">Display</span>
-        <div class="seg" id="segDisplay"><button data-v="active">Awake</button><button data-v="dim">Dim (always-on)</button></div>
+        <div class="seg" id="segDisplay"><button class="px" data-v="active">Awake</button><button class="px" data-v="dim">Dim (always-on)</button></div>
         <label class="check"><input type="checkbox" id="autoDim" checked> Auto-dim after 15 s, back to Home after 45 s</label></div>
       <div class="group"><span class="lbl">Data source</span>
-        <div class="seg" id="segData"><button data-v="wifi">Wi-Fi</button><button data-v="ble">Phone relay</button><button data-v="stale">Offline (7 min old)</button></div></div>
-      <div class="group"><span class="lbl">Pet paint (set from the app)</span><div class="swatches" id="swatches"></div></div>
+        <div class="seg" id="segData"><button class="px" data-v="wifi">Wi-Fi</button><button class="px" data-v="ble">Phone relay</button><button class="px" data-v="stale">Offline (7 min old)</button></div></div>
+      <div class="group"><span class="lbl">Trackie's paint (set from the app)</span><div class="swatches" id="swatches"></div></div>
       <div class="group"><span class="lbl">Preview size</span>
-        <div class="seg" id="segSize"><button data-v="fit">Pixels 1:1</button><button data-v="real">About real size</button></div></div>
-      <div class="group"><span class="lbl">Sprite</span>
-        <div class="seg"><button class="btn" id="copyGrid">Copy current 32×32 grid</button></div>
-        <p class="toast" id="toast"></p>
-        <pre class="grid" id="gridOut" hidden></pre></div>
+        <div class="seg" id="segSize"><button class="px" data-v="fit">Pixels 1:1</button><button class="px" data-v="real">About real size</button></div>
+        <p class="toast" id="toast"></p></div>
     </aside>
   </div>
 
   <section>
     <h2>Every state at a glance</h2>
-    <p class="lede">Each thumbnail is rendered by the same code as the live screen. The percentage is the share of pixels lit, which is roughly what an AMOLED panel pays for. Click one to load it.</p>
+    <p class="lede">Each thumbnail is rendered by the same code as the live screen. The power estimate is roughly what the AMOLED panel pays for that frame. Click one to load it.</p>
     <div class="sheet" id="sheet"></div>
   </section>
 
   <section>
     <h2>Why it looks like this</h2>
     <div class="notes">
-      <div class="note"><h3>Battery</h3><ul>
-        <li>Black is off on AMOLED, so every screen is drawn as light on black. No filled cards, no backgrounds, no gradients.</li>
-        <li>The pet's face is a dark windshield mask. Only the eyes and the sign glow, so the hero element costs little.</li>
-        <li>Status text uses sign amber, which has no blue subpixel. Blue OLED subpixels draw the most power and age fastest.</li>
-        <li>Dim mode swaps the pet to an outline with lit eyes and hides everything but the time and weather, cutting lit pixels to about a quarter.</li>
-        <li>The dimmed frame shifts a few pixels each minute so the always-on pet doesn't burn in.</li>
-        <li>Rows away from the center of the list are drawn dimmer. That reads as focus and lights fewer pixels.</li>
+      <div class="note px"><h3>Same as the app</h3><ul>
+        <li>Colors come from the app's design kit: night navy, raised navy, mist for secondary text, headlight yellow for the active control, cream behind Trackie, amber only for Delayed.</li>
+        <li>Every route is a card in its line's color: a darker shade of the line as the fill, a lighter shade for all its text (the same <code>LineColors.card</code> and <code>cardText</code> math, ported). Buses share the bus blue.</li>
+        <li>Cards, tabs, chips, and Trackie's tile have stepped pixel corners, a rim, light from the top, and a hard edge under them, so they sit up like game tiles.</li>
+        <li>Minutes use the app's 5×7 pixel digits, like a departure board. Route names are heavy and rounded.</li>
+        <li>Trackie is the app's 32×32 sprite, with the same faces and floating extras for each mood.</li>
       </ul></div>
-      <div class="note"><h3>Responsiveness</h3><ul>
-        <li>Everything is solid fills, bitmap text and arcs: things LVGL draws fast on an ESP32-S3 without alpha-blending the whole frame.</li>
-        <li>The pet moves in whole sprite pixels (5 screen px), so each animation step redraws only the 160 × 160 sprite box, not the screen.</li>
-        <li>The sign scrolls inside an 80 × 25 px window, the cheapest possible "the pet is alive" signal.</li>
-        <li>Screen changes are short slides (about 200 ms). If full-frame slides stutter on the QSPI panel, cut instead and let the pet do a hop.</li>
-        <li>In dim mode, animation drops to blinks only, about 2 frames per second.</li>
+      <div class="note px"><h3>On the ESP32</h3><ul>
+        <li>Pixel corners are three rectangles each, so LVGL fills them with no anti-aliasing. A card is one vertical gradient plus a darker rectangle for its edge.</li>
+        <li>Trackie is an indexed 32×32 image drawn at 4×. His bob moves him one art pixel twice a second, so only his tile redraws.</li>
+        <li>The pixel digits are a bitmap font at whole scales only (3×–7×), so they stay crisp.</li>
+        <li>SF Pro Rounded can't ship on a non-Apple device, so the mockup uses Nunito Black as the stand-in. Convert it with lv_font_conv at the four sizes used.</li>
+        <li>The map draws the L lines itself from <code>data/train_shapes.json</code> (15 KB, built into the firmware), in whole pixels at half resolution, doubled. Over BLE it needs only your location (already sent), the nearby stops' coordinates (about 160 bytes more in the nearby message), and train positions (about 10 bytes a train, every 60 s). No map images cross BLE.</li>
+        <li>Screen changes are short slides (about 200 ms). If full-frame slides stutter on the QSPI panel, cut instead and let Trackie hop.</li>
       </ul></div>
-      <div class="note"><h3>Ease of use</h3><ul>
-        <li>Home answers "should I hurry?" without a swipe: the pet's mood, its sign, and one line naming the stop and minutes.</li>
-        <li>Rows are about 92 px tall, roughly 9 mm on this panel, a comfortable fingertip. The tab bar's touch zone is the whole top band, not just the pill.</li>
-        <li>Everything sits inside the circle. Rows narrow and shrink as they near the edge instead of getting cut off.</li>
-        <li>Each gesture does one thing per screen: up opens stops, down goes home, right goes back. Small chevrons hint at each.</li>
-        <li>Tapping the pet makes its sign say why it feels that way, so the mood is never a mystery.</li>
+      <div class="note px"><h3>Battery and use</h3><ul>
+        <li>Awake screens are navy like the app, not black. Navy is dim, but the whole panel glows, so check the power meter against an all-black frame.</li>
+        <li>Dim always-on mode drops to black with Trackie alone, and shifts a few pixels every 10 s so he doesn't burn in.</li>
+        <li>Home answers "should I hurry?" without a swipe: Trackie's face, his speech bubble, and one card for the most urgent stop.</li>
+        <li>Cards away from the list's focus shrink and fade, and narrow to stay inside the circle.</li>
+        <li>Tapping Trackie makes his bubble say why he feels that way.</li>
       </ul></div>
     </div>
     <div class="qs"><h3>Questions for your critique</h3><ol>
-      <li>Is the one-line "glance" under the pet worth its pixels, or should Home be the pet alone?</li>
-      <li>Should dim mode use the outline pet (shown here), or keep the full-color pet at low brightness as the spec says?</li>
-      <li>Train rows show only the next arrival in either direction. Would two times, one per direction, be more useful?</li>
-      <li>Is "NOT IN SERVICE" for no data or night hours too cheeky, or just right?</li>
-      <li>Temperatures are in °F for Chicago. OK?</li>
+      <li>Navy instead of black on the awake screens: worth the battery cost? Compare the power numbers.</li>
+      <li>Trackie on the cream tile at Home (like the app), or straight on navy?</li>
+      <li>His bubble says a mood word ("Go now!") and switches to the reason when tapped. Right split?</li>
+      <li>Train rows are one card per station, colored by its soonest line. One card per line and direction instead, like the app?</li>
+      <li>The map: a handheld screen for the alpha, or a stretch item after the core path works? It's not in the spec yet.</li>
+      <li>Spec 8.1 still says "the pet centered on black" and rows with a line-color dot. Update it to this look if you like it.</li>
     </ol></div>
   </section>
 </div>
@@ -205,38 +200,66 @@ section { display: flex; flex-direction: column; gap: 14px; }
 <script>
 (() => {
 'use strict';
-const W = 466, C = 233, PX = 5;
-const T = { txt: '#f2efe8', txt2: '#9c978d', txt3: '#5f5b53', amber: '#ffb000', amberDim: '#a8792a', rail: '#34312c', tie: '#24221e', bus: '#9db8d6', green: '#3a9a5c' };
-const LINE = { Red: '#c60c30', Blue: '#00a1de', Brn: '#62361b', G: '#009b3a', Org: '#f9461c', P: '#522398', Pink: '#e27ea6', Y: '#f9e300' };
-const LINE_NAME = { Red: 'Red', Brn: 'Brown', P: 'Purple', Blue: 'Blue' };
-const DIRS = { Red: ['Howard', '95th/Dan Ryan'], Brn: ['Kimball', 'Loop'], P: ['Linden', 'Loop'] };
-// Brown and Purple render darker on black; brighten their dots a touch so they stay visible.
-const DOT = c => ({ Brn: '#9a5a32', P: '#7d4fd0' }[c] || LINE[c]);
+const W = 466, C = 233;
+const T = { navy: '#0b1a36', raised: '#17294f', mist: '#9db0d8', headlight: '#ffd95a', cream: '#f4ecc8', signal: '#34c759', amber: '#ffb000', white: '#ffffff' };
+const FONT = 'Nunito, ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
+function font(ctx, w, size) { ctx.font = `${w} ${size}px ${FONT}`; }
+const alpha = (hex6, a) => hex6 + Math.round(a * 255).toString(16).padStart(2, '0');
 
+/* ---------- line colors: a port of CTAKit's LineColors ---------- */
+const LINE = { Red: 0xC60C30, Blue: 0x00A1DE, Brn: 0x62361B, G: 0x009B3A, Org: 0xF9461C, Pink: 0xE27EA6, P: 0x522398, Y: 0xF9E300 };
+const LINE_NAME = { Red: 'Red', Blue: 'Blue', Brn: 'Brown', G: 'Green', Org: 'Orange', Pink: 'Pink', P: 'Purple', Y: 'Yellow' };
+const BUS = 0x2F7BFF;
+const hex = n => '#' + n.toString(16).padStart(6, '0');
+function lum(rgb) {
+  const ch = s => { const c = ((rgb >> s) & 255) / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0);
+}
+function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+function shaded(rgb, target, cap) {
+  const f = Math.min(cap, Math.pow(target / lum(rgb), 1 / 2.2));
+  const s = sh => Math.round(((rgb >> sh) & 255) * f) << sh; return s(16) | s(8) | s(0);
+}
+function mix(rgb, k) { const ch = sh => { const v = (rgb >> sh) & 255; return Math.round(v + (255 - v) * k) << sh; }; return ch(16) | ch(8) | ch(0); }
+function lifted(rgb, bg, min, from = 0) { for (let s = from; s <= 10; s++) { const m = mix(rgb, s / 10); if (contrast(m, bg) >= min) return m; } return 0xFFFFFF; }
+const THEMES = {};
+function th(route) { // a route's card: lighter top, dark bottom, light text (redesign revision 2)
+  if (!THEMES[route]) {
+    const a = LINE[route] ?? BUS, top = shaded(a, 0.09, 0.95);
+    THEMES[route] = { accent: hex(a), top: hex(top), card: hex(shaded(a, 0.04, 0.85)), text: hex(lifted(a, top, 4.5, 3)) };
+  }
+  return THEMES[route];
+}
+const routeName = (route, bus) => bus ? route : LINE_NAME[route];
+
+/* ---------- data ---------- */
+const DIRS = { Red: ['Howard', '95th/Dan Ryan'], Brn: ['Kimball', 'Loop'], P: ['Linden', 'Loop'] };
 const TRAINS = [
-  { name: 'Belmont', lines: ['Red', 'Brn', 'P'], line: 'Red', dest: '95th/Dan Ryan', min: 2 },
-  { name: 'Wellington', lines: ['Brn', 'P'], line: 'Brn', dest: 'Loop', min: 3 },
-  { name: 'Addison', lines: ['Red'], line: 'Red', dest: 'Howard', min: 4 },
-  { name: 'Southport', lines: ['Brn'], line: 'Brn', dest: 'Kimball', min: 6 },
-  { name: 'Diversey', lines: ['Brn', 'P'], line: 'Brn', dest: 'Kimball', min: 5 },
-  { name: 'Sheridan', lines: ['Red'], line: 'Red', dest: '95th/Dan Ryan', min: 7 },
-  { name: 'Fullerton', lines: ['Red', 'Brn', 'P'], line: 'Red', dest: 'Howard', min: 8 },
-  { name: 'Paulina', lines: ['Brn'], line: 'Brn', dest: 'Loop', min: 9 },
-  { name: 'Addison', lines: ['Brn'], line: 'Brn', dest: 'Kimball', min: 11 },
-  { name: 'Irving Park', lines: ['Brn'], line: 'Brn', dest: 'Loop', min: 14, sched: true },
+  { name: 'Belmont', lines: ['Red', 'Brn', 'P'], line: 'Red', dest: '95th/Dan Ryan', min: 2, lat: 41.939751, lon: -87.65338 },
+  { name: 'Wellington', lines: ['Brn', 'P'], line: 'Brn', dest: 'Loop', min: 3, lat: 41.936033, lon: -87.653266 },
+  { name: 'Addison', lines: ['Red'], line: 'Red', dest: 'Howard', min: 4, lat: 41.947316, lon: -87.653624 },
+  { name: 'Southport', lines: ['Brn'], line: 'Brn', dest: 'Kimball', min: 6, lat: 41.943744, lon: -87.663619 },
+  { name: 'Diversey', lines: ['Brn', 'P'], line: 'Brn', dest: 'Kimball', min: 5, lat: 41.932732, lon: -87.653131 },
+  { name: 'Sheridan', lines: ['Red'], line: 'Red', dest: '95th/Dan Ryan', min: 7, lat: 41.953905, lon: -87.654661 },
+  { name: 'Fullerton', lines: ['Red', 'Brn', 'P'], line: 'Red', dest: 'Howard', min: 8, lat: 41.9253, lon: -87.652868 },
+  { name: 'Paulina', lines: ['Brn'], line: 'Brn', dest: 'Loop', min: 9, lat: 41.943623, lon: -87.670907 },
+  { name: 'Addison', lines: ['Brn'], line: 'Brn', dest: 'Kimball', min: 11, lat: 41.947028, lon: -87.674642 },
+  { name: 'Irving Park', lines: ['Brn'], line: 'Brn', dest: 'Loop', min: 14, sched: true, lat: 41.954521, lon: -87.674868 },
 ];
+// shortcut: 77, 151 and 152 use approximate corner coordinates; on the device they come with the nearby message.
 const BUSES = [
-  { rt: '77', name: 'Belmont & Sheffield', dir: 'Westbound', dest: 'Harlem', min: 3 },
-  { rt: '22', name: 'Clark & Belmont', dir: 'Southbound', dest: 'Harrison', min: 4 },
-  { rt: '77', name: 'Belmont & Sheffield', dir: 'Eastbound', dest: 'Broadway', min: 6 },
-  { rt: '8', name: 'Halsted & Belmont', dir: 'Northbound', dest: 'Waveland', min: 2 },
-  { rt: '22', name: 'Clark & Belmont', dir: 'Northbound', dest: 'Howard', min: 9 },
-  { rt: '36', name: 'Broadway & Belmont', dir: 'Southbound', dest: 'Harrison', min: 7 },
-  { rt: '8', name: 'Halsted & Belmont', dir: 'Southbound', dest: '79th', min: 12 },
-  { rt: '151', name: 'Sheridan & Belmont', dir: 'Southbound', dest: 'Union Station', min: 10 },
-  { rt: '152', name: 'Addison & Sheffield', dir: 'Westbound', dest: 'Harlem', min: 15, sched: true },
-  { rt: '9', name: 'Ashland & Belmont', dir: 'Northbound', dest: 'Irving Park', min: 18 },
+  { rt: '77', name: 'Belmont & Sheffield', dir: 'Westbound', dest: 'Harlem', min: 3, lat: 41.93975, lon: -87.65445 },
+  { rt: '22', name: 'Clark & Belmont', dir: 'Southbound', dest: 'Harrison', min: 4, lat: 41.940088, lon: -87.650909 },
+  { rt: '77', name: 'Belmont & Sheffield', dir: 'Eastbound', dest: 'Broadway', min: 6, lat: 41.9399, lon: -87.6543 },
+  { rt: '8', name: 'Halsted & Belmont', dir: 'Northbound', dest: 'Waveland', min: 2, lat: 41.939907, lon: -87.64917 },
+  { rt: '22', name: 'Clark & Belmont', dir: 'Northbound', dest: 'Howard', min: 9, lat: 41.939867, lon: -87.650495 },
+  { rt: '36', name: 'Broadway & Belmont', dir: 'Southbound', dest: 'Harrison', min: 7, lat: 41.939817, lon: -87.644466 },
+  { rt: '8', name: 'Halsted & Belmont', dir: 'Southbound', dest: '79th', min: 12, lat: 41.939744, lon: -87.649357 },
+  { rt: '151', name: 'Sheridan & Belmont', dir: 'Southbound', dest: 'Union Station', min: 10, lat: 41.9402, lon: -87.6394 },
+  { rt: '152', name: 'Addison & Sheffield', dir: 'Westbound', dest: 'Harlem', min: 15, sched: true, lat: 41.9472, lon: -87.6545 },
+  { rt: '9', name: 'Ashland & Belmont', dir: 'Northbound', dest: 'Irving Park', min: 18, lat: 41.94003, lon: -87.66855 },
 ];
+const busHeading = it => `${it.dir.replace(/bound$/, '')} to ${it.dest}`;   // "West to Harlem", as the app says it
 function flags(item, st) {
   const f = { delayed: false, alert: false, sched: !!item.sched, min: item.min };
   if (st.mood === 'worried' && (item.rt === '22' || item.line === 'Brn')) { f.delayed = true; f.min = item.min + 4; }
@@ -245,209 +268,152 @@ function flags(item, st) {
   if (st.mood === 'happy' && item.name === 'Belmont' && item.lines) f.min = 6;
   return f;
 }
-
-/* ---------- pet palettes ---------- */
-function shade(hex, a) { // a > 0 lightens toward white, a < 0 darkens toward black
-  const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
-  const t = a > 0 ? 255 : 0, k = Math.abs(a);
-  r = Math.round(r + (t - r) * k); g = Math.round(g + (t - g) * k); b = Math.round(b + (t - b) * k);
-  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
-}
-const PAINTS = {
-  Stainless: { B: '#a7b0b9', A: '#c60c30' },
-  Red: { B: '#c60c30', A: '#d3d9de' }, Blue: { B: '#0089bd', A: '#d3d9de' }, Brown: { B: '#7a4524', A: '#e0b48a' },
-  Green: { B: '#00843a', A: '#d3d9de' }, Orange: { B: '#e2421a', A: '#ffe1b0' }, Pink: { B: '#d9739c', A: '#ffffff' },
-  Purple: { B: '#5c2aa8', A: '#d3d9de' }, Yellow: { B: '#e8d200', A: '#3b3b3b' },
-};
-function palette(name) {
-  const p = PAINTS[name];
-  return {
-    B: p.B, L: shade(p.B, .35), D: shade(p.B, -.35), o: shade(p.B, -.62), A: p.A,
-    G: '#07090b', g: '#171b1f', s: '#140b02', a: T.amber, E: '#fff4d6', w: '#ffffff',
-    H: '#ffe7a3', h: '#4d4026', K: '#2b2e32', k: '#5a5e63', m: '#1d1012', r: '#e8505b', t: '#7fd0ff',
-    X: '#e8505b', x: '#f3e6d0', U: '#ff5f7a', u: '#b8324b',
-  };
+function clock(offsetMin = 0) {
+  const d = new Date(Date.now() + offsetMin * 60000);
+  try { return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' }).format(d).replace(/\s?[AP]M/, ''); }
+  catch (e) { return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}`; }
 }
 
-/* ---------- 3x5 sign font ---------- */
-const F3 = {
-  A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',E:'111100110100111',F:'111100110100100',
-  G:'011100101101011',H:'101101111101101',I:'111010010010111',J:'001001001101010',K:'101101110101101',L:'100100100100111',
-  M:'101111111101101',N:'110101101101101',O:'010101101101010',P:'110101110100100',Q:'010101101110011',R:'110101110101101',
-  S:'011100010001110',T:'111010010010010',U:'101101101101111',V:'101101101101010',W:'101101111111101',X:'101101010101101',
-  Y:'101101010010010',Z:'111001010100111','0':'111101101101111','1':'010110010010111','2':'110001010100111','3':'110001010001110',
-  '4':'101101111001001','5':'111100110001110','6':'011100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001110',
-  '!':'010010010000010','.':'000000000000010','?':'110001010000010','-':'000000111000000',' ':'000000000000000',':':'000010000010000',
-};
-function textCols(str) { // -> array of 5-bit columns
-  const cols = [];
-  for (const ch of str.toUpperCase()) {
-    const g = F3[ch] || F3[' '];
-    for (let c = 0; c < 3; c++) { let v = 0; for (let r = 0; r < 5; r++) if (g[r * 3 + c] === '1') v |= 1 << r; cols.push(v); }
-    cols.push(0);
+/* ---------- pixel shapes: a port of the app's PixelShape and .plate ---------- */
+function pixelPath(ctx, x, y, w, h, block = 4, steps = [3, 1, 1], bottom = true) {
+  const corner = [];
+  steps.forEach((d, n) => corner.push([d * block, n * block], [d * block, (n + 1) * block]));
+  corner.push([0, steps.length * block]);
+  const low = bottom ? corner : [[0, 0]];
+  const pts = [...corner.map(([a, b]) => [x + w - a, y + b]), ...[...low].reverse().map(([a, b]) => [x + w - a, y + h - b]),
+    ...low.map(([a, b]) => [x + a, y + h - b]), ...[...corner].reverse().map(([a, b]) => [x + a, y + b])];
+  ctx.beginPath(); pts.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.closePath();
+}
+const SMALL = { block: 3, steps: [2, 1] };
+function plate(ctx, x, y, w, h, o = {}) {
+  const { fill = T.raised, fill2 = fill, rim = 'rgba(255,255,255,0.22)', rimW = 2, edge = 5, block = 4, steps = [3, 1, 1] } = o;
+  if (edge) { // the plate's side
+    pixelPath(ctx, x, y + edge, w, h, block, steps); ctx.fillStyle = fill2; ctx.fill(); ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fill();
   }
-  cols.pop();
-  return cols;
+  pixelPath(ctx, x, y, w, h, block, steps);
+  if (fill === fill2) ctx.fillStyle = fill;
+  else { const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, fill); g.addColorStop(1, fill2); ctx.fillStyle = g; }
+  ctx.fill();
+  const hi = ctx.createLinearGradient(0, y, 0, y + h / 2); hi.addColorStop(0, 'rgba(255,255,255,0.12)'); hi.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hi; ctx.fill();
+  if (rimW) { ctx.save(); ctx.clip(); ctx.lineWidth = rimW * 2; ctx.strokeStyle = rim; ctx.stroke(); ctx.restore(); }
+}
+function chip(ctx, text, x, y, bg, fg) { // a small solid pixel chip ("Delayed", "SCHEDULED"); returns its width
+  font(ctx, 900, 11); const w = Math.ceil(ctx.measureText(text).width) + 12;
+  pixelPath(ctx, x, y, w, 18, 2, [1]); ctx.fillStyle = bg; ctx.fill();
+  ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(text, x + 6, y + 9.5);
+  return w;
+}
+function arrowCircle(ctx, cx, cy, r, col, ink) { // SF Symbols' arrow.right.circle.fill
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = ink; ctx.lineWidth = r * 0.26; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(cx - r * 0.45, cy); ctx.lineTo(cx + r * 0.42, cy);
+  ctx.moveTo(cx + r * 0.05, cy - r * 0.4); ctx.lineTo(cx + r * 0.45, cy); ctx.lineTo(cx + r * 0.05, cy + r * 0.4); ctx.stroke();
+  ctx.lineCap = 'butt';
 }
 
-/* ---------- pet sprite (32x32 palette grid) ---------- */
-const EYES = {
-  open:   ['.EEE.', 'EEEwE', 'EEEEE', '.EEE.'],
-  blink:  ['.....', '.....', 'EEEEE', '.....'],
-  happy:  ['.....', '.EEE.', 'E...E', '.....'],
-  star:   ['..E..', '.EEE.', 'EEEEE', '.E.E.'],
-  smallL: ['.....', 'EE...', 'EE...', '.....'],
-  smallR: ['.....', '...EE', '...EE', '.....'],
-  sad:    ['.....', '..EEE', '.E...', 'E....'],
-  sleepy: ['.....', '.....', 'EEEEE', '.EEE.'],
-  closed: ['.....', '.....', 'E...E', '.EEE.'],
+/* ---------- the app's 5×7 pixel digits (CTAKit PixelFont) ---------- */
+const PF = {
+  '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'], '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'], '3': ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+  '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'], '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+  '6': ['.###.', '#....', '#....', '####.', '#...#', '#...#', '.###.'], '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+  '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'], '9': ['.###.', '#...#', '#...#', '.####', '....#', '....#', '.###.'],
+  ':': ['.', '.', '#', '.', '#', '.', '.'], 'D': ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  'u': ['.....', '.....', '#...#', '#...#', '#...#', '#..##', '.##.#'], 'e': ['.....', '.....', '.###.', '#...#', '#####', '#....', '.###.'],
+  ' ': ['...', '...', '...', '...', '...', '...', '...'],
 };
-const MOUTH = {
-  smile: ['m..m', '.mm.', '....'], open: ['mmmm', 'mrrm', '.mm.'], wobble: ['....', 'm.m.', '.m.m'],
-  frown: ['....', '.mm.', 'm..m'], yawn: ['.mm.', 'm..m', '.mm.'], small: ['....', '.mm.', '....'], flat: ['....', 'mmmm', '....'],
+function pxWidth(text, s) { let w = 0; [...text].forEach((ch, i) => { w += (PF[ch] || PF[' '])[0].length + (i ? 1 : 0); }); return w * s; }
+function pixelText(ctx, text, x, y, s, col, align = 'left') { // y is the top; returns the width
+  const w = pxWidth(text, s); let cx = Math.round(align === 'center' ? x - w / 2 : align === 'right' ? x - w : x);
+  ctx.fillStyle = col;
+  for (const ch of text) {
+    const g = PF[ch] || PF[' '];
+    for (let r = 0; r < 7; r++) for (let c = 0; c < g[r].length; c++) if (g[r][c] === '#') ctx.fillRect(cx + c * s, y + r * s, s, s);
+    cx += (g[0].length + 1) * s;
+  }
+  return w;
+}
+
+/* ---------- glyphs and Trackie (the app's Glyphs) ---------- */
+const LIVE = [['.......K', '.....K..', '..KK.K.K', '.KKKK.K.', '.KKKK.K.', '..KK.K.K', '.....K..', '.......K'],
+  ['........', '........', '..KK....', '.KKKK...', '.KKKK...', '..KK....', '........', '........']];
+const ALERT = ['.......KK.......', '.......KK.......', '......KKKK......', '......KKKK......', '.....KKKKKK.....', '.....KK..KK.....',
+  '....KKK..KKK....', '....KKK..KKK....', '...KKKK..KKKK...', '...KKKK..KKKK...', '..KKKKKKKKKKKK..', '..KKKKKKKKKKKK..',
+  '.KKKKKK..KKKKKK.', '.KKKKKK..KKKKKK.', 'KKKKKKKKKKKKKKKK', 'KKKKKKKKKKKKKKKK'];
+function ink(ctx, rows, x, y, s, col) { ctx.fillStyle = col; rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] !== '.') ctx.fillRect(x + i * s, y + j * s, s, s); }); }
+function liveGlyph(ctx, x, y, col, blinks, now) { ink(ctx, LIVE[blinks && Math.floor(now / 500) % 2 ? 1 : 0], x, y, 2, col); }
+
+const PET_CHARS = '.KBLGSWDCRYPUT';
+const PET_PAL = [null, '#0b0d14', '#2d6be6', '#7db4ff', '#c3c8ce', '#8e949b', '#ffffff', '#5a6069', '#9beff5', '#e5333d', '#ffd43b', '#f27dae', '#a9aeb5', '#7fd3ff'];
+const PET_BODY = [
+  '................................', '..........KKKKKKKKKKKK..........', '.......KBBLLLLLLLLLLLLBBK.......', '.....KBWLLLLKKKKKKKKLLLLBBK.....',
+  '....KBWBBBBBKCCCCCCKBBBBBBBK....', '...KBBBBBBBBKCCCCCCKBBBBBBBBK...', '..KBBBKKKBBBKKKKKKKKBBBKKKBBBK..', '.KGGBKKKKKBBBBBBBBBBBBKKKKKBGGK.',
+  '.KWGBKRWKKBBKKKKKKKKBBKKWRKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.',
+  '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.',
+  '.KWGBKUUUKBKKKKKKKKKKBKUUUKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBBKKKBBKKKKKKKKKKBBKKKBBGSK.',
+  '.KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.', '.KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.', '.KWGBBBBBBBKKKKKKKKKKBBBBBBBGSK.', '.KWGGBBBBBBBBBBBBBBBBBBBBBBGGSK.',
+  '.KWGGGGGGGGGGGGGGGGGGGGGGGGGGSK.', '.KGGGGGGGGGGGGGGGGGGGGGGGGGGGGK.', '..KKKKKKKKKKKKKKKKKKKKKKKKKKKK..', '...UUUU.DD...UUUUUU...DD.UUUU...',
+  '...UUUU.DD...UUUUUU...DD.UUUU...', '........DD...UUUUUU...DD........', '........DD............DD........', '................................',
+];
+// Each face covers the door's rows 12–19, columns 11–20; "." keeps the door's black.
+const FACES = {
+  happy: ['..........', '..........', '.WW....WW.', 'W..W..W..W', '..........', 'PP.W..W.PP', '....WW....', '..........'],
+  hyped: ['..........', 'WW......WW', '..W....W..', 'WW......WW', '..........', 'PP.WWWW.PP', '....PP....', '..........'],
+  worried: ['..W....W..', 'WW......WW', '..........', '.WW....WW.', '.WW....WW.', '..........', '...W.W.W..', '..W.W.W...'],
+  sad: ['..........', '..........', 'WWW....WWW', '.T......T.', '.T......T.', '.T..WW..T.', '.T.W..W.T.', '..........'],
+  sleepy: ['..........', '..........', '..........', 'WWW....WWW', '..........', '..........', '....WW....', '..........'],
 };
-function bodyInside(x, y) {
-  if (y < 2 || y > 27 || x < 4 || x > 27) return false;
-  const trimTop = [5, 3, 2, 1][y - 2] ?? 0; const trim = y === 27 ? 1 : trimTop;
-  return x >= 4 + trim && x <= 27 - trim;
+FACES.asleep = FACES.sleepy;
+const EXTRAS = {
+  happy: ['.PP.PP.', 'PPPPPPP', 'PPPPPPP', '.PPPPP.', '..PPP..', '...P...', '.......'],
+  hyped: ['....WW.', '..WW...', '.......', '..WWWW.', '.......', '..WW...', '....WW.'],
+  worried: ['...T...', '..TT...', '..TT...', '.TTTT..', '.TTWT..', '..TT...', '.......'],
+  sleepy: ['WWWW...', '..W....', '.W.....', 'WWWW...', '....WWW', '.....W.', '....WWW'],
+};
+EXTRAS.asleep = EXTRAS.sleepy;
+const PET = {};
+for (const [mood, face] of Object.entries(FACES)) {
+  const rows = PET_BODY.map(r => r.split(''));
+  face.forEach((row, dy) => [...row].forEach((c, dx) => { if (c !== '.') rows[12 + dy][11 + dx] = c; }));
+  PET[mood] = rows;
 }
-function petFace(mood, f, st, now) {
-  // returns {eyesL, eyesR, mouth, lights}
-  const blink = (now % 3400) < 150;
-  switch (mood) {
-    case 'happy': return { e: st.poked ? 'happy' : (blink ? 'blink' : 'open'), m: 'smile', lights: 'on' };
-    case 'hyped': return { e: f % 4 < 2 ? 'star' : 'open', m: 'open', lights: f % 2 ? 'on' : 'dim' };
-    case 'worried': { const left = f % 6 < 3; return { e: left ? 'smallL' : 'smallR', m: 'wobble', lights: 'dim' }; }
-    case 'sad': return { e: 'sad', m: 'frown', lights: 'dim' };
-    case 'sleepy': return { e: (now % 5200) < 900 ? 'closed' : 'sleepy', m: (now % 5200) < 900 ? 'yawn' : 'flat', lights: 'dim' };
-    case 'asleep': return { e: 'closed', m: 'small', lights: 'off' };
-    default: return { e: 'open', m: 'smile', lights: 'on' };
-  }
+const PAINTS = { Blue: ['#2d6be6', '#7db4ff'] };
+for (const [name, rgb] of [['Red', 0xC60C30], ['Green', 0x009B3A], ['Orange', 0xF9461C], ['Pink', 0xD9739C], ['Purple', 0x6B3FC0], ['Brown', 0x8A5230], ['Yellow', 0xE0C000], ['Silver', 0x8E99A4]])
+  PAINTS[name] = [hex(rgb), hex(mix(rgb, 0.45))];
+function art(ctx, rows, x, y, s, paint) {
+  const [B, L] = PAINTS[paint] || PAINTS.Blue;
+  rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) {
+    const c = r[i]; if (c === '.') continue;
+    ctx.fillStyle = c === 'B' ? B : c === 'L' ? L : PET_PAL[PET_CHARS.indexOf(c)]; ctx.fillRect(x + i * s, y + j * s, s, s);
+  } });
 }
-function buildGrid(st, now) {
-  const g = Array.from({ length: 32 }, () => Array(32).fill('.'));
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
-    if (!bodyInside(x, y)) continue;
-    const edge = !bodyInside(x - 1, y) || !bodyInside(x + 1, y) || !bodyInside(x, y - 1) || !bodyInside(x, y + 1);
-    let c = edge ? 'o' : 'B';
-    if (!edge) { if (x === 5 || y === 3) c = 'L'; if (x === 26 || y >= 25) c = 'D'; }
-    g[y][x] = c;
+function drawPet(ctx, mood, x, y, s, paint, weather) {
+  art(ctx, PET[mood], x, y, s, paint);
+  const P = (i, j, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x + i * s, y + j * s, w * s, h * s); };
+  if (weather === 'snow' && mood !== 'asleep') { // a striped scarf over the bumper
+    for (let i = 2; i <= 29; i++) P(i, 22, 1, 2, Math.floor(i / 2) % 2 ? '#e5333d' : '#f3e6d0');
+    for (let j = 24; j <= 26; j++) P(22, j, 2, 1, j % 2 ? '#e5333d' : '#f3e6d0');
   }
-  // windshield mask
-  for (let y = 5; y <= 19; y++) for (let x = 7; x <= 24; x++) {
-    const corner = (y === 5 || y === 19) && (x === 7 || x === 24);
-    if (!corner) g[y][x] = 'G';
-  }
-  for (let y = 6; y <= 10; y++) for (let x = 8; x <= 23; x++) g[y][x] = 's';
-  for (let x = 8; x <= 23; x++) g[11][x] = 'g';
-  // stripe, wheels
-  for (let x = 5; x <= 26; x++) g[21][x] = 'A';
-  for (const [a, b] of [[8, 11], [20, 23]]) { for (let x = a; x <= b; x++) { g[28][x] = 'K'; g[30][x] = 'K'; } for (let x = a - 1; x <= b + 1; x++) g[29][x] = 'K'; g[29][a] = 'k'; g[29][b] = 'k'; }
-  const f = Math.floor(now / 250);
-  const face = petFace(st.mood, f, st, now);
-  // headlights
-  const hl = face.lights === 'on' ? 'H' : face.lights === 'dim' ? 'h' : 'D';
-  for (const x0 of [6, 23]) for (let x = x0; x <= x0 + 2; x++) for (let y = 23; y <= 24; y++) g[y][x] = hl;
-  // eyes
-  const eL = EYES[face.e], eR = EYES[face.e === 'smallL' ? 'smallL' : face.e === 'smallR' ? 'smallR' : face.e];
-  for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) {
-    if (eL[r][c] !== '.') g[13 + r][9 + c] = eL[r][c];
-    const mirrored = (face.e === 'smallL' || face.e === 'smallR') ? eR[r][c] : eR[r][4 - c];
-    if (mirrored !== '.') g[13 + r][18 + c] = mirrored;
-  }
-  // mouth
-  const mo = MOUTH[face.m];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) if (mo[r][c] !== '.') g[23 + r][14 + c] = mo[r][c];
-  // scarf overlay
-  if (st.weather === 'snow' && st.mood !== 'asleep') {
-    for (let x = 5; x <= 26; x++) for (let y = 20; y <= 21; y++) g[y][x] = (Math.floor(x / 2) % 2) ? 'X' : 'x';
-    for (let y = 22; y <= 26; y++) for (let x = 20; x <= 21; x++) g[y][x] = (y % 2) ? 'X' : 'x';
-  }
-  return g;
-}
-function signText(st, now) {
-  if (st.signOverride && now < st.signOverride.until) return st.signOverride.text;
-  if (st.view.screen === 'pair') return 'PAIR';
-  if (st.view.screen === 'first') return 'HELLO';
-  if (st.data === 'stale') return 'NOT IN SERVICE';
-  return { happy: 'ON TIME', hyped: '2 MIN!', worried: 'DELAYED', sad: 'ALERT', sleepy: 'NOT IN SERVICE', asleep: '' }[st.mood];
-}
-function drawPet(ctx, st, now, ox, oy, scale, aod) {
-  const pal = palette(st.paint);
-  const g = buildGrid(st, now);
-  const px = scale;
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
-    let c = g[y][x]; if (c === '.') continue;
-    let col = pal[c];
-    if (aod) { // outline-only always-on variant
-      if (c === 'o') col = pal.L; else if ('EwaHr'.includes(c)) col = pal[c]; else if (c === 'h') col = '#3a301c'; else continue;
-    }
-    ctx.fillStyle = col; ctx.fillRect(ox + x * px, oy + y * px, px, px);
-  }
-  // sign text (marquee)
-  const text = signText(st, now);
-  if (text) {
-    const cols = textCols(text); const winW = 16;
-    let off = 0;
-    if (cols.length > winW) { const loop = cols.length + 8; off = aod ? 0 : Math.floor(now / 110) % loop - 0; }
-    else off = -Math.floor((winW - cols.length) / 2);
-    const blinkOff = st.mood === 'hyped' && !aod && Math.floor(now / 400) % 2 === 1 && !(st.signOverride && now < st.signOverride.until);
-    if (!blinkOff) {
-      ctx.fillStyle = pal.a;
-      for (let c = 0; c < winW; c++) {
-        let idx = c + off; if (cols.length > winW) idx = ((c + off) % (cols.length + 8) + (cols.length + 8)) % (cols.length + 8);
-        const v = idx >= 0 && idx < cols.length ? cols[idx] : 0;
-        for (let r = 0; r < 5; r++) if (v & (1 << r)) ctx.fillRect(ox + (8 + c) * px, oy + (6 + r) * px, px, px);
-      }
-    }
-  }
-  if (aod) return;
-  const f = Math.floor(now / 250);
-  const P = (x, y, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(ox + x * px, oy + y * px, w * px, h * px); };
-  // mood effects
-  if (st.mood === 'asleep') {
-    for (let i = 0; i < 3; i++) {
-      const ph = ((now / 1400) + i / 3) % 1; const zx = 27 + i * 1 + Math.round(ph * 2), zy = 3 - Math.round(ph * 9);
-      ctx.globalAlpha = 1 - ph; const z = F3.Z;
-      for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (z[r * 3 + c] === '1') P(zx + c, zy + r, 1, 1, '#8fa0b0');
-      ctx.globalAlpha = 1;
-    }
-  }
-  if (st.mood === 'worried') { const dy = (f % 8) >> 1; P(28, 6 + dy, 1, 1, pal.t); P(27, 7 + dy, 3, 2, pal.t); P(28, 9 + dy, 1, 1, pal.t); }
-  if (st.mood === 'sad') { const dy = f % 7; P(22, 17 + dy, 1, 2, pal.t); }
-  if (st.mood === 'hyped') {
-    const on = f % 2 === 0;
-    for (const [y, l] of [[9, 3], [15, 4], [21, 2]]) { P(on ? -1 - l : -2 - l, y, l, 1, T.txt3); P(on ? 33 : 34, y, l, 1, T.txt3); }
-    if (on) { P(0, 1, 1, 1, T.amber); P(31, 4, 1, 1, T.amber); } else { P(1, 4, 1, 1, T.amber); P(30, 0, 1, 1, T.amber); }
-  }
-  if (st.poke && now - st.poke.t0 < 900) {
-    const ph = (now - st.poke.t0) / 900; const ch = { happy: '♥', hyped: '!', worried: '?', sad: '.', sleepy: 'z' }[st.mood] || '♥';
-    ctx.globalAlpha = 1 - ph; ctx.fillStyle = ch === '♥' ? '#ff6b81' : T.amber;
-    ctx.font = `700 ${7 * px}px "Pixelify Sans", monospace`; ctx.textAlign = 'center';
-    ctx.fillText(ch, ox + 31 * px, oy + (3 - ph * 4) * px); ctx.globalAlpha = 1;
-  }
-  // umbrella
-  if (st.weather === 'rain' && st.mood !== 'asleep') {
-    const rows = [[12, 19], [8, 23], [5, 26], [3, 28]];
-    rows.forEach(([a, b], i) => P(a, -6 + i, b - a + 1, 1, pal.U));
-    for (let x = 3; x <= 28; x++) if ((x - 3) % 5 !== 4) P(x, -2, 1, 1, pal.u);
-    P(15, -1, 1, 3, pal.K);
+  if (weather === 'rain' && mood !== 'asleep') { // an umbrella held over the roof
+    [[12, 19], [8, 23], [5, 26], [3, 28]].forEach(([a, b], k) => P(a, -6 + k, b - a + 1, 1, '#ff5f7a'));
+    for (let i = 3; i <= 28; i++) if ((i - 3) % 5 !== 4) P(i, -2, 1, 1, '#b8324b');
+    P(15, -1, 1, 2, '#0b0d14');
   }
 }
 
 /* ---------- tiny pixel icons ---------- */
 const ICON = {
-  sun:   ['..x..', 'x.x.x', '.xxx.', 'xxxxx', '.xxx.', 'x.x.x', '..x..'],
+  sun: ['..x..', 'x.x.x', '.xxx.', 'xxxxx', '.xxx.', 'x.x.x', '..x..'],
   cloud: ['.......', '..xx...', '.xxxxx.', 'xxxxxxx', '.......', '.x.x.x.', 'x.x.x..'],
-  snow:  ['..x..', 'x.x.x', '.xxx.', 'xxxxx', '.xxx.', 'x.x.x', '..x..'],
-  wifi:  ['.xxxxx.', 'x.....x', '..xxx..', '.x...x.', '...x...'],
+  snow: ['x.x.x', '.xxx.', 'xx.xx', '.xxx.', 'x.x.x'],
+  wifi: ['.xxxxx.', 'x.....x', '..xxx..', '.x...x.', '...x...'],
   phone: ['xxx', 'x.x', 'x.x', 'x.x', 'xxx'],
-  off:   ['x...x', '.x.x.', '..x..', '.x.x.', 'x...x'],
-  plug:  ['.x.x.', 'xxxxx', 'xxxxx', '.xxx.', '..x..'],
+  off: ['x...x', '.x.x.', '..x..', '.x.x.', 'x...x'],
 };
 function icon(ctx, name, cx, cy, s, col) {
-  const g = ICON[name]; const w = g[0].length, h = g.length; ctx.fillStyle = col;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (g[y][x] === 'x') ctx.fillRect(Math.round(cx - w * s / 2 + x * s), Math.round(cy - h * s / 2 + y * s), s, s);
+  const g = ICON[name]; const w = g[0].length, h = g.length;
+  ink(ctx, g.map(r => r.replace(/x/g, 'K')), Math.round(cx - w * s / 2), Math.round(cy - h * s / 2), s, col);
 }
 
 /* ---------- helpers ---------- */
@@ -457,213 +423,377 @@ function fit(ctx, text, maxW) {
   let t = text; while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
   return t + '…';
 }
-function font(ctx, w, size, fam) { ctx.font = `${w} ${size}px ${fam === 'px' ? '"Pixelify Sans", monospace' : '"Atkinson Hyperlegible", sans-serif'}`; }
-function timeStr() {
-  try { return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' }).format(new Date()).replace(/\s?[AP]M/, ''); }
-  catch (e) { const d = new Date(); return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}`; }
+const WEATHER = { clear: ['sun', '41°', '#ffd95a'], rain: ['cloud', '48°', '#9db0d8'], snow: ['snow', '27°', '#e8eef8'] };
+
+/* ---------- the route card (the app's RouteCard, sized for the wrist) ---------- */
+const CARD_H = 96;
+// c: { route, bus, heading, stop, min, sched, clock, delayed, alert, stale, pips }
+function routeCard(ctx, x, y, w, h, c, now) {
+  const t = th(c.route);
+  ctx.save(); if (c.stale) ctx.globalAlpha *= 0.55;   // stale cards recede (app spec 8)
+  plate(ctx, x, y, w, h, { fill: t.top, fill2: t.card, rim: alpha(t.text, 0.25) });
+  ctx.textBaseline = 'top';
+  // right: big pixel minutes with "minutes" under and the live glyph at the corner; a clock time when scheduled
+  const R = x + w - 14; let rightW;
+  if (c.sched) rightW = pixelText(ctx, c.clock, R, y + 34, 3, t.text, 'right');
+  else {
+    const due = c.min <= 1, s = due ? 4 : 5, big = due ? 'Due' : String(c.min);
+    const dw = pxWidth(big, s), dx = R - 20 - dw;
+    pixelText(ctx, big, dx, y + (due ? 28 : 16), s, t.text);
+    liveGlyph(ctx, R - 16, y + 16, t.text, !c.stale, now);
+    if (!due) { font(ctx, 800, 12); ctx.textAlign = 'center'; ctx.fillStyle = t.text; ctx.fillText('minutes', dx + dw / 2, y + 58); }
+    rightW = dw + 20;
+  }
+  // left: huge route name, → destination, the stop
+  const L = x + 16, maxW = w - 32 - rightW - 10;
+  font(ctx, 900, 34); ctx.textAlign = 'left'; ctx.fillStyle = t.text;
+  const name = fit(ctx, routeName(c.route, c.bus), maxW - (c.alert ? 26 : 0)); ctx.fillText(name, L, y + 4);
+  if (c.alert) ink(ctx, ALERT, L + ctx.measureText(name).width + 8, y + 16, 1, t.text);
+  arrowCircle(ctx, L + 8, y + 59, 8, t.text, t.card);
+  font(ctx, 900, 16); ctx.fillStyle = t.text; ctx.fillText(fit(ctx, c.heading, maxW - 22), L + 22, y + 49);
+  let sx = L;
+  if (c.delayed) sx += chip(ctx, 'Delayed', L, y + 72, T.amber, '#000') + 6;
+  font(ctx, 800, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = t.text;
+  const pipW = (c.pips || []).length * 14;
+  const stop = fit(ctx, c.stop, maxW + rightW - (sx - L) - pipW - 4); ctx.fillText(stop, sx, y + 73);
+  let px = sx + ctx.measureText(stop).width + 8;
+  for (const p of c.pips || []) { // the station's other lines
+    ctx.fillStyle = th(p).accent; ctx.fillRect(px, y + 76, 10, 10); ctx.strokeStyle = t.text; ctx.lineWidth = 1.5; ctx.strokeRect(px + 0.75, y + 76.75, 8.5, 8.5); px += 14;
+  }
+  ctx.restore();
 }
-const WEATHER = { clear: ['sun', '41°', '#ffcf5a'], rain: ['cloud', '48°', '#9fb4c8'], snow: ['snow', '27°', '#e8eef4'] };
+function trainCard(it, st) {
+  const f = flags(it, st);
+  return { route: it.line, heading: it.dest, stop: it.name, min: f.min, sched: f.sched, clock: clock(f.min), delayed: f.delayed,
+    alert: f.alert, stale: st.data === 'stale', pips: it.lines.filter(l => l !== it.line) };
+}
+function busCard(it, st) {
+  const f = flags(it, st);
+  return { route: it.rt, bus: true, heading: busHeading(it), stop: it.name, min: f.min, sched: f.sched, clock: clock(f.min),
+    delayed: f.delayed, stale: st.data === 'stale' };
+}
 
 /* ---------- screens ---------- */
-function drawStatusRow(ctx, st, y, dimText) {
-  font(ctx, 600, 50, 'px'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = dimText ? T.txt2 : T.txt; ctx.fillText(timeStr(), C, y);
+function drawStatusRow(ctx, st, y, dim) {
+  const tm = clock(), tw = pxWidth(tm, 4);
+  pixelText(ctx, tm, C, y - 14, 4, dim ? T.mist : T.white, 'center');
   const [ic, temp, col] = WEATHER[st.weather];
-  icon(ctx, ic, 322, y, 3, dimText ? T.txt3 : col);
-  font(ctx, 400, 20, 'px'); ctx.textAlign = 'left'; ctx.fillStyle = dimText ? T.txt3 : T.txt2; ctx.fillText(temp, 338, y + 1);
+  icon(ctx, ic, C + tw / 2 + 24, y, 3, dim ? '#5c6d93' : col);
+  font(ctx, 800, 18); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = dim ? '#5c6d93' : T.mist;
+  ctx.fillText(temp, C + tw / 2 + 38, y + 1);
   const src = st.data === 'wifi' ? 'wifi' : st.data === 'ble' ? 'phone' : 'off';
-  icon(ctx, src, 140, y, 3, st.data === 'stale' ? T.amberDim : T.txt3);
+  icon(ctx, src, C - tw / 2 - 24, y, 3, st.data === 'stale' ? T.amber : '#5c6d93');
 }
-function glance(st) {
-  if (st.view.screen === 'first') return { dot: null, a: 'Open the CTA app', b: 'to find stops near you' };
-  if (st.data === 'stale') return { dot: null, a: 'Updated 7 min ago', b: 'No Wi-Fi or phone nearby' };
-  return {
-    happy: { dot: DOT('Brn'), a: 'Brown → Kimball · 4 min', b: 'Belmont' },
-    hyped: { dot: DOT('Red'), a: 'Red → 95th · 2 min', b: 'Belmont · go now' },
-    worried: { dot: T.bus, a: '22 Clark is running late', b: 'Clark & Belmont · ~8 min' },
-    sad: { dot: T.amber, a: 'Red Line service alert', b: 'Details in the app' },
-    sleepy: { dot: null, a: 'Night hours', b: 'Trains are sparse until 5 AM' },
-    asleep: { dot: null, a: 'Charging · 64%', b: 'Resting on the dock' },
-  }[st.mood];
+const MOOD_SAYS = { happy: 'All on time', hyped: 'Go now!', worried: 'Running late', sad: 'Uh oh…', sleepy: 'Sleepy…', asleep: 'Zzz…' };
+const REASON = { happy: 'Brown in 4 min', hyped: 'Red in 2 min!', worried: '22 is 4 min late', sad: 'Red Line alert', sleepy: 'Night hours', asleep: 'Charging, 64%' };
+function bubbleText(st, now) {
+  if (st.view.screen === 'first') return 'Hi! I’m Trackie';
+  const poked = st.poke && now - st.poke.t0 < 2600;
+  if (st.data === 'stale' && st.mood !== 'asleep') return poked ? 'Data is 7 min old' : 'No signal';
+  return poked ? REASON[st.mood] : MOOD_SAYS[st.mood];
 }
+const GLANCE = { // the most urgent card for each mood
+  happy: { route: 'Brn', heading: 'Kimball', stop: 'Belmont', min: 4, pips: ['Red', 'P'] },
+  hyped: { route: 'Red', heading: '95th/Dan Ryan', stop: 'Belmont', min: 2, pips: ['Brn', 'P'] },
+  worried: { route: '22', bus: true, heading: 'North to Howard', stop: 'Clark & Belmont', min: 8, delayed: true },
+  sad: { route: 'Red', heading: 'Howard', stop: 'Belmont', min: 9, alert: true, pips: ['Brn', 'P'] },
+  sleepy: { route: 'Brn', heading: 'Kimball', stop: 'Belmont', sched: true, clock: '5:02', pips: ['Red', 'P'] },
+};
+const HOME = { tile: null, card: null };
+function bubble(ctx, text, x, cy, label = 'TRACKIE') { // the cream pixel speech bubble, its tail pointing left at Trackie; returns its size
+  font(ctx, 900, 20); const tw = Math.min(170, ctx.measureText(text).width);
+  const w = Math.ceil(tw) + 26, h = 56, y = Math.round(cy - h / 2);
+  plate(ctx, x, y, w, h, { fill: T.cream, rim: T.navy, rimW: 2, edge: 4, ...SMALL });
+  ctx.fillStyle = T.cream; // the pixel tail
+  ctx.fillRect(x - 6, y + h / 2 - 6, 10, 4); ctx.fillRect(x - 2, y + h / 2 - 8, 6, 12); ctx.fillRect(x - 6, y + h / 2 - 2, 4, 4);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  font(ctx, 900, 11); ctx.fillStyle = alpha(T.navy, 0.6); ctx.fillText(label, x + 13, y + 8);
+  font(ctx, 900, 20); ctx.fillStyle = T.navy; ctx.fillText(fit(ctx, text, 170), x + 13, y + 22);
+  return w;
+}
+function bubbleWidth(ctx, text) { font(ctx, 900, 20); return Math.ceil(Math.min(170, ctx.measureText(text).width)) + 26; }
 function drawHome(ctx, st, now, aod) {
-  const docked = st.mood === 'asleep';
-  drawStatusRow(ctx, st, 92, aod || docked);
-  // pet
-  const f = Math.floor(now / 250);
-  let bx = 0, by = 0;
-  if (!aod) {
-    if (st.mood === 'happy') by = Math.floor(now / 500) % 2 ? -1 : 0;
-    if (st.mood === 'hyped') by = [0, -2, -3, -2][f % 4];
-    if (st.mood === 'worried') bx = [0, 1, 0, -1][f % 4];
-    if (st.mood === 'sad') by = Math.floor(now / 900) % 2;
-    if (st.mood === 'sleepy') bx = Math.floor(now / 1200) % 2 ? 1 : 0;
-    if (st.poke) { const t = (now - st.poke.t0) / 320; if (t < 1) by -= Math.round(Math.sin(t * Math.PI) * 3); }
-  }
-  const ox = C - 80 + bx * PX, oy = 148 + by * PX;
-  // rain / snow ambience behind the pet (awake only)
-  if (!aod && !docked && st.weather !== 'clear') {
-    for (let i = 0; i < 14; i++) {
-      const x = (i * 97 + 31) % 360 + 53; const sp = st.weather === 'rain' ? 0.12 : 0.03;
-      const y = 120 + ((now * sp + i * 53) % 210);
-      ctx.fillStyle = st.weather === 'rain' ? '#2c4357' : '#8d949b';
-      if (st.weather === 'rain') ctx.fillRect(x - x % 5, y - y % 5, 5, 10); else ctx.fillRect(x - x % 5 + Math.round(Math.sin(now / 600 + i) * 2) * 5, y - y % 5, 5, 5);
+  const docked = st.mood === 'asleep', first = st.view.screen === 'first', stale = st.data === 'stale';
+  drawStatusRow(ctx, st, 68, aod || docked);
+  const up = Math.floor(now / 500) % 2 === 0;   // bobs one art pixel twice a second, like the app
+  if (aod) { drawPet(ctx, st.mood, C - 64, 146 + ((Math.floor(now / 1000) % 2) ? 0 : -4), 4, st.paint, null); return; }
+  if (!docked && st.weather !== 'clear') { // rain or snow behind the tile
+    for (let i = 0; i < 16; i++) {
+      const x = (i * 97 + 31) % 340 + 63, sp = st.weather === 'rain' ? 0.12 : 0.03, y = 100 + ((now * sp + i * 53) % 190);
+      ctx.fillStyle = st.weather === 'rain' ? '#24427a' : '#c9d4ea';
+      if (st.weather === 'rain') ctx.fillRect(x - x % 4, y - y % 4, 4, 12); else ctx.fillRect(x - x % 4 + Math.round(Math.sin(now / 600 + i) * 2) * 4, y - y % 4, 4, 4);
     }
   }
-  drawPet(ctx, st, now, ox, oy, PX, aod);
-  // track
-  if (!aod) {
-    const ty = 148 + 31 * PX; ctx.fillStyle = T.rail; ctx.fillRect(C - 170, ty, 340, 3);
-    const shift = st.mood === 'hyped' ? Math.floor(now / 40) % 20 : 0;
-    ctx.fillStyle = T.tie; for (let x = C - 170 - shift; x < C + 170; x += 20) if (x >= C - 170) ctx.fillRect(x, ty + 5, 8, 3);
+  let hop = 0; if (st.poke) { const k = (now - st.poke.t0) / 360; if (k < 1) hop = Math.round(Math.sin(k * Math.PI) * 3); }
+  const text = bubbleText(st, now), tile = 152, gap = 20, total = tile + gap + bubbleWidth(ctx, text);
+  const tx = Math.round(C - total / 2), ty = 108;
+  HOME.tile = { x: tx, y: ty, w: tile, h: tile };
+  plate(ctx, tx, ty, tile, tile, { fill: T.cream, rim: T.navy, rimW: 3 });
+  drawPet(ctx, st.mood, tx + 12, ty + 12 + (up ? -4 : 0) - hop * 4, 4, st.paint, st.weather);
+  if (EXTRAS[st.mood]) art(ctx, EXTRAS[st.mood], tx + tile - 7, ty + (up ? -14 : -10), 4, st.paint);   // floats the other way
+  bubble(ctx, text, tx + tile + gap, ty + tile / 2);
+  HOME.card = null;
+  if (docked) {
+    ctx.lineWidth = 5; ctx.strokeStyle = '#123d2a'; ctx.beginPath(); ctx.arc(C, C, 226, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = T.signal; ctx.beginPath(); ctx.arc(C, C, 226, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * 0.64); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    font(ctx, 900, 24); ctx.fillStyle = T.signal; ctx.fillText('Charging · 64%', C, 296);
+    font(ctx, 800, 16); ctx.fillStyle = T.mist; ctx.fillText('Resting on the dock', C, 330);
+    return;
   }
-  if (docked) { // charging ring
-    ctx.lineWidth = 4; ctx.strokeStyle = '#173a24'; ctx.beginPath(); ctx.arc(C, C, 226, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = T.green; ctx.beginPath(); ctx.arc(C, C, 226, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * 0.64); ctx.stroke();
+  if (first) {
+    plate(ctx, C - 150, 292, 300, 76);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    font(ctx, 900, 19); ctx.fillStyle = T.white; ctx.fillText('Open Trackie on your iPhone', C, 306);
+    font(ctx, 800, 15); ctx.fillStyle = T.mist; ctx.fillText('to find stops near you', C, 334);
+    return;
   }
-  if (aod) return;
-  const gl = glance(st);
-  font(ctx, 700, 23, 'sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const aw = ctx.measureText(gl.a).width; const startX = C - aw / 2 + (gl.dot ? 10 : 0);
-  if (gl.dot) { ctx.fillStyle = gl.dot; ctx.beginPath(); ctx.arc(startX - 16 - aw / 2 + aw / 2, 352, 6, 0, 7); ctx.fill(); }
-  ctx.fillStyle = docked ? T.green : T.txt; ctx.fillText(gl.a, C + (gl.dot ? 10 : 0), 352);
-  font(ctx, 400, 17, 'sans'); ctx.fillStyle = T.txt2; ctx.fillText(gl.b, C, 380);
-  if (st.view.screen === 'home') { // swipe-up hint
-    ctx.strokeStyle = T.txt3; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(C - 12, 424); ctx.lineTo(C, 414); ctx.lineTo(C + 12, 424); ctx.stroke();
-    font(ctx, 600, 13, 'px'); ctx.fillStyle = T.txt3; ctx.fillText('STOPS', C, 442);
-  }
+  HOME.card = { x: C - 160, y: 290, w: 320, h: CARD_H };
+  routeCard(ctx, C - 160, 290, 320, CARD_H, { ...GLANCE[st.mood], stale }, now);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  if (st.view.screen !== 'home') return;
+  ctx.strokeStyle = T.mist; ctx.lineWidth = 3; ctx.lineJoin = 'miter';
+  ctx.beginPath(); ctx.moveTo(436, C - 12); ctx.lineTo(446, C); ctx.lineTo(436, C + 12); ctx.stroke();   // swipe-left hint: the map
+  if (stale) { font(ctx, 800, 14); ctx.fillStyle = T.amber; ctx.fillText('Updated 7 min ago', C, 406); return; }
+  ctx.beginPath(); ctx.moveTo(C - 10, 420); ctx.lineTo(C, 411); ctx.lineTo(C + 10, 420); ctx.stroke();   // swipe-up hint: stops
+  font(ctx, 900, 12); ctx.fillStyle = T.mist; ctx.fillText('STOPS', C, 426);
 }
-const ROW = 92, FOCUS = 262;
-function listTop(st) { return st.data === 'stale' ? 126 : 106; }
+const ROW = 112, FOCUS = 206;
+function listTop(st) { return st.data === 'stale' ? 114 : 92; }
+function drawTabs(ctx, tab) {
+  const pw = 240, ph = 46, x0 = C - pw / 2, y0 = 30;
+  plate(ctx, x0, y0, pw, ph, { edge: 4, ...SMALL });
+  pixelPath(ctx, tab === 'trains' ? x0 + 5 : C + 1, y0 + 5, pw / 2 - 6, ph - 10, 3, [2, 1]); ctx.fillStyle = T.headlight; ctx.fill();
+  font(ctx, 900, 17); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = tab === 'trains' ? T.navy : T.mist; ctx.fillText('Trains', C - pw / 4, y0 + ph / 2 + 1);
+  ctx.fillStyle = tab === 'buses' ? T.navy : T.mist; ctx.fillText('Buses', C + pw / 4, y0 + ph / 2 + 1);
+}
 function drawStops(ctx, st, now, tab) {
-  // grabber
-  ctx.fillStyle = '#3a3731'; ctx.beginPath(); ctx.roundRect(C - 20, 26, 40, 4, 2); ctx.fill();
-  // tab pill
-  const pw = 236, ph = 42, py = 48;
-  ctx.strokeStyle = '#3a3731'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(C - pw / 2, py, pw, ph, ph / 2); ctx.stroke();
-  ctx.fillStyle = '#1e1c19'; ctx.beginPath();
-  if (tab === 'trains') ctx.roundRect(C - pw / 2 + 3, py + 3, pw / 2 - 3, ph - 6, (ph - 6) / 2); else ctx.roundRect(C + 0, py + 3, pw / 2 - 3, ph - 6, (ph - 6) / 2);
-  ctx.fill();
-  font(ctx, 600, 17, 'px'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = tab === 'trains' ? T.txt : T.txt3; ctx.fillText('TRAINS', C - pw / 4, py + ph / 2 + 1);
-  ctx.fillStyle = tab === 'buses' ? T.txt : T.txt3; ctx.fillText('BUSES', C + pw / 4, py + ph / 2 + 1);
-  if (st.data === 'stale') { font(ctx, 400, 15, 'sans'); ctx.fillStyle = T.amberDim; ctx.fillText('updated 7 min ago', C, 108); }
-  const items = tab === 'trains' ? TRAINS : BUSES; const scroll = st.scroll[tab];
+  drawTabs(ctx, tab);
+  if (st.data === 'stale') { font(ctx, 800, 14); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = T.amber; ctx.fillText('Updated 7 min ago', C, 88); }
+  const items = tab === 'trains' ? TRAINS : BUSES, scroll = st.scroll[tab];
   ctx.save(); ctx.beginPath(); ctx.rect(0, listTop(st), W, W); ctx.clip();
   items.forEach((it, i) => {
-    const cy = FOCUS + i * ROW - scroll; if (cy < 40 || cy > 520) return;
+    const cy = FOCUS + i * ROW - scroll; if (cy < -60 || cy > 540) return;
     const k = Math.min(Math.abs(cy - FOCUS) / ROW, 3);
-    const scale = 1 - 0.09 * Math.min(k, 2), alpha = Math.max(0.16, 1 - 0.45 * Math.min(k, 1) - 0.2 * Math.max(0, k - 1));
-    const stale = st.data === 'stale'; const fl = flags(it, st);
-    const half = chordHalf(cy) / scale - 34; if (half < 90) return;
-    ctx.save(); ctx.translate(C, cy); ctx.scale(scale, scale); ctx.globalAlpha = alpha;
-    const L = -half, R = half;
-    let nameX;
-    if (tab === 'trains') {
-      const segH = 44 / it.lines.length;
-      it.lines.forEach((ln, j) => { ctx.fillStyle = stale ? T.txt3 : DOT(ln); ctx.fillRect(L, -22 + j * segH, 8, segH - (j < it.lines.length - 1 ? 2 : 0)); });
-      nameX = L + 22;
-    } else {
-      ctx.strokeStyle = stale ? T.txt3 : T.bus; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(L, -16, 50, 32, 8); ctx.stroke();
-      font(ctx, 600, 19, 'px'); ctx.textAlign = 'center'; ctx.fillStyle = stale ? T.txt3 : T.bus; ctx.fillText(it.rt, L + 25, 1);
-      nameX = L + 62;
-    }
-    // minutes
-    const big = fl.min <= 1 ? 'DUE' : String(fl.min);
-    const minCol = stale || fl.sched ? T.txt3 : fl.delayed ? T.amber : T.txt;
-    font(ctx, 600, fl.min <= 1 ? 30 : 44, 'px'); ctx.textAlign = 'right'; ctx.fillStyle = minCol; ctx.fillText(big, R, -6);
-    const minW = Math.max(ctx.measureText(big).width, 40);
-    font(ctx, 600, 12, 'px'); ctx.fillStyle = fl.delayed && !stale ? T.amber : T.txt3;
-    ctx.fillText(fl.sched ? 'SCHED' : fl.delayed ? 'LATE' : 'MIN', R, 24);
-    // name + sub
-    const maxW = R - minW - 14 - nameX;
-    font(ctx, 700, 26, 'sans'); ctx.textAlign = 'left'; ctx.fillStyle = stale ? T.txt2 : T.txt;
-    let name = fit(ctx, it.name, maxW - (fl.alert ? 26 : 0)); ctx.fillText(name, nameX, -9);
-    if (fl.alert) { const nw = ctx.measureText(name).width; drawWarn(ctx, nameX + nw + 14, -10, stale ? T.txt3 : T.amber); }
-    font(ctx, 400, 17, 'sans'); ctx.fillStyle = T.txt2;
-    if (tab === 'trains') {
-      ctx.fillStyle = stale ? T.txt3 : DOT(it.line); ctx.fillText('→', nameX, 20);
-      ctx.fillStyle = T.txt2; ctx.fillText(fit(ctx, it.dest, maxW - 22), nameX + 22, 20);
-    } else ctx.fillText(fit(ctx, `${it.dir} · to ${it.dest}`, maxW), nameX, 20);
+    const scale = 1 - 0.08 * Math.min(k, 2), a = Math.max(0.2, 1 - 0.4 * Math.min(k, 1) - 0.2 * Math.max(0, k - 1));
+    // cards narrow to stay inside the circle
+    const chord = Math.min(chordHalf(cy - CARD_H / 2 * scale), chordHalf(cy + (CARD_H / 2 + 5) * scale));
+    const half = Math.max(130, Math.min(170, (chord - 12) / scale));
+    ctx.save(); ctx.translate(C, cy); ctx.scale(scale, scale); ctx.globalAlpha = a;
+    routeCard(ctx, -half, -CARD_H / 2, half * 2, CARD_H, tab === 'trains' ? trainCard(it, st) : busCard(it, st), now);
     ctx.restore();
   });
   ctx.restore();
   // scroll arc
-  const n = items.length, maxS = (n - 1) * ROW; const a0 = -0.42, a1 = 0.42;
-  ctx.lineCap = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#26241f'; ctx.beginPath(); ctx.arc(C, C, 222, a0, a1); ctx.stroke();
+  const maxS = (items.length - 1) * ROW, a0 = -0.42, a1 = 0.42;
+  ctx.lineCap = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(C, C, 222, a0, a1); ctx.stroke();
   const span = (a1 - a0) * 0.22, pos = a0 + (a1 - a0 - span) * Math.max(0, Math.min(1, scroll / maxS));
-  ctx.lineWidth = 5; ctx.strokeStyle = '#6e6a62'; ctx.beginPath(); ctx.arc(C, C, 222, pos, pos + span); ctx.stroke(); ctx.lineCap = 'butt';
-}
-function drawWarn(ctx, x, y, col) {
-  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, y - 10); ctx.lineTo(x + 11, y + 9); ctx.lineTo(x - 11, y + 9); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#000'; ctx.fillRect(x - 1.5, y - 4, 3, 7); ctx.fillRect(x - 1.5, y + 5, 3, 2.5);
+  ctx.lineWidth = 6; ctx.strokeStyle = T.headlight; ctx.beginPath(); ctx.arc(C, C, 222, pos, pos + span); ctx.stroke(); ctx.lineCap = 'butt';
 }
 function detailFor(st) {
   const tab = st.view.tab, idx = st.view.detail;
   if (tab === 'trains') {
-    const it = TRAINS[idx]; const fl = flags(it, st); const groups = [];
+    const it = TRAINS[idx], fl = flags(it, st); let hero = null; const others = [];
     it.lines.forEach((ln, li) => DIRS[ln].forEach((dest, di) => {
-      const base = (ln === it.line && dest === it.dest) ? fl.min : 3 + li * 3 + di * 4 + (idx % 3);
-      const times = ln === 'P' ? [base + 5, base + 19] : [base, base + 7 + di, base + 15];
-      groups.push({ color: DOT(ln), label: LINE_NAME[ln], first: di === 0, dest, times,
-        delayed: st.mood === 'worried' && ln === 'Brn', sched: ln === 'P' && di === 1 });
+      const main = ln === it.line && dest === it.dest, base = main ? fl.min : 3 + li * 3 + di * 4 + (idx % 3);
+      const g = { route: ln, heading: dest, times: [base, base + 7 + di, base + 15], delayed: main ? fl.delayed : st.mood === 'worried' && ln === 'Brn', sched: !main && ln === 'P' && di === 1 };
+      if (main) hero = g; else others.push(g);
     }));
-    return { name: it.name, sub: it.lines.map(l => LINE_NAME[l]).join(' · '), arcs: it.lines.map(DOT), groups, alert: fl.alert ? 'Red Line alert · see app' : null };
+    return { stop: it.name, hero, others, alert: fl.alert ? 'Red Line: delays near Belmont' : null };
   }
-  const it = BUSES[idx]; const fl = flags(it, st);
-  return { name: it.name, sub: `${it.dir} · route ${it.rt}`, arcs: [T.bus], alert: null,
-    groups: [{ color: T.bus, label: `#${it.rt}`, first: true, dest: it.dest, times: [fl.min, fl.min + 11, fl.min + 23], delayed: fl.delayed, sched: fl.sched }] };
+  const it = BUSES[idx], fl = flags(it, st);
+  return { stop: it.name, others: [], alert: null,
+    hero: { route: it.rt, bus: true, heading: busHeading(it), times: [fl.min, fl.min + 11, fl.min + 23], delayed: fl.delayed, sched: fl.sched } };
 }
+let DETAIL_H = 0;
 function drawDetail(ctx, st, now) {
-  const d = detailFor(st); const stale = st.data === 'stale';
-  // line-color arc along the top bezel
-  const total = 1.25, gap = 0.05, n = d.arcs.length, seg = (total - gap * (n - 1)) / n;
-  ctx.lineWidth = 7; d.arcs.forEach((col, i) => { const a = -Math.PI / 2 - total / 2 + i * (seg + gap); ctx.strokeStyle = stale ? T.txt3 : col; ctx.beginPath(); ctx.arc(C, C, 224, a, a + seg); ctx.stroke(); });
-  font(ctx, 700, 30, 'sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = T.txt; ctx.fillText(fit(ctx, d.name, 300), C, 82);
-  font(ctx, 400, 15, 'sans'); ctx.fillStyle = T.txt2; ctx.fillText(d.sub, C, 110);
-  let y0 = 156;
-  if (stale) { ctx.fillStyle = T.amberDim; ctx.fillText('updated 7 min ago', C, 132); y0 = 166; }
-  else if (d.alert) { drawWarn(ctx, C - 92, 134, T.amber); ctx.fillStyle = T.amber; ctx.textAlign = 'left'; ctx.fillText(d.alert, C - 74, 136); y0 = 170; }
-  const scroll = st.detailScroll || 0; const RH = 54, Lx = 96, Rx = 384;
-  ctx.save(); ctx.beginPath(); ctx.rect(0, y0 - 26, W, W); ctx.clip();
-  d.groups.forEach((g, i) => {
-    const y = y0 + i * RH - scroll; if (y > 460 || y < y0 - 60) return;
-    const next = d.groups[i + 1];
-    // spine
-    ctx.fillStyle = stale ? T.txt3 : g.color;
-    if (next && next.color === g.color) ctx.fillRect(Lx - 2, y, 4, RH);
-    ctx.beginPath(); ctx.arc(Lx, y, 6, 0, 7); ctx.fill();
-    font(ctx, 700, 20, 'sans'); ctx.textAlign = 'left'; ctx.fillStyle = stale ? T.txt2 : T.txt; ctx.fillText(fit(ctx, g.dest, 130), Lx + 18, y - 3);
-    if (g.first) { font(ctx, 600, 11, 'px'); ctx.fillStyle = stale ? T.txt3 : g.color === LINE.Brn ? '#b07048' : g.color; ctx.fillText(g.label.toUpperCase(), Lx + 18, y + 17); }
-    // times, right aligned
-    ctx.textAlign = 'right'; let x = Rx;
-    for (let j = g.times.length - 1; j >= 0; j--) {
-      const big = j === 0; font(ctx, 600, big ? 30 : 20, 'px');
-      const col = stale || g.sched ? T.txt3 : g.delayed ? T.amber : big ? T.txt : T.txt2;
-      const s = String(g.times[j]); ctx.fillStyle = col; ctx.fillText(s, x, y);
-      const w = ctx.measureText(s).width;
-      if (g.sched) { ctx.fillStyle = T.txt3; for (let dx = 0; dx < w; dx += 5) ctx.fillRect(x - w + dx, y + 15, 2, 2); }
-      x -= w + 12;
-    }
+  const d = detailFor(st), h = d.hero, t = th(h.route), stale = st.data === 'stale', s = st.detailScroll || 0;
+  ctx.save(); ctx.translate(0, -s);
+  // the line's huge name with a hard pixel drop shadow in its dark shade, like a game title
+  const name = routeName(h.route, h.bus); let size = 84;
+  font(ctx, 900, size); while (size > 44 && ctx.measureText(name).width > 2 * chordHalf(58 - s) - 70) { size -= 4; font(ctx, 900, size); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillStyle = t.card; ctx.fillText(name, C + 5, 24 + 5); ctx.fillStyle = t.text; ctx.fillText(name, C, 24);
+  font(ctx, 800, 17); ctx.fillStyle = T.mist; ctx.fillText(d.stop, C, 118);
+  font(ctx, 900, 21); const hw = Math.min(260, ctx.measureText(h.heading).width), hx = C - (hw + 28) / 2;
+  arrowCircle(ctx, hx + 10, 154, 10, t.text, T.navy);
+  ctx.textAlign = 'left'; ctx.fillStyle = t.text; ctx.fillText(fit(ctx, h.heading, 260), hx + 28, 142);
+  // departure tiles: the next one outlined in the light shade
+  const tw = 100, th2 = 112, gap = 10, x0 = C - (3 * tw + 2 * gap) / 2, ty = 182;
+  h.times.forEach((m, i) => {
+    const x = x0 + i * (tw + gap), lead = i === 0, cx = x + tw / 2, live = !h.sched;
+    ctx.save(); if (stale) ctx.globalAlpha = 0.6;
+    plate(ctx, x, ty, tw, th2, { fill: t.top, fill2: t.card, rim: lead ? t.text : alpha(t.text, 0.25), rimW: lead ? 3 : 2 });
+    const big = h.sched ? clock(m) : m <= 1 ? 'Due' : String(m), sc = h.sched ? 3 : m <= 1 ? 4 : lead ? 6 : 5;
+    const dw = pxWidth(big, sc), gw = live && !stale ? 20 : 0, gx = Math.round(cx - (dw + gw) / 2);
+    pixelText(ctx, big, gx, ty + 16 + (lead || h.sched ? 0 : 4), sc, t.text);
+    if (gw) liveGlyph(ctx, gx + dw + 4, ty + 16, t.text, true, now);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    if (!h.sched && m > 1) { font(ctx, 800, 12); ctx.fillStyle = t.text; ctx.fillText('minutes', cx, ty + 64); }
+    if (h.delayed) { font(ctx, 900, 11); chip(ctx, 'DELAYED', cx - (ctx.measureText('DELAYED').width + 12) / 2, ty + th2 - 28, T.amber, '#000'); }
+    else if (h.sched) { font(ctx, 900, 11); chip(ctx, 'SCHEDULED', cx - (ctx.measureText('SCHEDULED').width + 12) / 2, ty + th2 - 28, t.text, t.card); }
+    ctx.restore();
   });
+  // freshness chip, then the alert row
+  let y = 316;
+  const fresh = stale ? 'Updated 7 min ago' : 'Live · updated 12 s ago';
+  font(ctx, 800, 13); const fw = ctx.measureText(fresh).width + (stale ? 24 : 46);
+  plate(ctx, C - fw / 2, y, fw, 32, { edge: 4, ...SMALL });
+  if (!stale) liveGlyph(ctx, C - fw / 2 + 12, y + 8, T.signal, false, now);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = stale ? T.amber : T.white; font(ctx, 800, 13);
+  ctx.fillText(fresh, C - fw / 2 + (stale ? 12 : 34), y + 17);
+  y += 48;
+  if (d.alert) {
+    plate(ctx, C - 150, y, 300, 40, { edge: 4, ...SMALL }); ink(ctx, ALERT, C - 136, y + 12, 1, T.white);
+    font(ctx, 800, 14); ctx.fillStyle = T.white; ctx.fillText(fit(ctx, d.alert, 240), C - 112, y + 21); y += 56;
+  }
+  // the stop's other lines, as cards in their colors
+  if (d.others.length) {
+    font(ctx, 900, 12); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = T.mist; ctx.fillText('AT THIS STOP', C, y); y += 24;
+    for (const g of d.others) {
+      const gt = th(g.route), top = y - s, half = Math.max(120, Math.min(160, Math.min(chordHalf(top), chordHalf(top + 77)) - 16));
+      const x = C - half, w = half * 2;
+      ctx.save(); if (stale) ctx.globalAlpha = 0.6;
+      plate(ctx, x, y, w, 72, { fill: gt.top, fill2: gt.card, rim: alpha(gt.text, 0.25) });
+      const m = g.times[0], big = g.sched ? clock(m) : m <= 1 ? 'Due' : String(m), sc = g.sched ? 3 : 4;
+      const R = x + w - 16, dw = pixelText(ctx, big, R, y + (g.sched ? 22 : 14), sc, gt.text, 'right');
+      ctx.textBaseline = 'top'; font(ctx, 800, 12); ctx.fillStyle = gt.text; ctx.textAlign = 'center';
+      if (!g.sched && m > 1) ctx.fillText('min', R - dw / 2, y + 46);
+      ctx.textAlign = 'left'; font(ctx, 900, 24); ctx.fillText(routeName(g.route), x + 16, y + 6);
+      arrowCircle(ctx, x + 23, y + 52, 7, gt.text, gt.card);
+      font(ctx, 900, 14); ctx.fillText(fit(ctx, g.heading, w - dw - 72), x + 36, y + 43);
+      if (g.delayed) chip(ctx, 'Delayed', x + w - dw - 96, y + 10, T.amber, '#000');
+      ctx.restore();
+      y += 86;
+    }
+  }
+  DETAIL_H = y;
   ctx.restore();
-  font(ctx, 600, 11, 'px'); ctx.textAlign = 'right'; ctx.fillStyle = T.txt3; ctx.fillText('MIN', Rx, y0 - 30);
   // back hint
-  ctx.strokeStyle = T.txt3; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(34, C - 12); ctx.lineTo(24, C); ctx.lineTo(34, C + 12); ctx.stroke();
+  ctx.strokeStyle = T.mist; ctx.lineWidth = 3; ctx.lineJoin = 'miter';
+  ctx.beginPath(); ctx.moveTo(30, C - 12); ctx.lineTo(20, C); ctx.lineTo(30, C + 12); ctx.stroke();
 }
 function drawPair(ctx, st, now) {
-  drawPet(ctx, { ...st, mood: 'happy' }, now, C - 48, 48, 3, false);
-  font(ctx, 600, 60, 'px'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = T.txt; ctx.fillText('482 913', C, 252);
-  font(ctx, 400, 19, 'sans'); ctx.fillStyle = T.txt2; ctx.fillText('Type this code on your iPhone', C, 304);
-  font(ctx, 600, 14, 'px'); ctx.fillStyle = T.txt3; ctx.fillText('CTA-PET-3F2A', C, 340);
+  const up = Math.floor(now / 500) % 2 === 0;
+  plate(ctx, C - 60, 40, 120, 120, { fill: T.cream, rim: T.navy, rimW: 3 });
+  drawPet(ctx, 'happy', C - 48, 52 + (up ? -3 : 0), 3, st.paint, null);
+  art(ctx, EXTRAS.happy, C + 52, up ? 30 : 33, 3, st.paint);
+  pixelText(ctx, '482 913', C, 196, 7, T.white, 'center');
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  font(ctx, 800, 18); ctx.fillStyle = T.mist; ctx.fillText('Type this code on your iPhone', C, 266);
+  font(ctx, 900, 15); ctx.fillStyle = T.headlight; ctx.fillText('Trackie-3F2A', C, 298);
 }
+/* ---------- map: the L lines come from data/train_shapes.json built into the firmware (15 KB); BLE only carries
+   your location, the nearby stops' coordinates, and train positions ---------- */
+const SHAPES = [{"route":"Blue","points":[[41.97767,-87.90423],[41.98043,-87.9013],[41.98126,-87.90058],[41.98164,-87.89995],[41.98182,-87.89917],[41.98175,-87.89714],[41.98168,-87.89659],[41.98148,-87.89602],[41.97763,-87.89149],[41.97736,-87.89096],[41.97716,-87.89032],[41.97705,-87.8896],[41.97705,-87.88875],[41.97718,-87.88806],[41.97738,-87.88748],[41.97824,-87.88551],[41.98278,-87.87435],[41.98307,-87.87318],[41.9832,-87.87194],[41.98336,-87.86396],[41.98375,-87.8536],[41.98399,-87.84478],[41.98458,-87.83116],[41.98444,-87.82685],[41.98432,-87.82528],[41.9839,-87.8218],[41.98345,-87.81861],[41.98254,-87.8147],[41.98232,-87.81304],[41.98251,-87.78599],[41.98238,-87.78469],[41.98213,-87.78365],[41.98165,-87.78253],[41.97217,-87.76572],[41.97162,-87.7643],[41.97089,-87.7615],[41.97031,-87.76013],[41.96646,-87.75333],[41.96537,-87.75164],[41.96478,-87.75086],[41.9642,-87.74976],[41.96374,-87.7487],[41.96292,-87.74612],[41.96257,-87.74526],[41.96186,-87.7441],[41.96029,-87.74215],[41.95941,-87.74075],[41.95671,-87.73595],[41.95596,-87.73447],[41.94944,-87.72302],[41.94785,-87.71972],[41.94695,-87.71868],[41.9438,-87.71681],[41.94301,-87.71617],[41.94214,-87.71503],[41.9411,-87.713],[41.94047,-87.71249],[41.93243,-87.7122],[41.93208,-87.71215],[41.93183,-87.71193],[41.929,-87.70736],[41.92834,-87.7064],[41.92684,-87.70471],[41.92627,-87.70396],[41.91617,-87.68737],[41.90561,-87.67104],[41.90515,-87.67015],[41.90441,-87.66828],[41.90336,-87.6665],[41.88998,-87.64572],[41.8858,-87.63994],[41.88571,-87.63945],[41.88575,-87.62982],[41.88569,-87.62959],[41.88552,-87.62948],[41.87598,-87.62923],[41.87575,-87.62929],[41.87562,-87.6297],[41.87547,-87.6518],[41.87591,-87.65787],[41.87564,-87.67395],[41.87554,-87.68844],[41.87539,-87.69831],[41.87518,-87.70082],[41.87414,-87.70826],[41.87378,-87.73319],[41.87361,-87.73422],[41.87339,-87.73504],[41.87215,-87.73788],[41.87175,-87.73977],[41.87161,-87.74486],[41.87142,-87.75892],[41.87127,-87.75979],[41.87024,-87.76238],[41.87005,-87.76385],[41.87131,-87.78252],[41.87297,-87.80152],[41.87385,-87.81045],[41.87359,-87.81371],[41.87366,-87.81411],[41.87404,-87.81502],[41.87427,-87.81732]]},{"route":"Brn","points":[[41.96794,-87.71315],[41.9663,-87.71309],[41.96616,-87.71299],[41.96605,-87.71269],[41.96626,-87.68851],[41.96643,-87.67767],[41.96639,-87.67696],[41.96624,-87.67639],[41.9658,-87.6757],[41.96548,-87.67545],[41.96492,-87.67523],[41.94514,-87.67467],[41.94456,-87.67451],[41.94424,-87.6743],[41.94387,-87.67368],[41.94369,-87.67264],[41.94395,-87.65522],[41.94375,-87.65442],[41.94343,-87.65401],[41.94269,-87.65356],[41.94218,-87.65346],[41.91407,-87.65251],[41.91377,-87.65243],[41.9134,-87.65208],[41.91172,-87.64972],[41.91153,-87.64921],[41.91152,-87.64792],[41.91139,-87.64756],[41.91113,-87.64741],[41.91062,-87.64734],[41.91045,-87.64719],[41.91037,-87.64697],[41.91043,-87.63814],[41.91035,-87.63772],[41.91012,-87.63737],[41.90952,-87.63726],[41.90335,-87.63701],[41.90236,-87.63646],[41.9012,-87.63671],[41.89738,-87.63655],[41.89716,-87.63641],[41.89646,-87.63569],[41.89052,-87.63553],[41.89013,-87.63533],[41.8898,-87.63425],[41.88943,-87.634],[41.87707,-87.6337],[41.87691,-87.63359],[41.87685,-87.63338],[41.87697,-87.62604],[41.88563,-87.62627],[41.88573,-87.62643],[41.88575,-87.62662],[41.88573,-87.63392],[41.88953,-87.63403],[41.8898,-87.63425],[41.89008,-87.63525],[41.89031,-87.63549],[41.89646,-87.63569],[41.89716,-87.63641],[41.89738,-87.63655],[41.9012,-87.63671],[41.90236,-87.63646],[41.90335,-87.63701],[41.90952,-87.63726],[41.91012,-87.63737],[41.91035,-87.63772],[41.91043,-87.63814],[41.91037,-87.64697],[41.91045,-87.64719],[41.91062,-87.64734],[41.91113,-87.64741],[41.91139,-87.64756],[41.91152,-87.64792],[41.91153,-87.64921],[41.91172,-87.64972],[41.9134,-87.65208],[41.91377,-87.65243],[41.91407,-87.65251],[41.94218,-87.65346],[41.94269,-87.65356],[41.94343,-87.65401],[41.94375,-87.65442],[41.94395,-87.65522],[41.94369,-87.67264],[41.94387,-87.67368],[41.94424,-87.6743],[41.94456,-87.67451],[41.94514,-87.67467],[41.96492,-87.67523],[41.96548,-87.67545],[41.9658,-87.6757],[41.96624,-87.67639],[41.96639,-87.67696],[41.96643,-87.67767],[41.96626,-87.68851],[41.96605,-87.71269],[41.96616,-87.71299],[41.9663,-87.71309],[41.96794,-87.71315]]},{"route":"G","points":[[41.88686,-87.80318],[41.8872,-87.78248],[41.88751,-87.75782],[41.88742,-87.75678],[41.88718,-87.75532],[41.88705,-87.75327],[41.88403,-87.70132],[41.88521,-87.67082],[41.88539,-87.66415],[41.88571,-87.64395],[41.88575,-87.62784],[41.8857,-87.62635],[41.88558,-87.62626],[41.8757,-87.62598],[41.87527,-87.62602],[41.87433,-87.62669],[41.8739,-87.62681],[41.86741,-87.6266],[41.85333,-87.62641],[41.82247,-87.62567],[41.82199,-87.62555],[41.82179,-87.62517],[41.82183,-87.61975],[41.82168,-87.61936],[41.82134,-87.61917],[41.80676,-87.61877],[41.8058,-87.61861],[41.78036,-87.61794],[41.78015,-87.61782],[41.78006,-87.61751],[41.78032,-87.60586]]},{"route":"G","points":[[41.88686,-87.80318],[41.8872,-87.78248],[41.88751,-87.75782],[41.88742,-87.75678],[41.88718,-87.75532],[41.88705,-87.75327],[41.88403,-87.70132],[41.88521,-87.67082],[41.88539,-87.66415],[41.88571,-87.64395],[41.88575,-87.62662],[41.88567,-87.62631],[41.8757,-87.62598],[41.87527,-87.62602],[41.87433,-87.62669],[41.8739,-87.62681],[41.86741,-87.6266],[41.85333,-87.62641],[41.82247,-87.62567],[41.82199,-87.62555],[41.82179,-87.62517],[41.82183,-87.61975],[41.82168,-87.61936],[41.82134,-87.61917],[41.80676,-87.61877],[41.8058,-87.61861],[41.78931,-87.61815],[41.7873,-87.61818],[41.78705,-87.61844],[41.78698,-87.61874],[41.78683,-87.62942],[41.78676,-87.63122],[41.7866,-87.6317],[41.78642,-87.63191],[41.78614,-87.63204],[41.78046,-87.63202],[41.7802,-87.63219],[41.77949,-87.6331],[41.77931,-87.63354],[41.77915,-87.63565],[41.77909,-87.6396],[41.77904,-87.64541],[41.77922,-87.64639],[41.77896,-87.66385]]},{"route":"Org","points":[[41.78662,-87.73796],[41.79271,-87.73816],[41.79323,-87.73806],[41.79381,-87.73772],[41.79455,-87.73697],[41.79509,-87.7362],[41.79583,-87.73479],[41.7999,-87.72446],[41.80262,-87.71814],[41.80358,-87.71575],[41.80403,-87.71413],[41.80424,-87.71253],[41.8047,-87.68241],[41.80477,-87.68181],[41.80497,-87.68104],[41.80553,-87.68017],[41.80618,-87.6797],[41.80694,-87.67954],[41.81426,-87.67973],[41.81569,-87.68001],[41.81656,-87.68037],[41.8186,-87.68171],[41.82463,-87.68596],[41.82499,-87.68614],[41.82544,-87.68622],[41.82611,-87.68604],[41.82667,-87.68548],[41.8273,-87.6843],[41.83315,-87.67476],[41.8379,-87.66785],[41.8389,-87.66625],[41.84464,-87.65434],[41.84524,-87.65265],[41.84599,-87.6501],[41.84769,-87.64654],[41.84819,-87.64514],[41.84882,-87.64282],[41.84959,-87.64123],[41.85031,-87.64015],[41.85496,-87.63595],[41.85685,-87.63358],[41.85733,-87.63252],[41.85755,-87.63159],[41.85764,-87.63076],[41.85773,-87.62742],[41.85784,-87.627],[41.85807,-87.6266],[41.85825,-87.62648],[41.85877,-87.62642],[41.8739,-87.62681],[41.87433,-87.62669],[41.87527,-87.62602],[41.87697,-87.62604],[41.87685,-87.63338],[41.87696,-87.63365],[41.88145,-87.63385],[41.88573,-87.63392],[41.88575,-87.62662],[41.8857,-87.62635],[41.88558,-87.62626],[41.8757,-87.62598],[41.87527,-87.62602],[41.87433,-87.62669],[41.8739,-87.62681],[41.85877,-87.62642],[41.85825,-87.62648],[41.85807,-87.6266],[41.85784,-87.627],[41.85773,-87.62742],[41.85764,-87.63076],[41.85755,-87.63159],[41.85733,-87.63252],[41.85685,-87.63358],[41.85496,-87.63595],[41.85031,-87.64015],[41.84959,-87.64123],[41.84882,-87.64282],[41.84819,-87.64514],[41.84769,-87.64654],[41.84599,-87.6501],[41.84524,-87.65265],[41.84464,-87.65434],[41.8389,-87.66625],[41.8379,-87.66785],[41.83315,-87.67476],[41.8273,-87.6843],[41.82667,-87.68548],[41.82611,-87.68604],[41.82544,-87.68622],[41.82499,-87.68614],[41.82463,-87.68596],[41.8186,-87.68171],[41.81656,-87.68037],[41.81569,-87.68001],[41.81426,-87.67973],[41.80694,-87.67954],[41.80618,-87.6797],[41.80553,-87.68017],[41.80497,-87.68104],[41.80477,-87.68181],[41.8047,-87.68241],[41.80424,-87.71253],[41.80403,-87.71413],[41.80358,-87.71575],[41.80262,-87.71814],[41.7999,-87.72446],[41.79583,-87.73479],[41.79509,-87.7362],[41.79455,-87.73697],[41.79381,-87.73772],[41.79323,-87.73806],[41.79271,-87.73816],[41.78662,-87.73796]]},{"route":"P","points":[[42.07316,-87.69074],[42.07013,-87.68892],[42.067,-87.68731],[42.06087,-87.68382],[42.05964,-87.68343],[42.05795,-87.68334],[42.05417,-87.68357],[42.05166,-87.68349],[42.047,-87.68359],[42.04446,-87.68243],[42.04275,-87.68186],[42.03423,-87.67994],[42.03346,-87.67954],[42.02895,-87.67856],[42.02611,-87.67812],[42.02275,-87.67744],[42.02209,-87.67706],[42.02131,-87.67574],[42.01907,-87.6729]]},{"route":"P","points":[[42.07316,-87.69074],[42.07013,-87.68892],[42.067,-87.68731],[42.06087,-87.68382],[42.05964,-87.68343],[42.05795,-87.68334],[42.05417,-87.68357],[42.05166,-87.68349],[42.047,-87.68359],[42.04446,-87.68243],[42.04275,-87.68186],[42.03423,-87.67994],[42.03346,-87.67954],[42.02895,-87.67856],[42.02611,-87.67812],[42.02242,-87.67731],[42.02209,-87.67706],[42.02131,-87.67574],[42.02003,-87.67406],[42.01658,-87.66989],[42.01422,-87.66719],[42.01356,-87.66664],[42.01298,-87.6663],[42.01228,-87.66606],[42.00619,-87.66578],[42.00526,-87.66553],[42.00467,-87.66528],[42.00382,-87.66477],[42.00309,-87.66405],[42.00265,-87.66347],[42.00137,-87.66143],[42.0006,-87.6605],[41.99989,-87.6599],[41.99881,-87.65943],[41.99799,-87.65927],[41.99633,-87.65922],[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91407,-87.65251],[41.91377,-87.65243],[41.9134,-87.65208],[41.91172,-87.64972],[41.91153,-87.64921],[41.91152,-87.64792],[41.91139,-87.64756],[41.91113,-87.64741],[41.91062,-87.64734],[41.91045,-87.64719],[41.91037,-87.64697],[41.91043,-87.63814],[41.91035,-87.63772],[41.91012,-87.63737],[41.90952,-87.63726],[41.90335,-87.63701],[41.90236,-87.63646],[41.9012,-87.63671],[41.89738,-87.63655],[41.89716,-87.63641],[41.89646,-87.63569],[41.89031,-87.63549],[41.89008,-87.63525],[41.8898,-87.63425],[41.88953,-87.63403],[41.88573,-87.63392],[41.88575,-87.62662],[41.88573,-87.62643],[41.88563,-87.62627],[41.87697,-87.62604],[41.87685,-87.63338],[41.87691,-87.63359],[41.87707,-87.6337],[41.88943,-87.634],[41.8898,-87.63425],[41.89013,-87.63533],[41.89052,-87.63553],[41.89646,-87.63569],[41.89716,-87.63641],[41.89738,-87.63655],[41.9012,-87.63671],[41.90236,-87.63646],[41.90335,-87.63701],[41.90952,-87.63726],[41.91012,-87.63737],[41.91035,-87.63772],[41.91043,-87.63814],[41.91037,-87.64697],[41.91045,-87.64719],[41.91062,-87.64734],[41.91113,-87.64741],[41.91139,-87.64756],[41.91152,-87.64792],[41.91153,-87.64921],[41.91172,-87.64972],[41.9134,-87.65208],[41.91377,-87.65243],[41.91407,-87.65251],[41.93866,-87.65337],[41.94218,-87.65346],[41.94318,-87.65337],[41.94422,-87.65343],[41.94448,-87.65352],[41.9469,-87.65363],[41.95344,-87.6537],[41.95365,-87.65386],[41.95374,-87.65408],[41.95381,-87.65635],[41.95417,-87.65672],[41.96182,-87.657],[41.96428,-87.65759],[41.96689,-87.65839],[41.99367,-87.65921],[41.99633,-87.65922],[41.99799,-87.65927],[41.99881,-87.65943],[41.99989,-87.6599],[42.0006,-87.6605],[42.00137,-87.66143],[42.00265,-87.66347],[42.00309,-87.66405],[42.00382,-87.66477],[42.00467,-87.66528],[42.00526,-87.66553],[42.00619,-87.66578],[42.01228,-87.66606],[42.01298,-87.6663],[42.01356,-87.66664],[42.01422,-87.66719],[42.01658,-87.66989],[42.02003,-87.67406],[42.02131,-87.67574],[42.02209,-87.67706],[42.02242,-87.67731],[42.02611,-87.67812],[42.02895,-87.67856],[42.03346,-87.67954],[42.03423,-87.67994],[42.04275,-87.68186],[42.04446,-87.68243],[42.047,-87.68359],[42.05166,-87.68349],[42.05417,-87.68357],[42.05795,-87.68334],[42.05964,-87.68343],[42.06087,-87.68382],[42.067,-87.68731],[42.07013,-87.68892],[42.07316,-87.69074]]},{"route":"Pink","points":[[41.85178,-87.7567],[41.85206,-87.73777],[41.85233,-87.73694],[41.85342,-87.73581],[41.85362,-87.73539],[41.85374,-87.73479],[41.85464,-87.66976],[41.85494,-87.66924],[41.85533,-87.6691],[41.87516,-87.66965],[41.87777,-87.66977],[41.87849,-87.67006],[41.88275,-87.67019],[41.88342,-87.6701],[41.88469,-87.67014],[41.88507,-87.6699],[41.88525,-87.66943],[41.88532,-87.66696],[41.88569,-87.64634],[41.88575,-87.62662],[41.88573,-87.62643],[41.88563,-87.62627],[41.87697,-87.62604],[41.87689,-87.62926],[41.87685,-87.63338],[41.87696,-87.63365],[41.88145,-87.63385],[41.88573,-87.63392],[41.88571,-87.64395],[41.88544,-87.66149],[41.88525,-87.66943],[41.88507,-87.6699],[41.88469,-87.67014],[41.88342,-87.6701],[41.88275,-87.67019],[41.87849,-87.67006],[41.87777,-87.66977],[41.87516,-87.66965],[41.85533,-87.6691],[41.85494,-87.66924],[41.85464,-87.66976],[41.85374,-87.73479],[41.85362,-87.73539],[41.85342,-87.73581],[41.85233,-87.73694],[41.85206,-87.73777],[41.85178,-87.7567]]},{"route":"Red","points":[[42.01907,-87.6729],[42.01658,-87.66989],[42.01422,-87.66719],[42.01356,-87.66664],[42.01298,-87.6663],[42.01228,-87.66606],[42.00619,-87.66578],[42.00526,-87.66553],[42.00467,-87.66528],[42.00382,-87.66477],[42.00309,-87.66405],[42.00265,-87.66347],[42.00137,-87.66143],[42.0006,-87.6605],[41.9997,-87.65979],[41.9985,-87.65936],[41.99633,-87.65922],[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91309,-87.65249],[41.90393,-87.63972],[41.9038,-87.63926],[41.9038,-87.63896],[41.90394,-87.62892],[41.90376,-87.62867],[41.90317,-87.62863],[41.90213,-87.62835],[41.87405,-87.62748],[41.86404,-87.62731],[41.86364,-87.6274],[41.86316,-87.62779],[41.86212,-87.62935],[41.86094,-87.63059],[41.86014,-87.63113],[41.85924,-87.63142],[41.85455,-87.63128],[41.85268,-87.63086],[41.85108,-87.63069],[41.84898,-87.63073],[41.84686,-87.63116],[41.84548,-87.63128],[41.83953,-87.63087],[41.81282,-87.63019],[41.81215,-87.63022],[41.81148,-87.63039],[41.80948,-87.63152],[41.80896,-87.6317],[41.80805,-87.63181],[41.8019,-87.63135],[41.78773,-87.63101],[41.78559,-87.63113],[41.77943,-87.63094],[41.77848,-87.63065],[41.7775,-87.63005],[41.77699,-87.62955],[41.77542,-87.62751],[41.77446,-87.6267],[41.7735,-87.6262],[41.77219,-87.62593],[41.76542,-87.6257],[41.75605,-87.62554],[41.7519,-87.62521],[41.73949,-87.62483],[41.72238,-87.62442]]},{"route":"Y","points":[[42.01907,-87.6729],[42.01987,-87.67389],[42.02115,-87.67629],[42.02159,-87.67812],[42.02172,-87.67964],[42.0217,-87.68801],[42.02201,-87.69096],[42.02225,-87.69257],[42.02221,-87.6972],[42.02264,-87.70182],[42.0225,-87.70879],[42.02266,-87.71383],[42.02266,-87.71791],[42.02235,-87.72333],[42.02232,-87.73789],[42.02232,-87.7406],[42.02244,-87.74201],[42.02261,-87.74278],[42.02313,-87.74422],[42.02388,-87.74546],[42.02483,-87.74644],[42.02563,-87.74697],[42.0268,-87.74743],[42.03397,-87.7497],[42.03896,-87.75192]]}];
+const ME = { lat: 41.9386, lon: -87.6515 };   // the phone's fix, from the nearby message
+const KM = 120;   // screen px per km: the circle shows about 2 km across
+const KX = 111.32 * Math.cos(ME.lat * Math.PI / 180) * KM, KY = 111.32 * KM;
+const proj = (lat, lon, pan) => [C + (lon - ME.lon) * KX + pan.x, C - (lat - ME.lat) * KY + pan.y];
+const ON_NAVY = {};
+const onNavy = route => ON_NAVY[route] ??= hex(lifted(LINE[route] ?? BUS, 0x0B1A36, 3));   // the app's rule for big color on navy
+const OFFSET = { Brn: 3, P: 6 };   // lines sharing the North Side tracks sit side by side, like a transit map
+const CASING = '#050d1d';
+const LO = document.createElement('canvas'); LO.width = LO.height = 233; const lctx = LO.getContext('2d');
+// The map is drawn at half resolution in whole pixels, then doubled with no smoothing, so it matches the pixel art.
+function seg(c, x0, y0, x1, y1, b) { // a crisp line of b×b blocks (Bresenham)
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, h = b >> 1; let e = dx + dy;
+  for (;;) {
+    c.fillRect(x0 - h, y0 - h, b, b); if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; }
+  }
+}
+function dot(c, x, y, size, col) { // a square dot with its corners knocked off
+  const h = size >> 1; x = Math.round(x); y = Math.round(y); c.fillStyle = col;
+  c.fillRect(x - h + 1, y - h, size - 2, size); c.fillRect(x - h, y - h + 1, size, size - 2);
+}
+// Trains glide along their line's shape. On the device they jump to each new position (every 60 s over BLE, or each
+// poll on Wi-Fi). shortcut: fake trains, sped up so the mockup looks alive; real ones come from Train Tracker positions.
+const RIDES = ['Red', 'Brn', 'P'].map(route => {
+  const km = ([la, lo]) => [(lo - ME.lon) * KX / KM, -(la - ME.lat) * KY / KM];
+  const near = pts => Math.min(...pts.map(p => Math.hypot(...km(p))));
+  const pts = SHAPES.filter(s => s.route === route).map(s => s.points).sort((a, b) => near(a) - near(b))[0];
+  const acc = [0]; for (let i = 1; i < pts.length; i++) { const [a, b] = [km(pts[i - 1]), km(pts[i])]; acc.push(acc[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  // the one stretch of the shape around you (Brown and Purple shapes are round trips that pass twice)
+  const dist = pts.map(p => Math.hypot(...km(p))); let i0 = dist.indexOf(Math.min(...dist)), i1 = i0;
+  while (i0 > 0 && dist[i0 - 1] < 2.4) i0--; while (i1 < pts.length - 1 && dist[i1 + 1] < 2.4) i1++;
+  i0 = Math.max(0, i0 - 1); i1 = Math.min(pts.length - 1, i1 + 1);   // one point past each end, so trains wrap off-screen
+  return { route, pts, acc, lo: acc[i0], hi: acc[i1], n: { Red: 3, Brn: 2, P: 1 }[route] };
+});
+function trainsAt(now, moving) {
+  const t = moving ? now / 1000 : 0, out = [];
+  for (const r of RIDES) for (let k = 0; k < r.n; k++) {
+    const span = r.hi - r.lo, dir = k % 2 ? 1 : -1, d0 = (span * (k + 0.4)) / r.n;
+    const d = r.lo + ((((d0 + dir * 0.04 * t) % span) + span) % span);
+    let i = 1; while (i < r.acc.length - 1 && r.acc[i] < d) i++;
+    const f = (d - r.acc[i - 1]) / (r.acc[i] - r.acc[i - 1] || 1), [a, b] = [r.pts[i - 1], r.pts[i]];
+    out.push({ route: r.route, lat: a[0] + (b[0] - a[0]) * f, lon: a[1] + (b[1] - a[1]) * f });
+  }
+  return out;
+}
+const CAR = ['.KKKKKK.', 'KBBBBBBK', 'KBWWWWBK', 'KBWWWWBK', 'KBBBBBBK', 'KBYBBYBK', '.KK..KK.'];   // a little L car front, 8×7
+const PIN = ['.......KK', '.....KKKK', '...KKKKKK', '.KKKKKKK.', 'KKKKKKKK.', '....KKK..', '....KKK..', '....KK...', '....K....'];
+const MAP_UI = { recenter: { x: C - 26, y: 380, w: 52, h: 48 } };
+function mapMarkers(pan) { // every tappable stop, full-res
+  return [...TRAINS.map((it, i) => ({ tab: 'trains', i, it, xy: proj(it.lat, it.lon, pan) })),
+    ...BUSES.map((it, i) => ({ tab: 'buses', i, it, xy: proj(it.lat, it.lon, pan) }))];
+}
+function drawMap(ctx, st, now) {
+  const pan = st.map || { x: 0, y: 0 }, stale = st.data === 'stale';
+  const lp = (la, lo) => { const [x, y] = proj(la, lo, pan); return [x / 2, y / 2]; };
+  lctx.clearRect(0, 0, 233, 233);
+  for (const pass of [0, 1]) for (const s of SHAPES) { // casings under every line, then the lines
+    lctx.fillStyle = pass ? onNavy(s.route) : CASING; const off = OFFSET[s.route] || 0; let prev = null;
+    for (const [la, lo] of s.points) {
+      const [x, y] = lp(la, lo);
+      if (prev && !(Math.max(prev[0], x) < -8 || Math.min(prev[0], x) > 241 || Math.max(prev[1], y) < -8 || Math.min(prev[1], y) > 241))
+        seg(lctx, prev[0] + off, prev[1], x + off, y, pass ? 3 : 7);
+      prev = [x, y];
+    }
+  }
+  for (const b of BUSES) { const [x, y] = lp(b.lat, b.lon); dot(lctx, x, y, 7, CASING); dot(lctx, x, y, 5, '#ffffff'); dot(lctx, x, y, 3, hex(BUS)); }
+  for (const s of TRAINS) { const [x, y] = lp(s.lat, s.lon); dot(lctx, x + 3, y, 11, CASING); dot(lctx, x + 3, y, 9, '#ffffff'); }
+  lctx.globalAlpha = stale ? 0.4 : 1;
+  for (const t of trainsAt(now, !stale)) { // live trains as little pixel cars
+    const [x, y] = lp(t.lat, t.lon), x0 = Math.round(x + (OFFSET[t.route] || 0) - 4), y0 = Math.round(y - 3);
+    CAR.forEach((r, j) => { for (let i = 0; i < 8; i++) if (r[i] !== '.') {
+      lctx.fillStyle = r[i] === 'K' ? CASING : r[i] === 'W' ? '#fff4c9' : r[i] === 'Y' ? T.headlight : onNavy(t.route); lctx.fillRect(x0 + i, y0 + j, 1, 1);
+    } });
+  }
+  lctx.globalAlpha = 1;
+  const [mx, my] = lp(ME.lat, ME.lon); // you: a headlight dot with a pixel ring pulsing out
+  const ph = (now / 1400) % 1, r = 5 + ph * 9; lctx.globalAlpha = 1 - ph; lctx.fillStyle = T.headlight;
+  for (let a = 0; a < Math.PI * 2; a += 0.7 / r) lctx.fillRect(Math.round(mx + Math.cos(a) * r), Math.round(my + Math.sin(a) * r), 1, 1);
+  lctx.globalAlpha = 1; dot(lctx, mx, my, 9, CASING); dot(lctx, mx, my, 7, T.headlight);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(LO, 0, 0, 466, 466); ctx.imageSmoothingEnabled = true;
+  // station names
+  font(ctx, 900, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = CASING; ctx.fillStyle = T.white;
+  for (const s of TRAINS) { const [x, y] = proj(s.lat, s.lon, pan); ctx.strokeText(s.name, x + 22, y - 14); ctx.fillText(s.name, x + 22, y - 14); }   // above the line, so east–west track stays visible
+  // top: Trackie on his cream tile, saying the station nearest the map's center, like the app's "Near" bubble
+  const c = { x: C - pan.x, y: C - pan.y }, near = mapMarkers({ x: 0, y: 0 }).filter(m => m.tab === 'trains').sort((a, b) =>
+    Math.hypot(a.xy[0] - c.x, a.xy[1] - c.y) - Math.hypot(b.xy[0] - c.x, b.xy[1] - c.y))[0].it.name;
+  const up = Math.floor(now / 500) % 2 === 0, bw = bubbleWidth(ctx, near), x0 = Math.round(C - (72 + 14 + bw) / 2);
+  plate(ctx, x0, 40, 72, 72, { fill: T.cream, rim: T.navy, rimW: 3, edge: 4, ...SMALL });
+  drawPet(ctx, st.mood, x0 + 4, 44 + (up ? -2 : 0), 2, st.paint, null);
+  bubble(ctx, near, x0 + 86, 76, 'NEAR');
+  if (stale) { font(ctx, 800, 14); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = T.amber; ctx.fillText('Updated 7 min ago', C, 352); }
+  // recenter: headlight yellow while it follows you, like the app's button
+  const rc = MAP_UI.recenter, follow = st.mapFollow !== false;
+  plate(ctx, rc.x, rc.y, rc.w, rc.h, { fill: follow ? T.headlight : T.raised, rim: follow ? T.navy : 'rgba(255,255,255,0.22)', edge: 4, ...SMALL });
+  ink(ctx, PIN, rc.x + rc.w / 2 - 9, rc.y + rc.h / 2 - 9, 2, follow ? T.navy : T.white);
+  ctx.strokeStyle = T.mist; ctx.lineWidth = 3; ctx.lineJoin = 'miter'; // back to Home
+  ctx.beginPath(); ctx.moveTo(30, C - 12); ctx.lineTo(20, C); ctx.lineTo(30, C + 12); ctx.stroke();
+}
+const isAod = (st, view) => st.display === 'dim' && (view.screen === 'home' || view.screen === 'first');
 function drawView(ctx, st, view, now) {
-  const aod = st.display === 'dim' && (view.screen === 'home' || view.screen === 'first');
-  const s2 = view === st.view ? st : { ...st, view };
+  const aod = isAod(st, view), s2 = view === st.view ? st : { ...st, view };
   if (view.screen === 'home' || view.screen === 'first') drawHome(ctx, view.screen === 'first' ? { ...s2, mood: 'sleepy' } : s2, now, aod);
   else if (view.screen === 'stops') drawStops(ctx, s2, now, view.tab);
   else if (view.screen === 'detail') drawDetail(ctx, s2, now);
   else if (view.screen === 'pair') drawPair(ctx, s2, now);
+  else if (view.screen === 'map') drawMap(ctx, s2, now);
 }
 function brightness(st) {
   const docked = st.mood === 'asleep';
@@ -672,12 +802,12 @@ function brightness(st) {
 }
 function drawFrame(ctx, st, now) {
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, W);
+  ctx.fillStyle = isAod(st, st.view) ? '#000' : T.navy; ctx.fillRect(0, 0, W, W);   // always-on drops to black
   ctx.save();
   if (st.display === 'dim') { const k = Math.floor(now / 10000); ctx.translate(((k * 7) % 7) - 3, ((k * 5) % 7) - 3); }
   const tr = st.trans;
   if (tr && now - tr.t0 < tr.dur) {
-    const p = 1 - Math.pow(1 - (now - tr.t0) / tr.dur, 3); const D = W * tr.dir;
+    const p = 1 - Math.pow(1 - (now - tr.t0) / tr.dur, 3), D = W * tr.dir;
     const [fx, fy] = tr.axis === 'x' ? [-p * D, 0] : [0, -p * D];
     const [tx, ty] = tr.axis === 'x' ? [(1 - p) * D, 0] : [0, (1 - p) * D];
     ctx.save(); ctx.translate(fx, fy); drawView(ctx, st, tr.from, now); ctx.restore();
@@ -699,15 +829,15 @@ function measure(ctx) {
 
 /* ---------- live state ---------- */
 const S = {
-  view: { screen: 'home', tab: 'trains', detail: 0 }, mood: 'hyped', weather: 'clear', paint: 'Stainless',
+  view: { screen: 'home', tab: 'trains', detail: 0 }, mood: 'hyped', weather: 'clear', paint: 'Blue',
   display: 'active', data: 'wifi', scroll: { trains: 0, buses: 0 }, scrollTarget: { trains: 0, buses: 0 },
-  detailScroll: 0, trans: null, poke: null, poked: false, signOverride: null, lastInput: performance.now(),
+  detailScroll: 0, trans: null, poke: null, lastInput: performance.now(), map: { x: 0, y: 0 }, mapFollow: true,
 };
 const cv = document.getElementById('screen'); const ctx = cv.getContext('2d');
 const autoDim = document.getElementById('autoDim');
 function go(view, axis, dir) { S.trans = axis ? { from: { ...S.view }, axis, dir, t0: performance.now(), dur: 220 } : null; S.view = view; syncUI(); }
 function activity(now) { S.lastInput = now; }
-function wake(now) { S.display = 'active'; S.signOverride = { text: 'SYNC', until: now + 1200 }; activity(now); syncUI(); }
+function wake(now) { S.display = 'active'; activity(now); syncUI(); }
 
 function loop() {
   const now = performance.now();
@@ -718,7 +848,8 @@ function loop() {
   }
   if (!drag) for (const t of ['trains', 'buses']) S.scroll[t] += (S.scrollTarget[t] - S.scroll[t]) * 0.28;
   if (!drag && S.detailTarget !== undefined) S.detailScroll += (S.detailTarget - S.detailScroll) * 0.28;
-  if (S.poke && now - S.poke.t0 > 2600) { S.poke = null; S.poked = false; }
+  if (S.poke && now - S.poke.t0 > 2600) S.poke = null;
+  if (!drag && S.mapFollow) { S.map.x *= 0.8; S.map.y *= 0.8; }   // recenter glides back to you
   drawFrame(ctx, S, now);
   requestAnimationFrame(loop);
 }
@@ -728,19 +859,23 @@ setInterval(() => { const m = measure(ctx); document.getElementById('mLit').text
 let drag = null;
 function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * W / r.height }; }
 const maxScroll = tab => ((tab === 'trains' ? TRAINS : BUSES).length - 1) * ROW;
-function detailMax() { return Math.max(0, detailFor(S).groups.length * 54 - 250); }
+const detailMax = () => Math.max(0, DETAIL_H - 430);
 function snap(tab, v) { S.scrollTarget[tab] = Math.max(0, Math.min(maxScroll(tab), Math.round(v / ROW) * ROW)); }
-const onPet = p => S.view.screen === 'home' && p.x > C - 80 && p.x < C + 80 && p.y > 140 && p.y < 310;
+const inRect = (p, r) => r && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
+const onPet = p => S.view.screen === 'home' && inRect(p, HOME.tile);
 
 cv.addEventListener('pointerdown', e => {
   cv.setPointerCapture(e.pointerId); const p = pt(e); const now = performance.now();
   drag = { ...p, x0: p.x, y0: p.y, t0: now, moved: false, long: false, wasDim: S.display === 'dim',
-    s0: S.view.screen === 'stops' ? S.scroll[S.view.tab] : S.detailScroll };
+    s0: S.view.screen === 'stops' ? S.scroll[S.view.tab] : S.detailScroll, m0: { ...S.map } };
   if (!drag.wasDim) drag.timer = setTimeout(() => { if (drag && !drag.moved && onPet(drag)) { drag.long = true; cycleMood(); } }, 650);
 });
 cv.addEventListener('pointermove', e => {
   if (!drag) return; const p = pt(e); const dx = p.x - drag.x0, dy = p.y - drag.y0;
   if (Math.hypot(dx, dy) > 9) drag.moved = true;
+  if (S.view.screen === 'map' && !drag.wasDim && drag.moved && drag.x0 > 56) { // pan; the left edge is for going back
+    S.map = { x: Math.max(-700, Math.min(700, drag.m0.x + dx)), y: Math.max(-700, Math.min(700, drag.m0.y + dy)) }; S.mapFollow = false; return;
+  }
   if (drag.wasDim || !drag.moved || Math.abs(dy) < Math.abs(dx)) return;
   if (S.view.screen === 'stops') { const t = S.view.tab; let v = drag.s0 - dy; if (v < 0) v *= 0.4; S.scroll[t] = v; S.scrollTarget[t] = v; }
   if (S.view.screen === 'detail') { S.detailScroll = Math.max(-40, Math.min(detailMax() + 40, drag.s0 - dy)); S.detailTarget = S.detailScroll; }
@@ -752,15 +887,17 @@ cv.addEventListener('pointerup', e => {
   const dx = p.x - d.x0, dy = p.y - d.y0;
   if (!d.moved) { tap(d.x0, d.y0, now); return; }
   const sc = S.view.screen;
+  if (sc === 'map') { if (d.x0 <= 56 && dx > 60) go({ ...S.view, screen: 'home' }, 'x', -1); return; }
   if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
     if (sc === 'stops') { if (dx < 0 && S.view.tab === 'trains') go({ ...S.view, tab: 'buses' }, 'x', 1); else if (dx > 0 && S.view.tab === 'buses') go({ ...S.view, tab: 'trains' }, 'x', -1); }
-    else if (sc === 'detail' && dx > 0) go({ ...S.view, screen: 'stops' }, 'x', -1);
+    else if (sc === 'detail' && dx > 0) back();
+    else if (sc === 'home' && dx < 0) go({ ...S.view, screen: 'map' }, 'x', 1);
     return;
   }
   if (sc === 'home' && dy < -40) { go({ ...S.view, screen: 'stops' }, 'y', 1); return; }
   if (sc === 'stops') {
     const t = S.view.tab;
-    if ((S.scroll[t] < -30) || (d.y0 < 110 && dy > 40)) { S.scroll[t] = 0; S.scrollTarget[t] = 0; go({ ...S.view, screen: 'home' }, 'y', -1); return; }
+    if ((S.scroll[t] < -30) || (d.y0 < 90 && dy > 40)) { S.scroll[t] = 0; S.scrollTarget[t] = 0; go({ ...S.view, screen: 'home' }, 'y', -1); return; }
     snap(t, S.scroll[t]);
   }
   if (sc === 'detail') S.detailTarget = Math.max(0, Math.min(detailMax(), S.detailScroll));
@@ -771,34 +908,42 @@ function tap(x, y, now) {
   const sc = S.view.screen;
   if (sc === 'home') {
     if (onPet({ x, y })) poke(now);
-    else if (y > 400) go({ ...S.view, screen: 'stops' }, 'y', 1);
+    else if (x > 410 && Math.abs(y - C) < 60) go({ ...S.view, screen: 'map' }, 'x', 1);
+    else if (inRect({ x, y }, HOME.card) || y > 400) go({ ...S.view, screen: 'stops' }, 'y', 1);
   } else if (sc === 'stops') {
-    if (y < 104) { const tab = x < C ? 'trains' : 'buses'; if (tab !== S.view.tab) go({ ...S.view, tab }, 'x', tab === 'buses' ? 1 : -1); return; }
+    if (y < 86) { const tab = x < C ? 'trains' : 'buses'; if (tab !== S.view.tab) go({ ...S.view, tab }, 'x', tab === 'buses' ? 1 : -1); return; }
     const t = S.view.tab; const i = Math.round((y - FOCUS + S.scroll[t]) / ROW);
-    if (i >= 0 && i < (t === 'trains' ? TRAINS : BUSES).length) { snap(t, i * ROW); S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: i }, 'x', 1); }
-  } else if (sc === 'detail' && x < 80) go({ ...S.view, screen: 'stops' }, 'x', -1);
+    if (i >= 0 && i < (t === 'trains' ? TRAINS : BUSES).length) { snap(t, i * ROW); S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: i, back: null }, 'x', 1); }
+  } else if (sc === 'detail' && x < 80) back();
+  else if (sc === 'map') {
+    if (inRect({ x, y }, MAP_UI.recenter)) { S.mapFollow = true; return; }
+    if (x < 44) { go({ ...S.view, screen: 'home' }, 'x', -1); return; }
+    const hit = mapMarkers(S.map).map(m => ({ ...m, d: Math.hypot(m.xy[0] - x, m.xy[1] - y) - (m.tab === 'trains' ? 8 : 0) })).sort((a, b) => a.d - b.d)[0];
+    if (hit && hit.d < 22) { S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', tab: hit.tab, detail: hit.i, back: 'map' }, 'x', 1); }
+  }
 }
-const REASON = { happy: 'ALL GOOD', hyped: 'RED LINE 2 MIN', worried: '22 CLARK LATE', sad: 'RED LINE ALERT', sleepy: 'NIGHT HOURS', asleep: 'ZZZ' };
-function poke(now) { S.poke = { t0: now }; S.poked = true; S.signOverride = { text: S.data === 'stale' ? 'NO DATA' : REASON[S.mood], until: now + 2600 }; }
+const back = () => go({ ...S.view, screen: S.view.back || 'stops', back: null }, 'x', -1);
+function poke(now) { S.poke = { t0: now }; }
 const MOODS = ['happy', 'hyped', 'worried', 'sad', 'sleepy', 'asleep'];
 function cycleMood() { S.mood = MOODS[(MOODS.indexOf(S.mood) + 1) % MOODS.length]; toast(`Debug gesture: mood is now ${S.mood === 'asleep' ? 'Docked' : S.mood}`); syncUI(); }
 
 cv.addEventListener('keydown', e => {
   const now = performance.now(); if (S.display === 'dim') { wake(now); e.preventDefault(); return; } activity(now);
   const sc = S.view.screen, t = S.view.tab; let used = true;
-  if (sc === 'home') { if (e.key === 'ArrowUp' || e.key === 'Enter') go({ ...S.view, screen: 'stops' }, 'y', 1); else if (e.key === ' ') poke(now); else used = false; }
+  if (sc === 'home') { if (e.key === 'ArrowUp' || e.key === 'Enter') go({ ...S.view, screen: 'stops' }, 'y', 1); else if (e.key === 'ArrowRight') go({ ...S.view, screen: 'map' }, 'x', 1); else if (e.key === ' ') poke(now); else used = false; }
+  else if (sc === 'map') { if (e.key === 'Escape' || e.key === 'ArrowLeft') go({ ...S.view, screen: 'home' }, 'x', -1); else if (e.key === 'Enter') S.mapFollow = true; else used = false; }
   else if (sc === 'stops') {
     if (e.key === 'ArrowDown') snap(t, S.scrollTarget[t] + ROW);
     else if (e.key === 'ArrowUp') { if (S.scrollTarget[t] <= 0) go({ ...S.view, screen: 'home' }, 'y', -1); else snap(t, S.scrollTarget[t] - ROW); }
     else if (e.key === 'Escape') go({ ...S.view, screen: 'home' }, 'y', -1);
     else if (e.key === 'ArrowRight' && t === 'trains') go({ ...S.view, tab: 'buses' }, 'x', 1);
     else if (e.key === 'ArrowLeft' && t === 'buses') go({ ...S.view, tab: 'trains' }, 'x', -1);
-    else if (e.key === 'Enter') { S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: Math.round(S.scrollTarget[t] / ROW) }, 'x', 1); }
+    else if (e.key === 'Enter') { S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: Math.round(S.scrollTarget[t] / ROW), back: null }, 'x', 1); }
     else used = false;
   } else if (sc === 'detail') {
-    if (e.key === 'Escape' || e.key === 'ArrowLeft') go({ ...S.view, screen: 'stops' }, 'x', -1);
-    else if (e.key === 'ArrowDown') S.detailTarget = Math.min(detailMax(), (S.detailTarget || 0) + 54);
-    else if (e.key === 'ArrowUp') S.detailTarget = Math.max(0, (S.detailTarget || 0) - 54);
+    if (e.key === 'Escape' || e.key === 'ArrowLeft') back();
+    else if (e.key === 'ArrowDown') S.detailTarget = Math.min(detailMax(), (S.detailTarget || 0) + 60);
+    else if (e.key === 'ArrowUp') S.detailTarget = Math.max(0, (S.detailTarget || 0) - 60);
     else used = false;
   } else if (e.key === 'Escape') go({ ...S.view, screen: 'home' }); else used = false;
   if (used) e.preventDefault();
@@ -820,8 +965,8 @@ bindSeg('segDisplay', v => { if (v === 'active' && S.display === 'dim') wake(per
 bindSeg('segData', v => { S.data = v; if (v === 'stale' && S.mood !== 'asleep') S.mood = 'sleepy'; });
 bindSeg('segSize', v => { sizeMode = v; layout(); });
 const sw = $('swatches');
-for (const [name, p] of Object.entries(PAINTS)) {
-  const b = document.createElement('button'); b.className = 'swatch'; b.style.background = p.B; b.title = name; b.setAttribute('aria-label', `${name} paint`); b.dataset.v = name;
+for (const [name, [B]] of Object.entries(PAINTS)) {
+  const b = document.createElement('button'); b.className = 'swatch px'; b.style.background = B; b.title = name; b.setAttribute('aria-label', `${name} paint`); b.dataset.v = name;
   b.addEventListener('click', () => { S.paint = name; syncUI(); buildSheet(); }); sw.appendChild(b);
 }
 function syncUI() {
@@ -830,18 +975,12 @@ function syncUI() {
   sw.querySelectorAll('.swatch').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.paint)));
 }
 let toastT; function toast(msg) { $('toast').textContent = msg; clearTimeout(toastT); toastT = setTimeout(() => $('toast').textContent = '', 3000); }
-$('copyGrid').addEventListener('click', () => {
-  const g = buildGrid(S, performance.now()).map(r => r.join('')).join('\n');
-  const out = $('gridOut'); out.textContent = g; out.hidden = false;
-  if (navigator.clipboard) navigator.clipboard.writeText(g).then(() => toast('Copied the 32×32 grid (one character per palette slot).'), () => toast('Copy was blocked. Select the grid below instead.'));
-  else toast('Select the grid below to copy it.');
-});
 
 /* ---------- sizing ---------- */
 let sizeMode = 'fit';
 function layout() {
   const shell = $('shell'); const col = shell.parentElement.clientWidth;
-  let d = sizeMode === 'real' ? 168 : Math.min(466, Math.floor((col - 8) / 1.22) - 0);
+  let d = sizeMode === 'real' ? 168 : Math.min(466, Math.floor((col - 8) / 1.22));
   d = Math.max(150, d);
   shell.style.setProperty('--d', d + 'px'); shell.classList.toggle('real', sizeMode === 'real');
 }
@@ -854,17 +993,18 @@ const SHEET = [
   ['Home · Snow', { mood: 'happy', weather: 'snow' }], ['Dim always-on', { mood: 'happy', display: 'dim' }], ['Docked · Asleep', { mood: 'asleep' }],
   ['Trains', { mood: 'happy', view: { screen: 'stops', tab: 'trains', detail: 0 } }], ['Buses', { mood: 'worried', view: { screen: 'stops', tab: 'buses', detail: 0 } }],
   ['Stop detail', { mood: 'sad', view: { screen: 'detail', tab: 'trains', detail: 0 } }], ['Offline lists', { mood: 'sleepy', data: 'stale', view: { screen: 'stops', tab: 'trains', detail: 0 } }],
+  ['Map', { mood: 'happy', view: { screen: 'map', tab: 'trains', detail: 0 } }],
   ['Pairing', { view: { screen: 'pair', tab: 'trains', detail: 0 } }], ['First run', { mood: 'sleepy', view: { screen: 'first', tab: 'trains', detail: 0 } }],
 ];
 const off = document.createElement('canvas'); off.width = off.height = W; const octx = off.getContext('2d', { willReadFrequently: true });
 function buildSheet() {
   const host = $('sheet'); host.innerHTML = '';
   for (const [label, o] of SHEET) {
-    const st = { ...S, weather: 'clear', display: 'active', data: 'wifi', trans: null, poke: null, poked: false, signOverride: null, scroll: { trains: 0, buses: 0 }, detailScroll: 0, view: { screen: 'home', tab: 'trains', detail: 0 }, ...o };
+    const st = { ...S, weather: 'clear', display: 'active', data: 'wifi', trans: null, poke: null, scroll: { trains: 0, buses: 0 }, detailScroll: 0, map: { x: 0, y: 0 }, mapFollow: true, view: { screen: 'home', tab: 'trains', detail: 0 }, ...o };
     drawFrame(octx, st, 1000); const m = measure(octx);
-    const b = document.createElement('button'); b.className = 'thumb'; b.type = 'button';
+    const b = document.createElement('button'); b.className = 'thumb px'; b.type = 'button';
     const c = document.createElement('canvas'); c.width = c.height = 256; c.getContext('2d').drawImage(off, 0, 0, 256, 256);
-    b.append(c); const s1 = document.createElement('strong'); s1.textContent = label; const s2 = document.createElement('small'); s2.textContent = `${(m.lit * 100).toFixed(1)}% lit · ≈${(m.pow * 100).toFixed(1)}% power`;
+    b.append(c); const s1 = document.createElement('strong'); s1.textContent = label; const s2 = document.createElement('small'); s2.textContent = `≈${(m.pow * 100).toFixed(1)}% power`;
     b.append(s1, s2);
     b.addEventListener('click', () => { Object.assign(S, { weather: st.weather, display: st.display, data: st.data, mood: st.mood, view: { ...st.view }, trans: null }); S.scroll = { trains: 0, buses: 0 }; S.scrollTarget = { trains: 0, buses: 0 }; S.detailScroll = 0; S.detailTarget = 0; activity(performance.now()); syncUI(); cv.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     host.appendChild(b);
@@ -873,8 +1013,7 @@ function buildSheet() {
 
 layout(); syncUI();
 const fontsReady = Promise.all([
-  document.fonts.load('600 40px "Pixelify Sans"'), document.fonts.load('400 20px "Pixelify Sans"'),
-  document.fonts.load('700 20px "Atkinson Hyperlegible"'), document.fonts.load('400 20px "Atkinson Hyperlegible"'),
+  document.fonts.load('900 34px Nunito'), document.fonts.load('800 16px Nunito'),
 ]).catch(() => {});
 fontsReady.then(buildSheet);
 requestAnimationFrame(loop);
