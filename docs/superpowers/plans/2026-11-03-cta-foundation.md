@@ -522,7 +522,7 @@ extern const size_t kTrainLineCount;
   - bus stops: `{"id","name","lat","lon","kind":"bus","lines":[{"route":"22","dir":"Northbound"}]}`
   - stations: `{"id","name","lat","lon","kind":"station","platforms":[{"id":"30xxx","lines":[{"route":"Red","dir":"95th/Dan Ryan"}]}]}`
 
-  Platforms appear only inside their station, because the handheld's train rows are per station. The app's one-card-per-route-and-direction rule (app design spec 4.2) keys on `lines[].route` + `lines[].dir`.
+  Platforms appear only inside their station, because the handheld groups its train cards by station. The app's one-card-per-route-and-direction rule (app design spec 4.2) keys on `lines[].route` + `lines[].dir`.
 - Produces: `data/train_shapes.json` = `[{"route":"Red","points":[[41.97732,-87.66688], …]}]`, one or more entries per train route (branches and expresses add their own; see the Shapes ruling below), for drawing the lines on the app's map.
 - CLI: `python3 tools/gtfs_build.py <gtfs.zip or dir> [--check] [--bustracker-key KEY]` (`--bustracker-key` arrives with Step 6). It writes the four generated files.
 - Rules:

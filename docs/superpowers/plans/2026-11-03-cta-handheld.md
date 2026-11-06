@@ -20,9 +20,10 @@ firmware/handheld/src/main.cpp       setup/loop wiring only
 firmware/handheld/src/display.*      QSPI AMOLED + CST9217 touch + LVGL (from the Waveshare examples)
 firmware/handheld/src/power.*        AXP2101 via XPowersLib: USB present, battery %, charging
 firmware/handheld/src/screen.*       brightness states: full ↔ dim after kScreenDimSec; tap = wake event
-firmware/handheld/src/ui_home.*      pet (5× = 160 px), time, weather icon; swipe up → stops
-firmware/handheld/src/ui_stops.*     Trains | Buses tab pill, list of up to 10 per tab
-firmware/handheld/src/ui_detail.*    next 3–4 arrivals per line/route at one stop
+firmware/handheld/src/ui_kit.*       black background, line-colored pixel cards, 5×7 pixel digits, pixel corners
+firmware/handheld/src/ui_home.*      time + weather, Trackie (32×32 at 4×) + speech bubble, the most urgent card; swipe up → stops
+firmware/handheld/src/ui_stops.*     Trains | Buses tab pill, card list (train cards per line and direction)
+firmware/handheld/src/ui_detail.*    next 3–4 arrivals per line and direction at one stop
 firmware/handheld/src/net.*          up to 3 saved networks, connect/backoff, NTP + time zone
 firmware/handheld/src/poller.*       Wi-Fi fetch cadence for the nearby list
 firmware/handheld/src/data.*         HandheldState: nearby list, records, source (Wi-Fi or BLE), freshness
@@ -30,6 +31,7 @@ firmware/handheld/src/location.*     LocationSource interface; BlePhoneLocation 
 firmware/handheld/src/ble_server.*   info, wifi (slots 0–2), config, request (notify), nearby, snapshot
 firmware/handheld/src/store.*        NVS: Wi-Fi ×3, DeviceConfig, last nearby list
 firmware/lib/cta/src/ble_messages.*  NEW shared: request encode, nearby decode (native-tested)
+firmware/lib/cta/src/train_cards.*   NEW shared: split one station response into card records (native-tested)
 ```
 
 ## Shared additions (native-tested)
@@ -48,6 +50,20 @@ size_t encodeRequest(bool wifiUp, char* buf, size_t cap);           // {"want":"
 ```
 
 Tests to include: 12 trains → 10 kept; a missing `close` → `nClose = 0`; malformed JSON → false; the encoded request matches the spec's shape.
+
+**`train_cards.h`** (spec §6.2, train card records)
+
+```cpp
+// One record per (platform stpId, rt) in a ttarrivals?mapid= response, soonest card first.
+// id = stationId, route = rt, dir = the platform's dirLabel from kTrainLines (falls back to the
+// soonest arrival's destNm if the platform isn't in any sequence), up to 4 arrivals each.
+int parseTrainCards(const char* json, size_t len, uint32_t now, const char* stationId,
+                    StopRecord* out, size_t max);   // returns cards written, −1 on error
+```
+
+Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 cards: Brown toward Kimball (1 min) first, then Red toward 95th/Dan Ryan (3, 7 min), Red toward Howard (12), and Purple toward Linden (20); every card's `id` is `41320`; `max = 2` keeps the 2 soonest; the error fixture returns −1. Reuse Task 4's per-eta parsing rather than parsing twice.
+
+**Fixture fix first:** the synthetic Belmont fixture gives its 95th-bound Red trains `stpId` 30255 and its Howard-bound one 30256, but in GTFS (`data/stops.json`) 30255 is the Howard platform and 30256 the 95th/Dan Ryan one. Swap them in the fixture, and update the stop ID order the iOS `TrainParseTests` expects to match, in the same commit; otherwise the labels from `kTrainLines` contradict each arrival's `destNm`. Ask Leo before changing the shared fixture.
 
 ## Milestones
 
@@ -69,24 +85,30 @@ Tests to include: 12 trains → 10 kept; a missing `close` → `nClose = 0`; mal
    - Alerts every 5 min for the routes seen in the records.
    - Weather every 15 min at the phone's last location.
    - Night hours or docked: everything every `kSlowPollSec`.
-   - Records carry `dir = ""` for train stations (spec §6.2).
-6. **Stops and detail screens.**
-   - Tabs, rows (line-color dot, name, next arrival minutes), and scrolling suited to a round screen (center-weighted list, rows fade at the edges).
-   - Tap a row for detail; swipe right to go back; swipe down returns home.
-   - Stale rows grey out.
-7. **BLE relay intake.** `snapshot` writes decode into the record with the matching `id`. For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
+   - Each station's response becomes card records through `parseTrainCards` (spec §6.2).
+6. **Stops and detail screens** (spec §8.1; the mockup in `docs/ideas/` shows the look).
+   - `ui_kit.*` first: black background, line-colored cards with the app's `LineColors.card`/`cardText` math, pixel corners, the 5×7 pixel digits as a bitmap font at whole scales.
+   - Tabs and a card list suited to a round screen: center-weighted, cards away from the focus shrink, fade, and narrow inside the circle.
+   - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per stop.
+   - Tap a card for detail (the stop's lines and directions, tapped one first); swipe right to go back; swipe down returns home.
+   - Stale cards grey out.
+7. **BLE relay intake.** `snapshot` writes decode into the record with the matching (`id`, `route`, `dir`); the app sends one per card. For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
 8. **Pet and moods.**
-   - The home pet shows `deviceMood` over all listed stops, with `hypedEligible` set for the stops in `close`.
+   - The home pet is Trackie (the app's 32×32 sprite, 4×) and shows `deviceMood` over all cards, with `hypedEligible` set for cards whose `id` is in `close`.
+   - The speech bubble shows the mood word; a tap on Trackie shows the reason for a few seconds (spec §8.1 copy). Home also shows the most urgent card.
+   - Dim always-on: black with Trackie alone, shifted a few pixels every 10 s.
    - Weather accessory from Open-Meteo.
    - `petStateFor(mood, docked)`, where docked means USB present **and** connected to the slot 0 SSID.
    - Asleep while docked, with the screen extra-dim and slow polling.
    - The two-finger long-press debug cycle.
    - Palette from `cfg.petColors`.
 9. **Battery test and demo check.** Full charge, off the dock, dim always-on, normal app use. Log until shutdown and record the hours in `docs/notes/battery.md`. Walk the handheld items of the spec §1 checklist (5–8).
+10. **Stretch, after the core path works: the map screen** (spec §2). Swipe left from Home. Draw the L lines from `data/train_shapes.json` built into the firmware (15 KB), in whole pixels at half resolution, doubled; nearby stops, live trains, recenter, tap through to detail. Needs BLE additions to spec §10 first: the nearby stops' coordinates in `nearby` (about 160 bytes) and a train-positions message (about 10 bytes a train, every 60 s). The mockup has the details.
 
 ## Decisions so far
 
-- **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, rows show "Loading…".
+- **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, cards show "Loading…".
+- **Look (Leo, 2026-11-06):** the app's pixel style on black, not navy; Trackie's bubble shows the mood word and the reason on tap; train cards are one per line and direction at each station; the map is a stretch goal.
 - **One state object** (`HandheldState`) is written only on the loop task. BLE callbacks copy the payload into a small queue for the loop.
 - **Keep internal RAM free** for Wi-Fi, TLS, and BLE; put LVGL buffers and response buffers in PSRAM.
 
@@ -94,5 +116,7 @@ Tests to include: 12 trains → 10 kept; a missing `close` → `nClose = 0`; mal
 
 - **Dim level and frame rate** that still look alive on AMOLED: tune against the battery test.
 - **Raise-to-wake** with the QMI8658 IMU: stretch.
-- **Wake vs. phone not connected:** keep the old list (current plan). Should rows show their age?
+- **Wake vs. phone not connected:** keep the old list (current plan). Should cards show their age?
+- **Trackie's tile:** on a cream pixel tile like the app, or straight on black? Open with Leo.
+- **Pet art:** Plan 1 Task 11's art brief describes a different pet than Trackie; it needs rewriting to Trackie before the sprites are drawn.
 - **GPS module** as a second `LocationSource`: stretch; the interface is ready for it.

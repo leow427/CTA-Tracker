@@ -36,6 +36,7 @@ The demo passes when all of these work:
 | | GPS module on the handheld as a backup location source | Device-hosted Wi-Fi setup page |
 | | Phone-hotspot fallback for the handheld | |
 | | Raise-to-wake on the handheld (IMU) | |
+| | Map screen on the handheld: the L lines drawn from `train_shapes.json`, nearby stops, live trains (mockup in `docs/ideas/`) | |
 | | 3 handhelds paired at once | |
 
 The app extras are built after the core path works (dock live, handheld live, app setup and relay). If time runs short they slip first.
@@ -135,7 +136,7 @@ The one data shape every device uses for "what's happening at a stop," whether i
 - At most 4 arrivals per record. Names are truncated to 24 characters so a record fits in one 512-byte BLE write.
 - `live: false` means a timetable time, not a live prediction (shown as a clock time in the app and dimmed with a "Sched" badge on the devices).
 - `ts` is Unix time of the fetch, used to judge staleness.
-- A train *station* record (the handheld's train rows) has an empty `dir` and arrivals for both directions; each arrival's `dest` tells them apart.
+- A train *card* record (the handheld's train cards) covers one line and direction at a station: `id` is the station ID (4xxxx), `route` the line, and `dir` the platform's direction label from `train_sequences.h` (the same labels as the app's `stops.json`), so a card agrees with the app's. One `ttarrivals?mapid=` response is split into one record per (platform `stpId`, `rt`); Belmont gives six (Red, Brown, and Purple, each way). A record is keyed by (`id`, `route`, `dir`).
 
 ### 6.3 Pet moods
 
@@ -227,9 +228,14 @@ The dock finds its own location for weather, without the phone. At boot and then
 
 ### 8.1 Screens (round, 466×466)
 
-- **Home:** the pet centered on black, with the time and weather icon above it. Swipe up for stops.
-- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of up to 10 stops per tab, sorted by distance. Each row shows a line-color dot, name and direction, and the next arrival in minutes. Train rows are per station (both directions); bus rows are per direction-specific stop. Swipe down to go back to Home.
-- **Stop detail:** tap a row to see the next 3–4 arrivals per line or route, with the same badges as the dock. Swipe right to go back.
+The look follows the iPhone app's pixel style (the app design specs), on black. The interactive mockup in `docs/ideas/2026-11-04-handheld-ui-mockup.html` shows it; this section wins where the two differ.
+
+- **Background:** black on every screen, for the AMOLED's battery.
+- **Cards:** every stop is a card in its line's color: a darker shade of the line as the fill and a lighter shade for its text, with the app's `LineColors.card` and `cardText` math. Buses share the bus color. Cards have stepped pixel corners and a hard bottom edge, and minutes use the app's 5×7 pixel digits. Cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
+- **Home:** the time and weather icon at the top, Trackie (the app's 32×32 pet sprite, drawn at 4×) with a speech bubble, and one card for the most urgent stop, so "should I hurry?" needs no swipe. The bubble says a mood word ("Go now!", "All on time", "Running late", "Uh oh…", "Sleepy…", "Zzz…"); tapping Trackie switches it to the reason ("Red in 2 min!", "22 is 4 min late", "Red Line alert") for a few seconds. Swipe up for stops.
+- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per direction-specific stop, up to 10. Each card shows the line or route, direction, stop name, and the next arrival in minutes. Swipe down to go back to Home.
+- **Stop detail:** tap a card to see the next 3–4 arrivals for each line and direction at that stop, the tapped one first, with the same badges as the dock. Swipe right to go back.
+- **Dim (always-on):** black with Trackie alone, shifted a few pixels every 10 s against burn-in.
 
 ### 8.2 Screen behavior
 
@@ -240,7 +246,7 @@ The screen is always on, dimmed. After 15 s with no touch it drops to low bright
 1. On every wake, the handheld sends a `request` to the app over BLE with whether it has Wi-Fi.
 2. The app takes one location fix and writes `nearby`: the location, the 10 nearest train station IDs, the 10 nearest bus stop IDs, and `close`, the 3 nearest stops of either kind. The handheld can't rank stations against bus stops itself because it has no stop coordinates.
 3. **On Wi-Fi:** the handheld polls those stops itself (section 6.6).
-4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per stop every 60 s while connected.
+4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per card (one per train line and direction at a station, one per bus stop) every 60 s while connected.
 5. **Neither:** the last data stays on screen greyed out, and the pet turns Sleepy once data is more than 5 min old.
 
 The handheld keeps its last nearby list in flash. A brand-new handheld shows "Open the CTA app" until it receives its first list.
