@@ -1,0 +1,19 @@
+# Trackie palette: <char> <#RRGGBB or none> <role>. Mirrors ios/CTATracker/Design/Pixel.swift petChars/petPalette;
+# M, N, F are the weather overlays from the handheld mockup. Slots 2 (B) and 3 (L) take the pet colors.
+. none transparent
+K #0B0D14 outline
+B #2D6BE6 body (pet color 1)
+L #7DB4FF body light (pet color 2)
+G #C3C8CE trim light gray
+S #8E949B trim gray
+W #FFFFFF white
+D #5A6069 dark gray
+C #9BEFF5 window cyan
+R #E5333D red
+Y #FFD43B headlight yellow
+P #F27DAE pink
+U #A9AEB5 underbody gray
+T #7FD3FF tear blue
+M #FF5F7A umbrella canopy
+N #B8324B umbrella ribs
+F #F3E6D0 scarf cream

@@ -1,0 +1,8 @@
+{
+  "name": "cta_net",
+  "version": "0.1.0",
+  "description": "HTTPS GET into a caller's buffer, verified against the ESP32 core's built-in CA bundle (Arduino only)",
+  "platforms": ["espressif32"],
+  "frameworks": ["arduino"],
+  "build": { "srcDir": "src" }
+}
