@@ -94,7 +94,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
    - Stale cards grey out.
 7. **BLE relay intake.** `snapshot` writes decode into the record with the matching (`id`, `route`, `dir`); the app sends one per card. For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
 8. **Pet and moods.**
-   - The home pet is Trackie (the app's 32×32 sprite, 4×) and shows `deviceMood` over all cards, with `hypedEligible` set for cards whose `id` is in `close`.
+   - The home pet is Trackie (Plan 1 Task 11's sprites, 4×, straight on black with no tile) and shows `deviceMood` over all cards, with `hypedEligible` set for cards whose `id` is in `close`.
    - The speech bubble shows the mood word; a tap on Trackie shows the reason for a few seconds (spec §8.1 copy). Home also shows the most urgent card.
    - Dim always-on: black with Trackie alone, shifted a few pixels every 10 s.
    - Weather accessory from Open-Meteo.
@@ -108,7 +108,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 ## Decisions so far
 
 - **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, cards show "Loading…".
-- **Look (Leo, 2026-11-06):** the app's pixel style on black, not navy; Trackie's bubble shows the mood word and the reason on tap; train cards are one per line and direction at each station; the map is a stretch goal.
+- **Look (Leo, 2026-11-06):** the app's pixel style on black, not navy; Trackie is drawn straight on black, with no tile; his bubble shows the mood word and the reason on tap; train cards are one per line and direction at each station; the map is a stretch goal.
 - **One state object** (`HandheldState`) is written only on the loop task. BLE callbacks copy the payload into a small queue for the loop.
 - **Keep internal RAM free** for Wi-Fi, TLS, and BLE; put LVGL buffers and response buffers in PSRAM.
 
@@ -117,6 +117,4 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 - **Dim level and frame rate** that still look alive on AMOLED: tune against the battery test.
 - **Raise-to-wake** with the QMI8658 IMU: stretch.
 - **Wake vs. phone not connected:** keep the old list (current plan). Should cards show their age?
-- **Trackie's tile:** on a cream pixel tile like the app, or straight on black? Open with Leo.
-- **Pet art:** Plan 1 Task 11's art brief describes a different pet than Trackie; it needs rewriting to Trackie before the sprites are drawn.
 - **GPS module** as a second `LocationSource`: stretch; the interface is ready for it.

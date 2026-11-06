@@ -232,7 +232,7 @@ The look follows the iPhone app's pixel style (the app design specs), on black. 
 
 - **Background:** black on every screen, for the AMOLED's battery.
 - **Cards:** every stop is a card in its line's color: a darker shade of the line as the fill and a lighter shade for its text, with the app's `LineColors.card` and `cardText` math. Buses share the bus color. Cards have stepped pixel corners and a hard bottom edge, and minutes use the app's 5×7 pixel digits. Cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
-- **Home:** the time and weather icon at the top, Trackie (the app's 32×32 pet sprite, drawn at 4×) with a speech bubble, and one card for the most urgent stop, so "should I hurry?" needs no swipe. The bubble says a mood word ("Go now!", "All on time", "Running late", "Uh oh…", "Sleepy…", "Zzz…"); tapping Trackie switches it to the reason ("Red in 2 min!", "22 is 4 min late", "Red Line alert") for a few seconds. Swipe up for stops.
+- **Home:** the time and weather icon at the top, Trackie (the app's 32×32 pet sprite, drawn at 4×, straight on black with no tile behind him) with a speech bubble, and one card for the most urgent stop, so "should I hurry?" needs no swipe. The bubble says a mood word ("Go now!", "All on time", "Running late", "Uh oh…", "Sleepy…", "Zzz…"); tapping Trackie switches it to the reason ("Red in 2 min!", "22 is 4 min late", "Red Line alert") for a few seconds. Swipe up for stops.
 - **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per direction-specific stop, up to 10. Each card shows the line or route, direction, stop name, and the next arrival in minutes. Swipe down to go back to Home.
 - **Stop detail:** tap a card to see the next 3–4 arrivals for each line and direction at that stop, the tapped one first, with the same badges as the dock. Swipe right to go back.
 - **Dim (always-on):** black with Trackie alone, shifted a few pixels every 10 s against burn-in.
@@ -355,12 +355,12 @@ If pioarduino fails, fall back to `arduino-cli` with the same core version. The 
 
 **iPhone app:** Xcode, SwiftUI, Swift Testing. App and widget extension share an App Group. Leo's paid developer account allows TestFlight.
 
-**Pet art.** An original pixel character based on the shape of the CTA 7000-series railcar, with no CTA logo.
+**Pet art.** The pet is Trackie, the app's pet (iOS redesign spec): Leo's train, a blue L car front with a face on its door, with no CTA logo.
 
-- Each frame is a 32×32 text grid in `art/`, one character per pixel, each character mapped to a palette slot.
+- The art is text grids in `art/`, one character per pixel, each character mapped to a palette slot: one 32×32 body, a face patch per mood and Asleep stamped onto the door, a small floating extra per mood (heart, excitement lines, sweat drop, Zz), and umbrella and scarf overlays.
 - The app's pet colors are a palette swap, so recoloring needs no new art.
-- `tools/sprite_build.py` turns the grids into PNG previews and LVGL image arrays: 5× scale (160 px) for the handheld, 2× (64 px) for the dock.
-- Each of the 5 moods and Asleep gets 2–4 frames, plus umbrella and scarf overlays.
+- `tools/sprite_build.py` turns the grids into PNG previews and C++ index arrays, drawn at whole scales: 4× (128 px) on the handheld, 2× (64 px) on the dock.
+- Animation is a bob of one art pixel twice a second, not extra frames.
 
 **Repo layout**
 

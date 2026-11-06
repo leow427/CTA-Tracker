@@ -10,7 +10,7 @@ Exploratory work that isn't part of the spec yet. Nothing here is a contract: th
 Questions from the handheld mockup, answered by Leo on 2026-11-06 (spec §8.1 and Plan 3 now follow these):
 
 1. ~~Navy or black on the awake screens?~~ **Black.** The mockup still draws navy.
-2. **Still open:** Trackie on the cream tile at Home (like the app), or straight on the background?
+2. ~~Trackie on the cream tile, or straight on the background?~~ **Straight on black, no tile.** The mockup still draws the tile.
 3. ~~Mood word in the bubble, the reason on tap?~~ **Yes.**
 4. ~~One card per station, or per line and direction?~~ **One card per line and direction at each station.**
 5. ~~The map: alpha or stretch?~~ **Stretch** (spec §2, Plan 3 milestone 10).

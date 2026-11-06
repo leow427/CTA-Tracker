@@ -583,41 +583,47 @@ git commit -m "feat(tools): GTFS build for train sequences and stop list"
 
 ---
 
-### Task 11: Pet art and sprite pipeline
+### Task 11: Trackie's art and sprite pipeline
 
 **Files:**
-- Create: `art/palette.txt`, `art/{sleepy,sad,worried,happy,hyped,asleep}_{0,1}.txt`, `art/overlay_umbrella.txt`, `art/overlay_scarf.txt`
+- Create: `art/palette.txt`, `art/body.txt`, `art/face_{happy,hyped,worried,sad,sleepy,asleep}.txt`, `art/extra_{happy,hyped,worried,sleepy}.txt`, `art/overlay_umbrella.txt`, `art/overlay_scarf.txt`
 - Create: `tools/sprite_build.py`, `tools/test_sprite_build.py`
 - Create: `firmware/lib/pet/library.json`, `firmware/lib/pet/src/pet_render.{h,cpp}`, `firmware/lib/pet/src/pet_sprites.h`
 - Generate: `firmware/lib/pet/src/pet_sprites.cpp`; PNG previews go to `art/build/` (gitignored)
 - Create: `firmware/native/test/test_pet/test_main.cpp`
 - Modify: `.gitignore` (add `art/build/`)
 
-**Art brief.** The pet is an original pixel character based on the shape of the CTA 7000-series railcar, seen from the front, with no CTA logo or wordmark:
-- a rounded car body
-- two front windows that act as eyes
-- a livery stripe across the body
-- a headlight
-- a mouth on the lower panel
+**Art brief: Trackie (Leo, 2026-11-06).** The pet is Trackie, the iPhone app's pet: Leo's train, a blue L car seen from the front with a face on its door, and no CTA logo or wordmark (iOS redesign spec, "The pet"). **The art is already drawn;** don't redesign it. Copy it into `art/` from `Glyphs` in `ios/CTATracker/Design/Pixel.swift` (the same grids are in the handheld mockup, `docs/ideas/2026-11-04-handheld-ui-mockup.html`):
+- **Body** (`petBody`): one 32×32 grid shared by every mood.
+- **Faces** (`petFaces`): one 10×8 patch per mood, stamped onto the door at columns 11–20, rows 12–19, where `.` keeps the body's pixel. Happy (closed smiling eyes), Hyped (> < eyes, open mouth), Worried (brows, wavy mouth), Sad (T_T with tears), Sleepy (closed eyes). `face_asleep.txt` starts as a copy of Sleepy's, as in the mockup, so it can change on its own later.
+- **Extras** (`petExtras`): a 7×7 one floating at his upper right, bobbing opposite him: a heart (Happy), excitement lines (Hyped), a sweat drop (Worried), Zz (Sleepy, and Asleep reuses it). Sad has none; its tears are on its face.
+- **Weather overlays** (from the mockup's `drawPet`, Open-Meteo rules in spec §6.3): an umbrella held over the roof (32 wide, drawn in the 6 rows *above* the body) and a striped scarf over the bumper (rows 22–26). Neither shows while Asleep. Turn the mockup's rectangles into grids.
+- **Animation:** no extra frames. He bobs one art pixel twice a second (the renderer moves him), as in the app.
+- Trackie is drawn straight on the background (black on the handheld, spec §8.1): no tile behind him.
 
-Moods change the eyes and mouth: Hyped is wide-eyed with a big grin, Worried has slanted brows, Sad droops, and Sleepy is half-closed. Asleep has closed eyes and a "z". Each state gets 2 frames (a small bob or blink). The overlays draw only the umbrella or scarf, with `.` everywhere else.
-
-**`art/palette.txt`:** one line per character: `<char> <slot> <#RRGGBB> <role>`.
+**`art/palette.txt`:** one line per character: `<char> <slot> <#RRGGBB> <role>`, the app's `petChars` and `petPalette` in order, plus the overlay colors:
 
 | Char | Slot | Color | Role |
 |---|---|---|---|
 | `.` | 0 | — | transparent |
-| `K` | 1 | `#1A1A1A` | outline |
-| `B` | 2 | `#C0C6CC` | body (swappable) |
-| `S` | 3 | `#00A1DE` | stripe (swappable) |
-| `W` | 4 | `#2B3A55` | window |
-| `E` | 5 | `#FFFFFF` | eye |
-| `P` | 6 | `#1A1A1A` | pupil |
-| `C` | 7 | `#E27EA6` | cheek |
-| `Y` | 8 | `#F9E300` | headlight |
-| `U` | 9 | `#565A5C` | umbrella |
-| `F` | 10 | `#C60C30` | scarf |
-| `Z` | 11 | `#FFFFFF` | z |
+| `K` | 1 | `#0B0D14` | outline, door |
+| `B` | 2 | `#2D6BE6` | body (swappable: pet paint) |
+| `L` | 3 | `#7DB4FF` | body light (swappable: pet paint) |
+| `G` | 4 | `#C3C8CE` | trim |
+| `S` | 5 | `#8E949B` | trim shade |
+| `W` | 6 | `#FFFFFF` | windows, face |
+| `D` | 7 | `#5A6069` | coupler |
+| `C` | 8 | `#9BEFF5` | destination sign |
+| `R` | 9 | `#E5333D` | marker light, scarf stripe |
+| `Y` | 10 | `#FFD43B` | headlight |
+| `P` | 11 | `#F27DAE` | cheeks, heart |
+| `U` | 12 | `#A9AEB5` | bumper, wheels |
+| `T` | 13 | `#7FD3FF` | tears, sweat |
+| `F` | 14 | `#F3E6D0` | scarf stripe |
+| `M` | 15 | `#FF5F7A` | umbrella |
+| `N` | 16 | `#B8324B` | umbrella edge |
+
+Check each role against the art when copying; the names are for readers, the colors are what matter. Slots 2 and 3 are the ones the app's pet paint replaces (the mockup's paints: a line color and that color mixed 45% toward white).
 
 **Interfaces:**
 - Produces (`pet_render.h`, `namespace pet`):
@@ -626,27 +632,28 @@ Moods change the eyes and mouth: Hyped is wide-eyed with a big grin, Worried has
 enum class PetState : uint8_t { Sleepy, Sad, Worried, Happy, Hyped, Asleep };
 PetState petStateFor(cta::Mood m, bool docked);           // docked → Asleep, else 1:1 with Mood
 uint16_t rgb565(uint32_t rgb);
-// Expand a 32×32 index sprite: dst pixel = palette[idx] unless idx==0 (left untouched);
-// overlay (nullable) wins wherever its index != 0.
-void renderSprite(const uint8_t* idx, const uint8_t* overlay, const uint16_t* palette565,
-                  uint8_t scale, uint16_t* dst, uint16_t dstStride);
+struct Sprite { const uint8_t* idx; uint8_t w, h; int8_t dx, dy; };   // dx, dy: offset from the body's top left
+// Expand an index sprite at (x, y) + (dx, dy), in art pixels × scale: dst pixel = palette[idx] unless
+// idx == 0 (left untouched). Pixels outside dstW × dstH are clipped.
+void renderSprite(const Sprite& s, int x, int y, const uint16_t* palette565, uint8_t scale,
+                  uint16_t* dst, uint16_t dstW, uint16_t dstH);
 ```
 
-- Produces (`pet_sprites.h`): `struct PetAnim { const uint8_t* const* frames; uint8_t count; };`, `extern const PetAnim kPetAnims[6];` (indexed by `PetState`), `extern const uint8_t kOverlayUmbrella[1024], kOverlayScarf[1024];`, `extern const uint16_t kDefaultPalette565[16];`. Slots 2 and 3 are the ones the app's pet colors replace.
-- CLI: `python3 tools/sprite_build.py` validates every grid (exactly 32 rows × 32 chars, only palette characters), writes `pet_sprites.cpp`, and writes 8× PNG previews (stdlib `zlib` + `struct`). It exits non-zero and names the file and line on any invalid grid.
+- Produces (`pet_sprites.h`): `extern const Sprite kPet[6];` (indexed by `PetState`: the body with that face already stamped, 32×32), `extern const Sprite* const kPetExtra[6];` (nullptr for Sad), `extern const Sprite kOverlayUmbrella, kOverlayScarf;`, `extern const uint16_t kDefaultPalette565[17];`. The build composes body + face, so the device never stamps faces.
+- CLI: `python3 tools/sprite_build.py` validates every grid (body 32×32, faces 10×8, extras 7×7, overlays at their declared sizes; only palette characters), writes `pet_sprites.cpp`, and writes 8× PNG previews of each state, with and without each overlay (stdlib `zlib` + `struct`). It exits non-zero and names the file and line on any invalid grid. The iPhone app plan later extends it to write `data/pet_sprites.json`, so `art/` becomes the one source and the app's hard-coded grids go away.
 
 - [ ] **Step 1: Write the failing tests.**
-  - **Python:** `test_rejects_short_grid` (31 rows → error naming the file); `test_rejects_unknown_char`; `test_cpp_has_all_states` (the output contains `kPetAnims` with 6 entries); `test_png_signature` (the preview starts with `\x89PNG`).
-  - **Native** `test_pet`: `rgb565(0xFFFFFF) == 0xFFFF`; `rgb565(0x00A1DE) == 0x051B`. `renderSprite` with a sprite whose only non-zero pixel is (0,0) = slot 5, at scale 2 into a 64×64 buffer pre-filled with 0x1234, sets exactly the 4 pixels (0..1, 0..1) to `palette[5]` and leaves everything else at 0x1234. An overlay pixel at (0,0) = slot 9 overrides the sprite there. `petStateFor(Mood::Happy, true) == PetState::Asleep`.
+  - **Python:** `test_rejects_short_grid` (a 31-row body → error naming the file); `test_rejects_unknown_char`; `test_rejects_wrong_face_size`; `test_face_stamp` (a face's non-`.` pixels replace the body's at columns 11–20, rows 12–19, and its `.` pixels keep the body's); `test_cpp_has_all_states` (the output contains `kPet` with 6 entries and `kPetExtra` with nullptr for Sad); `test_png_signature` (the preview starts with `\x89PNG`).
+  - **Native** `test_pet`: `rgb565(0xFFFFFF) == 0xFFFF`; `rgb565(0x2D6BE6) == 0x2B5C`. `renderSprite` with a 32×32 sprite whose only non-zero pixel is (0,0) = slot 6, at scale 2 into a 64×64 buffer pre-filled with 0x1234, sets exactly the 4 pixels (0..1, 0..1) to `palette[6]` and leaves everything else at 0x1234. A sprite with `dy = −6` at y = 0 draws only its rows that land inside the buffer and writes nothing out of bounds. `petStateFor(Mood::Happy, true) == PetState::Asleep`.
 - [ ] **Step 2: Run and confirm failure.** `python3 -m unittest discover -s tools -v` and `cd firmware/native && pio test -e native -f test_pet`.
 - [ ] **Step 3: Implement** `sprite_build.py`, `pet_render.cpp`, and `pet_sprites.h`.
-- [ ] **Step 4: Draw the 12 state grids and 2 overlays** following the art brief, then run `python3 tools/sprite_build.py`. Pass: exit code 0 and 14 PNGs in `art/build/`. Show Leo the previews and adjust grids on request.
+- [ ] **Step 4: Copy Trackie into `art/`** from the app's `Glyphs` (body, 5 faces, 4 extras), add the Asleep face, and draw the umbrella and scarf grids from the mockup's shapes. Run `python3 tools/sprite_build.py`. Pass: exit code 0, and the 6 state previews match the app's pet pixel for pixel (compare against a render of the Swift grids). Show Leo the previews, including the overlays.
 - [ ] **Step 5: Run all tests and confirm pass.** Both commands from Step 2, plus `pio test -e native` for everything.
 - [ ] **Step 6: Commit.**
 
 ```bash
 git add art/*.txt tools/sprite_build.py tools/test_sprite_build.py firmware/lib/pet firmware/native/test/test_pet .gitignore
-git commit -m "feat(pet): 7000-series pet sprites, build tool, renderer"
+git commit -m "feat(pet): Trackie sprites, build tool, renderer"
 ```
 
 ---
