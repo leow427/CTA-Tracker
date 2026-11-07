@@ -386,7 +386,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
 const char* w[] = {"Red", "22", "36", "41320"}; bool on[4];
 TEST_ASSERT_EQUAL_INT(2, cta::parseAlertRoutes(a.c_str(), a.size(), w, 4, on));   // Red, 22; 36 has none; station "41320" is not a route
 const char* b[] = {"Brn"}; TEST_ASSERT_EQUAL_INT(1, cta::parseAlertRoutes(s.c_str(), s.size(), b, 1, on));
-int w; float t; TEST_ASSERT_TRUE(cta::parseWeather(wx.c_str(), wx.size(), w, t));  TEST_ASSERT_EQUAL_INT(61, w);
+int wmo; float t; TEST_ASSERT_TRUE(cta::parseWeather(wx.c_str(), wx.size(), wmo, t));  TEST_ASSERT_EQUAL_INT(61, wmo);
 TEST_ASSERT_EQUAL((int)cta::Accessory::Umbrella, (int)cta::accessoryFor(61, 5));
 TEST_ASSERT_EQUAL((int)cta::Accessory::Umbrella, (int)cta::accessoryFor(61, -1));   // rain beats cold
 TEST_ASSERT_EQUAL((int)cta::Accessory::Umbrella, (int)cta::accessoryFor(95, 20));
@@ -400,7 +400,7 @@ TEST_ASSERT_EQUAL((int)cta::Accessory::None,     (int)cta::accessoryFor(2, 10));
 - [x] **Step 3: Implement** the three functions.
 - [x] **Step 4: Run and confirm pass.**
 - [x] **Step 5: Commit.** `git commit -m "feat(cta): alert route and weather parsing, accessory rule"`
-- *Done (2026-11-07).* Built as planned, plus tests for duplicate routes, `max`, non-route services, alerts without `ImpactedService`, every accessory range edge and 0 °C, and malformed or partial weather. Rulings:
+- *Done (2026-11-07).* Built as planned, plus tests for duplicate routes, a 60-route alert not crowding out tracked routes, services missing a type or id, nullptr wanted slots, non-route services, alerts without `ImpactedService`, every accessory range edge and 0 °C, and malformed or partial weather. Rulings:
   - **`ErrorCode` is ignored; a missing `Alert` is 0 routes**, as in the app (CTA's "no alerts" reply can carry a nonzero code). Only malformed JSON, or no `CTAAlerts` object, is −1.
   - **Wanted routes, not a list (review round 1):** the first version returned routes in CTA's order up to `max`, so a parade or marathon alert listing 40 routes could crowd out the 22 the dock tracks (no ⚠, no Sad). Now the caller passes the routes it polls and gets a flag for each, as the app keeps only the asked-for routes. Matching is exact on the `ServiceId` cut to 7 bytes, like record routes.
   - **Filter, two passes:** only each service's `ServiceType` and `ServiceId` are kept, dropping the HTML descriptions and the other service fields (a big event alert kept whole cost 20–30 KB of internal heap). A filter holds one shape per path, and CTA mixes a `Service` list in one alert with a lone object in the next, so the reply is read twice, once keeping lists and once keeping lone services; each alert's services survive in exactly one pass. Only a reply with no alerts reaches the unfiltered pass.

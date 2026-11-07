@@ -9,7 +9,8 @@ namespace cta {
 // Marks which of the caller's routes have an alert: alerted[i] is true when some alert lists wanted[i] as a
 // ServiceType "R" (train route) or "B" (bus route) service, matched exactly after cutting the ServiceId to 7 bytes,
 // as record routes are. Alert and Service may each be a list or one object; an alert can list any number of
-// routes. A missing Alert (CTA's "no alerts" reply, whatever its ErrorCode) marks nothing, as in the app.
+// routes. A nullptr entry in wanted is never alerted. A service missing its type or id is skipped. A missing
+// Alert (CTA's "no alerts" reply, whatever its ErrorCode) marks nothing, as in the app.
 // Returns how many wanted routes are alerted, or −1 on malformed JSON, leaving alerted untouched.
 int parseAlertRoutes(const char* json, size_t len, const char* const* wanted, size_t nWanted, bool* alerted);
 

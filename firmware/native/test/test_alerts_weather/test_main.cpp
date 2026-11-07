@@ -67,6 +67,10 @@ static void test_alerts_mark_only_wanted_routes() {
     TEST_ASSERT_TRUE(a[0]);
     TEST_ASSERT_FALSE(a[1]);
     TEST_ASSERT_EQUAL_INT(0, mark(alerts(alert(svc("B", "222"))), {"22"}, a));
+    // a nullptr slot in wanted is never alerted
+    TEST_ASSERT_EQUAL_INT(1, mark(alerts(alert(svc("B", "22"))), {nullptr, "22"}, a));
+    TEST_ASSERT_FALSE(a[0]);
+    TEST_ASSERT_TRUE(a[1]);
 }
 
 static void test_alerts_skip_bad_services() {
