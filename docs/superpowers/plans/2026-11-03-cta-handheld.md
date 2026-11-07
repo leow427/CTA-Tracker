@@ -81,7 +81,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
    - The location lives behind `LocationSource`, so a GPS module can be a second source later.
 5. **Polling on Wi-Fi.**
    - The first 3 train stations are polled every `kHandheldClosePollSec`, the rest every `kHandheldFarPollSec`, one `ttarrivals?mapid=` each.
-   - All bus stops go in one `getpredictions` call every `kHandheldBusPollSec`.
+   - All bus stops go in one `getpredictions` call every `kHandheldBusPollSec`, parsed with `max` sized for the worst case: one card per route and direction, up to about 80 across 10 downtown stops (State & Lake alone is ~60), about 16 KB of records, so in PSRAM. Then order the cards by the nearby list (nearest stop first), since a multi-stop response comes in time order. Add the cap as a `cta_config.h` constant (`kMaxBusCards`) and propose it as a spec value.
    - Alerts every 5 min for the routes seen in the records.
    - Weather every 15 min at the phone's last location.
    - Night hours or docked: everything every `kSlowPollSec`.
@@ -89,11 +89,11 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 6. **Stops and detail screens** (spec §8.1; the mockup in `docs/ideas/` shows the look).
    - `ui_kit.*` first: black background, line-colored cards with the app's `LineColors.card`/`cardText` math, pixel corners, the 5×7 pixel digits as a bitmap font at whole scales.
    - Tabs and a card list suited to a round screen: center-weighted, cards away from the focus shrink, fade, and narrow inside the circle.
-   - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per route at each stop (Plan 1 Task 5 records), soonest first within a stop.
+   - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per route and direction at each stop (Plan 1 Task 5 records), soonest first within a stop.
    - Every card shows where it ends (`arrivals[0].dest`) and the direction it goes (`dir`: a bus's "Southbound", a train's platform label shown as "toward Loop"), plus the stop name and next minutes (spec §8.1).
    - Tap a card for detail (the stop's lines and directions, tapped one first); swipe right to go back; swipe down returns home.
    - Stale cards grey out.
-7. **BLE relay intake.** `snapshot` writes decode into the record with the matching (`id`, `route`, `dir`); the app sends one per card. For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
+7. **BLE relay intake.** `snapshot` writes decode into the record with the matching (`id`, `route`, `dir`); the app sends one per card, so a downtown relay burst is up to about 80 bus snapshots plus the train cards a minute. Size the loop's snapshot queue for a full burst, or have the queue keep only the newest write per (`id`, `route`, `dir`). For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
 8. **Pet and moods.**
    - The home pet is Trackie (Plan 1 Task 11's sprites, 4×, straight on black with no tile) and shows `deviceMood` over all cards, with `hypedEligible` set for cards whose `id` is in `close`.
    - The speech bubble shows the mood word; a tap on Trackie shows the reason for a few seconds (spec §8.1 copy). Home also shows the most urgent card.
@@ -109,7 +109,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 ## Decisions so far
 
 - **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, cards show "Loading…".
-- **Bus cards (Leo, 2026-11-07):** one card per route at a stop, like train cards; `parseBusPredictions` makes one record per (stop, route). Every card shows where it ends and its direction.
+- **Bus cards (Leo, 2026-11-07):** one card per route at a stop, like train cards; `parseBusPredictions` makes one record per (stop, route, direction), so the few stops served both ways get a card per direction. Every card shows where it ends and its direction.
 - **Look (Leo, 2026-11-06):** the app's pixel style on black, not navy; Trackie is drawn straight on black, with no tile; his bubble shows the mood word and the reason on tap; train cards are one per line and direction at each station; the map is a stretch goal.
 - **One state object** (`HandheldState`) is written only on the loop task. BLE callbacks copy the payload into a small queue for the loop.
 - **Keep internal RAM free** for Wi-Fi, TLS, and BLE; put LVGL buffers and response buffers in PSRAM.

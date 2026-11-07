@@ -326,19 +326,19 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 **Interfaces:**
 - Consumes: `StopRecord`, `BusVehicle`, `parseCtaTime`, `copyTruncated`.
 - Produces:
-  - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct (`stpid`, `rt`), in order of first appearance (spec §6.2; changed 2026-11-07 from one per `stpid`, so each route at a stop is its own card). Sets `type=Bus`, `id`, `name` (stpnm), `route` (rt), `dir` (rtdir of the soonest kept prediction), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor(ctaSecondsBetween(tmstmp, prdtm)/60)` clamped at ≥ 0 (Task 2, DST-aware); `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count; with no `prd`, 0 when every error names a stop, route, or pattern ("No arrival times") and −1 for any other error (bad key, daily limit); −1 if malformed. Records are written with `alert = false`: the caller merges the alerts it polls separately.
+  - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct (`stpid`, `rt`, `rtdir`), in order of first appearance (spec §6.2; changed 2026-11-07 from one per `stpid`, so each route and direction at a stop is its own card). Sets `type=Bus`, `id`, `name` (stpnm), `route` (rt), `dir` (rtdir), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor(ctaSecondsBetween(tmstmp, prdtm)/60)` clamped at ≥ 0 (Task 2, DST-aware); `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count; with no `prd`, 0 when every error names a stop, route, or pattern ("No arrival times") and −1 for any other error (bad key, daily limit); −1 if malformed. Records are written with `alert = false`: the caller merges the alerts it polls separately.
   - `int parseBusVehicles(const char* json, size_t len, BusVehicle* out, size_t max)`: accepts integers or integer strings for `pid` and `pdist`; a vehicle without both is skipped. Same error rules as `parseBusPredictions`.
 
 - [x] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 int n = cta::parseBusPredictions(f.c_str(), f.size(), 1000, nullptr, recs, 5);
-TEST_ASSERT_EQUAL_INT(2, n);
-TEST_ASSERT_EQUAL_STRING("1001", recs[0].id); TEST_ASSERT_EQUAL_UINT8(3, recs[0].count);
-TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);   // 36, DUE
-TEST_ASSERT_EQUAL_INT16(4, recs[0].arrivals[1].min);
-TEST_ASSERT_TRUE(recs[0].arrivals[2].delayed);
-TEST_ASSERT_EQUAL_STRING("Westbound", recs[1].dir);
+TEST_ASSERT_EQUAL_INT(3, n);   // one card per (stop, route, direction): 1001/22, 1001/36, 1002/77
+TEST_ASSERT_EQUAL_STRING("1001", recs[0].id); TEST_ASSERT_EQUAL_STRING("22", recs[0].route); TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
+TEST_ASSERT_EQUAL_INT16(4, recs[0].arrivals[0].min);
+TEST_ASSERT_TRUE(recs[0].arrivals[1].delayed);                    // 15 min, DLY
+TEST_ASSERT_EQUAL_INT16(0, recs[1].arrivals[0].min);              // 36, DUE
+TEST_ASSERT_EQUAL_STRING("Westbound", recs[2].dir);
 n = cta::parseBusPredictions(f.c_str(), f.size(), 1000, "22", recs, 5);
 TEST_ASSERT_EQUAL_INT(1, n); TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
 TEST_ASSERT_EQUAL_INT(0, cta::parseBusPredictions(noArr.c_str(), noArr.size(), 1000, nullptr, recs, 5));
@@ -352,10 +352,10 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
 - [x] **Step 5: Commit.** `git commit -m "feat(cta): Bus Tracker predictions and vehicles parsing"`
 - *Done (2026-11-07).* Built as planned, plus tests for lone `prd` and `vehicle` objects, mixed predictions and errors, unparseable times, past predictions, the 4 soonest per stop, DST, long names, and vehicles without a usable `pid`/`pdist`. Rulings:
   - **Errors (changes "0 for a `bustime-response.error` with no `prd`"):** with no list, an error that names a stop, route, or pattern ("No arrival times") returns 0, and any other error (bad key, daily limit) returns −1, as the app throws. Otherwise a hit daily limit would read as "no buses": the dock would clear its arrivals and the pet would turn Sad instead of the data ageing to Sleepy.
-  - **Ordering:** by raw seconds, as in the app's `StopRecord.make` and the train parser: DUE is 0 s, so an already-passed prediction sorts before it (both read 0 min); ties keep response order; `route`/`dir` come from the first. (Review round 1: the first version clamped passed predictions to 0, which could pick a different route than the app.)
+  - **Ordering:** by raw seconds, as in the app's `StopRecord.make` and the train parser: DUE is 0 s, so an already-passed prediction sorts before it (both read 0 min); ties keep response order. (Review round 1: the first version clamped passed predictions to 0, which could pick a different route than the app.)
   - **Lone objects:** the filter covers the list shape; only a non-list `prd`/`vehicle` (one item, or none with a possibly lone error) triggers the unfiltered re-parse. A multi-stop response with per-stop errors stays filtered.
-  - **One record per (stop, route) (Leo, 2026-11-07):** each route at a stop is its own handheld card, like train cards, so `route` is the card's route and every arrival belongs to it; `dir` is the soonest's `rtdir`. The dock's `routeFilter` call still gets one record. A prediction with no `rt` is skipped.
-  - **Vehicles** without both a numeric `pid` and `pdist` are skipped (they can't be placed on a pattern). Records are capped at `max`; a stop past it is dropped.
+  - **One record per (stop, route, direction) (Leo, 2026-11-07):** each route at a stop is its own handheld card, like train cards, so every arrival belongs to the card's route and direction. Most stops are direction-specific, so this is one card per route; the ~286 stops that serve a route both ways (mostly terminals, e.g. stop 1, Jackson & Austin, route 126) get one per direction, as the app's cards do (review). The dock picks its record by (`id`, `route`, `dir`). A prediction with no `rt` is skipped; ids and routes are cut to 7 bytes before matching.
+  - **Vehicles** without both a numeric `pid` and `pdist` are skipped (they can't be placed on a pattern). Records are capped at `max`; a card past it is dropped (size `max` per Plan 3 milestone 5).
   - Shared parser helpers live in `json_util.h` (internal), used by both parsers.
 
 ---

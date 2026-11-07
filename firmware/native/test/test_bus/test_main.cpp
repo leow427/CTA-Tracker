@@ -88,6 +88,45 @@ static void test_one_record_per_route_at_a_stop() {
     TEST_ASSERT_EQUAL_STRING("Northbound", recs[2].dir);
 }
 
+static void test_one_record_per_direction_at_a_two_way_stop() {
+    cta::StopRecord recs[4];
+    // ~286 CTA stops (mostly terminals) serve a route both ways under one stop ID: each direction is its own card
+    const std::string b = body("\"prd\":[" +
+                               prd("1", "126", "20261105 08:03", "3", false, "20261105 08:00", "Jackson & Austin Terminal",
+                                   "Austin", "Westbound") + "," +
+                               prd("1", "126", "20261105 08:05", "5", false, "20261105 08:00", "Jackson & Austin Terminal",
+                                   "Jackson/Michigan", "Eastbound") + "," +
+                               prd("1", "126", "20261105 08:20", "20", false, "20261105 08:00", "Jackson & Austin Terminal",
+                                   "Jackson/Michigan", "Eastbound") + "]");
+    TEST_ASSERT_EQUAL_INT(2, preds(b, nullptr, recs, 4));
+    TEST_ASSERT_EQUAL_STRING("Westbound", recs[0].dir);
+    TEST_ASSERT_EQUAL_UINT8(1, recs[0].count);
+    TEST_ASSERT_EQUAL_STRING("Austin", recs[0].arrivals[0].dest);
+    TEST_ASSERT_EQUAL_STRING("Eastbound", recs[1].dir);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[1].count);
+    TEST_ASSERT_EQUAL_STRING("126", recs[1].route);
+    TEST_ASSERT_EQUAL_INT(1, preds(b, "126", recs, 1));  // max still caps cards
+    TEST_ASSERT_EQUAL_STRING("Westbound", recs[0].dir);
+}
+
+static void test_card_keys() {
+    cta::StopRecord recs[3];
+    // a prediction with no route can't be a card, with or without a route filter (the dock's call)
+    const std::string noRt = body("\"prd\":[{\"tmstmp\":\"20261105 08:00\",\"stpid\":\"1\",\"rtdir\":\"Southbound\","
+                                  "\"prdtm\":\"20261105 08:04\",\"prdctdn\":\"4\"}," +
+                                  prd("1", "22", "20261105 08:05", "5") + "]");
+    TEST_ASSERT_EQUAL_INT(1, preds(noRt, nullptr, recs, 3));
+    TEST_ASSERT_EQUAL_INT16(5, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT(1, preds(noRt, "22", recs, 3));
+    // ids and routes are cut to 7 bytes, and cards match on the cut values
+    const std::string longKeys = body("\"prd\":[" + prd("12345678", "ABCDEFGH", "20261105 08:04", "4") + "," +
+                                      prd("12345679", "ABCDEFGX", "20261105 08:06", "6") + "]");
+    TEST_ASSERT_EQUAL_INT(1, preds(longKeys, nullptr, recs, 3));
+    TEST_ASSERT_EQUAL_STRING("1234567", recs[0].id);
+    TEST_ASSERT_EQUAL_STRING("ABCDEFG", recs[0].route);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
+}
+
 static void test_errors() {
     cta::StopRecord recs[5];
     // "No arrival times" names a stop: nothing there right now
@@ -121,14 +160,14 @@ static void test_skips_and_orders() {
                                prd("1001", "22", "20261105 07:58", "DUE", false, "20261105 08:00",
                                    "Clark & Belmont", "Broadway") + "," +
                                prd("1001", "22", "20261105 07:59", "1", false, "20261105 08:00",
-                                   "Clark & Belmont", "Howard", "Northbound") + "]");
+                                   "Clark & Belmont", "Howard") + "]");
     TEST_ASSERT_EQUAL_INT(1, preds(b, nullptr, recs, 3));
     TEST_ASSERT_EQUAL_UINT8(4, recs[0].count);  // the unparseable one is skipped
     // an already-passed prediction (−60 s) sorts before DUE (0 s), as in the app; both read 0 min
     TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);
     TEST_ASSERT_EQUAL_STRING("Howard", recs[0].arrivals[0].dest);
     TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
-    TEST_ASSERT_EQUAL_STRING("Northbound", recs[0].dir);  // dir from the soonest
+    TEST_ASSERT_EQUAL_STRING("Southbound", recs[0].dir);
     TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[1].min);
     TEST_ASSERT_EQUAL_STRING("Broadway", recs[0].arrivals[1].dest);  // DUE
     // 08:07:10 before 08:07:40, though both read 7 min
@@ -258,6 +297,8 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_predictions_fixture);
     RUN_TEST(test_one_record_per_route_at_a_stop);
+    RUN_TEST(test_one_record_per_direction_at_a_two_way_stop);
+    RUN_TEST(test_card_keys);
     RUN_TEST(test_errors);
     RUN_TEST(test_lone_prediction_and_mixed);
     RUN_TEST(test_skips_and_orders);

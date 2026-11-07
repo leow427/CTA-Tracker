@@ -61,17 +61,21 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
         if (!due && !ctaSecondsBetween(p["tmstmp"].as<const char*>(), p["prdtm"].as<const char*>(), secs)) return;
         const int64_t key = secs;  // DUE is 0 s, so an already-passed prediction sorts first, as in the app
 
-        // One record per (stop, route): each route at a stop is its own card (spec 6.2).
+        // One record per (stop, route, direction): each route at a stop is its own card (spec 6.2), and the few
+        // stops that serve a route both ways (mostly terminals) get a card per direction.
         size_t i = 0;
-        char id[kIdLen + 1], route[kIdLen + 1];
+        char id[kIdLen + 1], route[kIdLen + 1], dir[kNameLen + 1];
         copyTruncated(id, stpid, kIdLen);
         copyTruncated(route, rt, kIdLen);
-        while (i < n && (strcmp(out[i].id, id) != 0 || strcmp(out[i].route, route) != 0)) ++i;
+        copyTruncated(dir, p["rtdir"].as<const char*>(), kNameLen);
+        while (i < n && (strcmp(out[i].id, id) != 0 || strcmp(out[i].route, route) != 0 || strcmp(out[i].dir, dir) != 0))
+            ++i;
         if (i == n) {
             if (n == max) return;
             out[n] = StopRecord{};
             memcpy(out[n].id, id, sizeof(id));
             memcpy(out[n].route, route, sizeof(route));
+            memcpy(out[n].dir, dir, sizeof(dir));
             out[n].type = Kind::Bus;
             out[n].ts = now;
             copyTruncated(out[n].name, p["stpnm"].as<const char*>(), kNameLen);
@@ -93,7 +97,6 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
         a.delayed = p["dly"].as<bool>() || (countdown != nullptr && strcmp(countdown, "DLY") == 0);
         k[at] = key;
         if (r.count < kMaxArrivals) ++r.count;
-        if (at == 0) copyTruncated(r.dir, p["rtdir"].as<const char*>(), kNameLen);
     });
     return static_cast<int>(n);
 }
