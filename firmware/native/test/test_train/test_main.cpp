@@ -231,6 +231,14 @@ static void test_positions_shapes() {
     TEST_ASSERT_EQUAL_INT(2, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 4));
     TEST_ASSERT_EQUAL_STRING("30005", pos[0].nextStpId);
     TEST_ASSERT_EQUAL_STRING("", pos[1].nextStpId);
+    // one route and one train, both lone objects: a line with a single train out
+    const std::string loneBoth =
+        "{\"ctatt\":{\"errCd\":\"0\",\"route\":{\"@name\":\"y\",\"train\":{\"rn\":\"1\",\"nextStpId\":\"30005\"}}}}";
+    unsigned& passes = cta::json::unfilteredPasses();
+    passes = 0;
+    TEST_ASSERT_EQUAL_INT(1, cta::parseTrainPositions(loneBoth.c_str(), loneBoth.size(), pos, 4));
+    TEST_ASSERT_EQUAL_STRING("30005", pos[0].nextStpId);
+    TEST_ASSERT_EQUAL_UINT(1, passes);  // small: falls through to the unfiltered pass
     const std::string none = "{\"ctatt\":{\"errCd\":\"0\",\"route\":[{\"@name\":\"red\"}]}}";
     TEST_ASSERT_EQUAL_INT(0, cta::parseTrainPositions(none.c_str(), none.size(), pos, 4));
     TEST_ASSERT_EQUAL_INT(0, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 0));

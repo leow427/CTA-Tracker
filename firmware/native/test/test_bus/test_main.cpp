@@ -7,6 +7,7 @@
 
 #include "bus_parse.h"
 #include "cta_types.h"
+#include "json_util.h"
 #include "../fixture.h"
 
 void setUp() {}
@@ -207,6 +208,24 @@ static void test_vehicle_shapes() {
     TEST_ASSERT_EQUAL_INT(0, cta::parseBusVehicles(b.c_str(), b.size(), vs, 4));
 }
 
+static void test_big_responses_stay_filtered() {
+    unsigned& passes = cta::json::unfilteredPasses();
+    cta::StopRecord recs[5];
+    cta::BusVehicle vs[10];
+    passes = 0;
+    TEST_ASSERT_EQUAL_INT(2, preds(readFixture("bus_predictions.json"), nullptr, recs, 5));
+    const std::string v = readFixture("bus_vehicles.json");
+    TEST_ASSERT_EQUAL_INT(3, cta::parseBusVehicles(v.c_str(), v.size(), vs, 10));
+    TEST_ASSERT_EQUAL_UINT(0, passes);
+    // a multi-stop response with per-stop errors stays filtered too
+    const std::string mixed = body("\"prd\":[" + prd("1001", "22", "20261105 08:04", "4") +
+                                   "],\"error\":[{\"stpid\":\"1002\",\"msg\":\"No arrival times\"}]");
+    TEST_ASSERT_EQUAL_INT(1, preds(mixed, nullptr, recs, 5));
+    TEST_ASSERT_EQUAL_UINT(0, passes);
+    TEST_ASSERT_EQUAL_INT(0, preds(readFixture("bus_no_arrivals.json"), nullptr, recs, 5));
+    TEST_ASSERT_EQUAL_UINT(1, passes);  // only the small shapes fall through
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_predictions_fixture);
@@ -219,5 +238,6 @@ int main(int, char**) {
     RUN_TEST(test_daylight_saving_and_names);
     RUN_TEST(test_vehicles);
     RUN_TEST(test_vehicle_shapes);
+    RUN_TEST(test_big_responses_stay_filtered);
     return UNITY_END();
 }
