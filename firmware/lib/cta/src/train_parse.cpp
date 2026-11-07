@@ -5,6 +5,7 @@
 
 #include <initializer_list>
 
+#include "json_util.h"
 #include "local_time.h"
 #include "text.h"
 
@@ -20,53 +21,29 @@ bool errCdIsZero(JsonVariantConst v) {
     return false;
 }
 
-// Parses with a filter shaped for the common case (lists of objects). CTA sends one object instead of a
-// one-item list, which an array filter drops (it comes back null), so `retry` re-parses without a filter when the
-// list came back null. Those responses are small: a single arrival, a single train, or none.
-template <typename IsListMissing>
-bool parseFiltered(const char* json, size_t len, const JsonDocument& filter, JsonDocument& doc,
-                   IsListMissing isListMissing) {
-    if (json == nullptr) return false;
-    if (deserializeJson(doc, json, len, DeserializationOption::Filter(filter)) != DeserializationError::Ok)
-        return false;
-    if (!doc["ctatt"].is<JsonObjectConst>()) return false;
-    if (isListMissing(doc)) {
-        doc.clear();
-        if (deserializeJson(doc, json, len) != DeserializationError::Ok) return false;
-    }
-    return true;
-}
-
-// Calls f(item) for each element of an array, or once for a lone object.
-template <typename F>
-void forEachItem(JsonVariantConst v, F f) {
-    if (v.is<JsonArrayConst>()) {
-        for (JsonVariantConst item : v.as<JsonArrayConst>()) {
-            if (item.is<JsonObjectConst>()) f(item.as<JsonObjectConst>());
-        }
-    } else if (v.is<JsonObjectConst>()) {
-        f(v.as<JsonObjectConst>());
-    }
-}
-
-int16_t minutesFrom(int64_t secs) {
-    if (secs <= 0) return 0;
-    const int64_t m = secs / 60;
-    return m > 32767 ? 32767 : static_cast<int16_t>(m);
+void addEtaKeys(JsonObject f) {
+    for (const char* key : {"staNm", "rt", "destNm", "arrT", "isSch", "isDly"}) f[key] = true;
 }
 
 }  // namespace
 
 bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out) {
-    JsonDocument filter;
-    filter["ctatt"]["tmst"] = true;
-    filter["ctatt"]["errCd"] = true;
-    JsonObject f = filter["ctatt"]["eta"][0].to<JsonObject>();
-    for (const char* key : {"staNm", "rt", "destNm", "arrT", "isSch", "isDly"}) f[key] = true;
+    // eta is usually a list; a lone arrival comes as one object, and none as null or missing.
+    JsonDocument asList, asObject;
+    for (JsonDocument* f : {&asList, &asObject}) {
+        (*f)["ctatt"]["tmst"] = true;
+        (*f)["ctatt"]["errCd"] = true;
+    }
+    addEtaKeys(asList["ctatt"]["eta"][0].to<JsonObject>());
+    addEtaKeys(asObject["ctatt"]["eta"].to<JsonObject>());
 
     JsonDocument doc;
-    if (!parseFiltered(json, len, filter, doc, [](JsonDocument& d) { return d["ctatt"]["eta"].isNull(); }))
+    if (!json::parseShapes(json, len, doc, {&asList, &asObject}, [](JsonDocument& d) {
+            JsonVariantConst e = d["ctatt"]["eta"];
+            return e.is<JsonArrayConst>() || e.is<JsonObjectConst>();
+        }))
         return false;
+    if (!doc["ctatt"].is<JsonObjectConst>()) return false;
     JsonObjectConst body = doc["ctatt"];
     if (!errCdIsZero(body["errCd"])) return false;
 
@@ -82,7 +59,7 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
         JsonObjectConst eta;
     } picks[kMaxArrivals];
     size_t n = 0;
-    forEachItem(etas, [&](JsonObjectConst e) {
+    json::forEachItem(etas, [&](JsonObjectConst e) {
         int64_t secs;
         if (!ctaSecondsBetween(tmst, e["arrT"].as<const char*>(), secs)) return;
         size_t at = n;
@@ -100,7 +77,7 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
     for (size_t i = 0; i < n; ++i) {
         const JsonObjectConst e = picks[i].eta;
         Arrival& a = r.arrivals[i];
-        a.min = minutesFrom(picks[i].secs);
+        a.min = json::minutesFrom(picks[i].secs);
         copyTruncated(a.dest, e["destNm"].as<const char*>(), kNameLen);
         const char* isSch = e["isSch"].as<const char*>();
         const char* isDly = e["isDly"].as<const char*>();
@@ -116,27 +93,33 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
 }
 
 int parseTrainPositions(const char* json, size_t len, TrainPos* out, size_t max) {
-    JsonDocument filter;
-    filter["ctatt"]["errCd"] = true;
-    filter["ctatt"]["route"][0]["train"][0]["nextStpId"] = true;
+    // route is a list of routes, or one route as an object (the dock asks for one line at a time), each with a
+    // list of trains. Both shapes stay filtered, since a whole line's trains run to tens of KB; only a lone train
+    // object, or no trains, falls through to the unfiltered pass, and those responses are small.
+    JsonDocument routeList, routeObject;
+    routeList["ctatt"]["errCd"] = true;
+    routeList["ctatt"]["route"][0]["train"][0]["nextStpId"] = true;
+    routeObject["ctatt"]["errCd"] = true;
+    routeObject["ctatt"]["route"]["train"][0]["nextStpId"] = true;
+    auto trainsFound = [](JsonDocument& d) {
+        JsonVariantConst routes = d["ctatt"]["route"];
+        if (routes.is<JsonObjectConst>()) return routes["train"].is<JsonArrayConst>();
+        if (!routes.is<JsonArrayConst>()) return false;
+        for (JsonVariantConst r : routes.as<JsonArrayConst>()) {
+            if (!r["train"].is<JsonArrayConst>()) return false;
+        }
+        return true;
+    };
 
     JsonDocument doc;
-    // A lone route or a lone train comes back null under the list filter (see parseFiltered).
-    auto missing = [](JsonDocument& d) {
-        JsonVariantConst routes = d["ctatt"]["route"];
-        if (!routes.is<JsonArrayConst>()) return true;
-        for (JsonVariantConst r : routes.as<JsonArrayConst>()) {
-            if (r["train"].isNull()) return true;
-        }
-        return false;
-    };
-    if (!parseFiltered(json, len, filter, doc, missing)) return -1;
+    if (!json::parseShapes(json, len, doc, {&routeList, &routeObject}, trainsFound)) return -1;
+    if (!doc["ctatt"].is<JsonObjectConst>()) return -1;
     JsonObjectConst body = doc["ctatt"];
     if (!errCdIsZero(body["errCd"])) return -1;
 
     size_t n = 0;
-    forEachItem(body["route"], [&](JsonObjectConst route) {
-        forEachItem(route["train"], [&](JsonObjectConst train) {
+    json::forEachItem(body["route"], [&](JsonObjectConst route) {
+        json::forEachItem(route["train"], [&](JsonObjectConst train) {
             if (n >= max) return;
             copyTruncated(out[n].nextStpId, train["nextStpId"].as<const char*>(), sizeof(out[n].nextStpId) - 1);
             ++n;

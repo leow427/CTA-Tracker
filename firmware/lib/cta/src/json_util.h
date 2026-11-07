@@ -4,23 +4,41 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <initializer_list>
+
 namespace cta {
 namespace json {
 
-// Parses with a filter shaped for the common case (lists of objects). CTA sends one object instead of a one-item
-// list, which an array filter drops (it comes back null), so this re-parses without a filter when
-// listMissing(doc) says a list came back null. Those responses are small: one item, or none.
+// CTA sends one object instead of a one-item list, and an ArduinoJson array filter drops a lone object (it comes
+// back null). So this tries each filter in turn, in the order of the shapes to expect, until shapeFound(doc) says
+// the lists it needs came through, and only then re-parses without a filter. Order the filters so that the
+// unfiltered pass is left for responses that really are small (one item, or none). False if malformed.
+// How many parses fell through to the unfiltered pass: lets the tests check big responses stay filtered.
+inline unsigned& unfilteredPasses() {
+    static unsigned n = 0;
+    return n;
+}
+
+template <typename ShapeFound>
+bool parseShapes(const char* json, size_t len, JsonDocument& doc, std::initializer_list<const JsonDocument*> filters,
+                 ShapeFound shapeFound) {
+    if (json == nullptr) return false;
+    for (const JsonDocument* filter : filters) {
+        doc.clear();
+        if (deserializeJson(doc, json, len, DeserializationOption::Filter(*filter)) != DeserializationError::Ok)
+            return false;
+        if (shapeFound(doc)) return true;
+    }
+    doc.clear();
+    ++unfilteredPasses();
+    return deserializeJson(doc, json, len) == DeserializationError::Ok;
+}
+
+// One filter for the list shape, then unfiltered when listMissing(doc).
 template <typename ListMissing>
 bool parseFiltered(const char* json, size_t len, const JsonDocument& filter, JsonDocument& doc,
                    ListMissing listMissing) {
-    if (json == nullptr) return false;
-    if (deserializeJson(doc, json, len, DeserializationOption::Filter(filter)) != DeserializationError::Ok)
-        return false;
-    if (listMissing(doc)) {
-        doc.clear();
-        if (deserializeJson(doc, json, len) != DeserializationError::Ok) return false;
-    }
-    return true;
+    return parseShapes(json, len, doc, {&filter}, [&](JsonDocument& d) { return !listMissing(d); });
 }
 
 // Calls f(item) for each object in an array, or once for a lone object.

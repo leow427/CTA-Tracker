@@ -297,7 +297,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 - [x] **Step 4: Run and confirm pass.**
 - [x] **Step 5: Commit.** `git commit -m "feat(cta): Train Tracker arrivals and positions parsing"`
 - *Done (2026-11-07).* Built as planned, plus tests for a lone `eta` object, null/empty/missing `eta`, bad `arrT`, past predictions, ordering by seconds, DST nights, and long names. Rulings:
-  - **Lone objects vs. the filter:** an ArduinoJson array filter turns a lone object into null, so each parser filters for the list shape and re-parses unfiltered only when the list comes back null. Those responses are small (one arrival, one train, or none), so the memory goal holds.
+  - **Lone objects vs. the filter:** an ArduinoJson array filter turns a lone object into null. So `json::parseShapes` (`json_util.h`) tries a filter per expected shape (`eta` as a list, then as one object; `route` as a list, then as one object, each with a list of trains) and re-parses unfiltered only when none fits: a lone train, or no arrivals or trains, which are small responses. (Review round 1: the first version went unfiltered for a lone `route` object, which a one-line ttpositions request may return, about 15–20 KB of internal heap on every dock poll.) `json::unfilteredPasses()` counts the fallbacks so a test pins that big responses stay filtered.
   - **Minutes** use `ctaSecondsBetween(tmst, arrT)` (Task 2's DST fix), floored, clamped to 0–32767. Arrivals are ordered by seconds, so 3:10 comes before 3:40 though both read 3 min; equal times keep response order.
   - **An eta whose `arrT` doesn't parse is skipped**, like the app's `compactMap`. Arrivals with no parseable `tmst` fail the whole response; no arrivals at all is `true` with `count = 0`, and `name`/`route` stay as the caller set them.
   - **`errCd`** may be the string `"0"` or the number 0; anything else, or missing, fails.
@@ -355,7 +355,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
   - **Ordering:** by seconds with past predictions counted as 0, so DUE and an already-passed prediction tie and keep response order (DUE first in the fixture); `route`/`dir` come from the first.
   - **Lone objects:** the filter covers the list shape; only a non-list `prd`/`vehicle` (one item, or none with a possibly lone error) triggers the unfiltered re-parse. A multi-stop response with per-stop errors stays filtered.
   - **Vehicles** without both a numeric `pid` and `pdist` are skipped (they can't be placed on a pattern). Records are capped at `max`; a stop past it is dropped.
-  - Shared parser helpers moved to `json_util.h` (internal); `train_parse.cpp` moves onto it after its review.
+  - Shared parser helpers live in `json_util.h` (internal), used by both parsers.
 
 ---
 
@@ -514,7 +514,7 @@ TEST_ASSERT_EQUAL_HEX8(0b1000000, cta::litMaskBuses(rows + 1, 1, v, 6));
 - [ ] **Step 3: Implement** `urls.cpp` with `snprintf`, then `ctaGet`.
 - [ ] **Step 4: Run and confirm the native tests pass.**
 - [ ] **Step 5: Write the smoke project** `firmware/smoke/src/main.cpp`. It joins the Wi-Fi from `secrets.h` (add `#define WIFI_SSID` and `#define WIFI_PASS` to `secrets.example.h`, for the smoke test only; real devices get Wi-Fi from the app), fetches weather and prints the accessory, then, if `CTA_TRAIN_KEY` is non-empty, fetches arrivals for `41320` and prints `encodeStopRecord` output.
-- [ ] **Step 6 (Leo, once keys arrive): run the smoke test on the dock board.** Pass: the serial output shows a weather code and a stop record JSON with at least one arrival. Save the raw arrivals body as `fixtures/cta/recorded_train_arrivals.json`, and re-run `pio test -e native` with a test that parses it (`count ≥ 0`, returns true).
+- [ ] **Step 6 (Leo, once keys arrive): run the smoke test on the dock board.** Pass: the serial output shows a weather code and a stop record JSON with at least one arrival. Save the raw arrivals body as `fixtures/cta/recorded_train_arrivals.json`, and re-run `pio test -e native` with a test that parses it (`count ≥ 0`, returns true). Also save one `ttpositions?rt=Red` body and check whether `route` is a list or one object, and whether a line with one train sends `train` as one object (Task 4's filters handle all of these; the recording settles which is real).
 - [ ] **Step 7: Commit.** `git commit -m "feat(cta): URL builders, HTTPS fetch, on-device smoke sketch"`
 
 ---

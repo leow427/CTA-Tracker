@@ -7,6 +7,7 @@
 #include <string>
 
 #include "cta_types.h"
+#include "json_util.h"
 #include "train_parse.h"
 #include "../fixture.h"
 
@@ -18,6 +19,7 @@ static cta::StopRecord fresh(const char* id) {
     strcpy(r.id, id);
     strcpy(r.dir, "caller dir");
     r.alert = true;
+    r.type = cta::Kind::Bus;  // so the parser has to set Train
     return r;
 }
 
@@ -45,6 +47,8 @@ static void test_station_fixture() {
     TEST_ASSERT_EQUAL_STRING("Kimball", r.arrivals[0].dest);
     TEST_ASSERT_EQUAL_INT16(3, r.arrivals[1].min);
     TEST_ASSERT_TRUE(r.arrivals[1].live);
+    TEST_ASSERT_FALSE(r.arrivals[0].delayed);
+    TEST_ASSERT_FALSE(r.arrivals[1].delayed);
     TEST_ASSERT_EQUAL_INT16(7, r.arrivals[2].min);
     TEST_ASSERT_TRUE(r.arrivals[2].delayed);
     TEST_ASSERT_EQUAL_INT16(12, r.arrivals[3].min);
@@ -141,6 +145,48 @@ static void test_sorts_by_seconds_and_keeps_four() {
     TEST_ASSERT_EQUAL_STRING("F", r.arrivals[3].dest);
 }
 
+static void test_equal_times_keep_response_order() {
+    cta::StopRecord r = fresh("41320");
+    // Brown and Purple share Belmont's platforms; scheduled trains can share a whole-minute arrT
+    const std::string body = "[" + eta("Red", "Howard", "2026-11-05T08:09:00") + "," +
+                             eta("Brn", "Kimball", "2026-11-05T08:02:00") + "," +
+                             eta("P", "Linden", "2026-11-05T08:02:00") + "," +
+                             eta("Red", "95th/Dan Ryan", "2026-11-05T08:05:00") + "," +
+                             eta("Org", "Midway", "2026-11-05T08:09:00") + "]";
+    TEST_ASSERT_TRUE(parse(response("2026-11-05T08:00:00", body), 1, r));
+    TEST_ASSERT_EQUAL_UINT8(4, r.count);
+    TEST_ASSERT_EQUAL_STRING("Brn", r.route);  // the first of the tied soonest
+    TEST_ASSERT_EQUAL_STRING("Kimball", r.arrivals[0].dest);
+    TEST_ASSERT_EQUAL_STRING("Linden", r.arrivals[1].dest);
+    TEST_ASSERT_EQUAL_STRING("95th/Dan Ryan", r.arrivals[2].dest);
+    TEST_ASSERT_EQUAL_STRING("Howard", r.arrivals[3].dest);  // ties the fifth at the cutoff and came first
+}
+
+static void test_big_responses_stay_filtered() {
+    unsigned& passes = cta::json::unfilteredPasses();
+    cta::StopRecord r = fresh("41320");
+    cta::TrainPos pos[8];
+    std::string f = readFixture("train_arrivals_station.json");
+    passes = 0;
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1, r));
+    TEST_ASSERT_EQUAL_UINT(0, passes);
+    TEST_ASSERT_TRUE(parse(response("2026-11-05T08:00:00", eta("Red", "Howard", "2026-11-05T08:04:00")), 1, r));
+    TEST_ASSERT_EQUAL_UINT(0, passes);  // a lone eta object has its own filter
+    f = readFixture("train_positions_red.json");
+    TEST_ASSERT_EQUAL_INT(2, cta::parseTrainPositions(f.c_str(), f.size(), pos, 8));
+    TEST_ASSERT_EQUAL_UINT(0, passes);
+    // one route as an object, as a single-line request may return, with a whole line's trains
+    std::string trains;
+    for (int i = 0; i < 40; ++i) trains += std::string(i ? "," : "") + "{\"rn\":\"8" + std::to_string(i) + "\",\"nextStpId\":\"30005\",\"lat\":\"41.9\"}";
+    const std::string oneRoute = "{\"ctatt\":{\"errCd\":\"0\",\"route\":{\"@name\":\"red\",\"train\":[" + trains + "]}}}";
+    TEST_ASSERT_EQUAL_INT(8, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 8));
+    TEST_ASSERT_EQUAL_UINT(0, passes);
+    // only the small shapes fall through: a lone train, or none
+    f = readFixture("train_positions_single.json");
+    TEST_ASSERT_EQUAL_INT(1, cta::parseTrainPositions(f.c_str(), f.size(), pos, 8));
+    TEST_ASSERT_EQUAL_UINT(1, passes);
+}
+
 static void test_daylight_saving() {
     cta::StopRecord r = fresh("41320");
     // fall-back night: a response at 1:50 CDT, a train at 1:25 CST, 35 min later (spec 6.6)
@@ -200,6 +246,8 @@ int main(int, char**) {
     RUN_TEST(test_rejects);
     RUN_TEST(test_skips_bad_arrivals_and_clamps);
     RUN_TEST(test_sorts_by_seconds_and_keeps_four);
+    RUN_TEST(test_equal_times_keep_response_order);
+    RUN_TEST(test_big_responses_stay_filtered);
     RUN_TEST(test_daylight_saving);
     RUN_TEST(test_truncates_names);
     RUN_TEST(test_positions);
