@@ -60,10 +60,23 @@ static void test_stop_mood() {
 static void test_stop_mood_clock_ahead() {
     // a relayed snapshot stamped by a phone whose clock runs a little ahead is fresh, not wrapped to stale
     EQ(Happy, cta::stopMood(rec(1, 5, true, false, false, kNow + 30), kNow, false));
+    EQ(Happy, cta::stopMood(rec(1, 5, true, false, false, kNow + 300), kNow, false));
     EQ(Happy, cta::stopMood(rec(1, 5, true, false, false, 4000000000u), 3999999990u, false));
+    // but more than 5 min ahead can't be trusted: a handheld before NTP reads 1970 while snapshots carry 2026
+    EQ(Sleepy, cta::stopMood(rec(1, 5, true, false, false, kNow + 301), kNow, false));
+    EQ(Sleepy, cta::stopMood(rec(1, 2, true, false, false, 1794000000u), 3600, false));
+    const cta::StopRecord early[1] = {rec(1, 2, true, false, false, 1794000000u)};
+    const bool elig[1] = {true};
+    EQ(Sleepy, cta::deviceMood(early, elig, 1, 5, false, true));  // and it can't hype
+    // ts == 0 is never fetched, even when now is small enough that age alone wouldn't say stale
+    EQ(Sleepy, cta::stopMood(rec(1, 5, true, false, false, 0), 100, false));
 }
 
 static void test_device_sleepy_cases() {
+    // Sleepy (no location, night) outranks Hyped, though the Red and Blue lines run all night
+    const cta::StopRecord due[2] = {rec(1, 1, true, false, false, 9990), happy()};
+    EQ(Sleepy, device(due, 2, true, true, true));
+    EQ(Sleepy, device(due, 2, true, false, false));
     const cta::StopRecord all[3] = {happy(), happy(), happy()};
     EQ(Sleepy, device(all, 3, true, false, false));  // no location
     EQ(Sleepy, device(all, 3, true, true, true));    // night
@@ -85,14 +98,24 @@ static void test_device_hyped() {
     NE(Hyped, device(r, 2));  // scheduled only can't hype
     r[0] = rec(1, 0, true, true, true, 9990);
     EQ(Hyped, device(r, 2));  // hype outranks the stop's own Sad
-    r[0] = rec(0, 0, true, false, false, 9990);
-    NE(Hyped, device(r, 2));  // no arrivals: nothing to read
+    // no arrivals: count 0 with last fetch's live 1-min arrival still in the buffer must not hype
+    r[0] = rec(1, 1, true, false, false, 9990);
+    r[0].count = 0;
+    NE(Hyped, device(r, 2));
+    EQ(Sad, cta::stopMood(r[0], kNow, false));
     // only the eligible stop counts
     const cta::StopRecord mixed[2] = {rec(1, 1, true, false, false, 9990), rec(1, 9, true, false, false, 9990)};
     const bool elig[2] = {false, true};
     NE(Hyped, cta::deviceMood(mixed, elig, 2, kNow, false, true));
     const bool elig2[2] = {true, false};
     EQ(Hyped, cta::deviceMood(mixed, elig2, 2, kNow, false, true));
+    // the qualifying stop can be anywhere in the list (the handheld's close cards)
+    const cta::StopRecord third[3] = {happy(), happy(), rec(1, 2, true, false, false, 9990)};
+    const bool elig3[3] = {false, false, true};
+    EQ(Hyped, cta::deviceMood(third, elig3, 3, kNow, false, true));
+    const bool elig4[3] = {true, true, false};
+    NE(Hyped, cta::deviceMood(third, elig4, 3, kNow, false, true));
+    NE(Hyped, cta::deviceMood(third, nullptr, 3, kNow, false, true));  // nullptr: no stop may hype
 }
 
 static void test_device_majority() {

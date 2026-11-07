@@ -5,7 +5,9 @@
 namespace cta {
 
 bool isStale(const StopRecord& r, uint32_t now) {
-    return r.ts == 0 || static_cast<int64_t>(now) - static_cast<int64_t>(r.ts) > static_cast<int64_t>(kStaleSec);
+    const int64_t age = static_cast<int64_t>(now) - static_cast<int64_t>(r.ts);
+    const int64_t limit = static_cast<int64_t>(kStaleSec);
+    return r.ts == 0 || age > limit || age < -limit;
 }
 
 Mood stopMood(const StopRecord& r, uint32_t now, bool night) {

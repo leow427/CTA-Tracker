@@ -454,7 +454,8 @@ EQ(Sleepy, deviceMood({Sleepy, Sleepy}, ...));
 - [x] **Step 4: Run and confirm pass.**
 - [x] **Step 5: Commit.** `git commit -m "feat(cta): stop and device mood rules"`
 - *Done (2026-11-07).* Built as planned, mirroring the app's `MoodRules`, plus tests for the 5-min boundary, alert beating delay, stale beating Sad, hype outranking a stop's own Sad, scheduled-only and empty records never hyping, per-stop eligibility, and a three-way tie. Rulings:
-  - **`isStale` is public and signed:** `now − ts` is computed in 64 bits, so a `ts` a little ahead of `now` (a relayed snapshot from a phone whose clock runs ahead) is fresh, as in the app, instead of wrapping to stale.
+  - **`isStale` is public, signed, and bounded both ways:** `now − ts` is computed in 64 bits, so a `ts` up to 5 min ahead of `now` (a relayed snapshot from a phone whose clock runs ahead) is fresh instead of wrapping to stale; more than 5 min ahead is stale, because a handheld before its first NTP sync reads 1970 while snapshots carry real times, and the pet would otherwise say "Go now!" for hours (review round 1). The app's `isStale` needs the same bound (iOS plan to-do).
+  - **`hasLocation`** is false only on a handheld with no nearby list yet; the dock always passes true.
   - **`hypedEligible == nullptr`** means no stop may hype.
 
 ---
