@@ -426,7 +426,7 @@ TEST_ASSERT_EQUAL((int)cta::Accessory::None,     (int)cta::accessoryFor(2, 10));
     4. Sleepy if every stop is Sleepy, or `n==0`
   - Asleep (docked) is not decided here. It belongs to the pet layer (Task 11).
 
-- [ ] **Step 1: Write the failing tests**, one per row. Use `now=10000`, and a helper `rec(count, min0, live0, delayed0, alert, ts)`.
+- [x] **Step 1: Write the failing tests**, one per row. Use `now=10000`, and a helper `rec(count, min0, live0, delayed0, alert, ts)`.
 
 ```cpp
 EQ(Sleepy, stopMood(rec(1,5,true,false,false,0), 10000, false));        // never fetched
@@ -449,14 +449,19 @@ EQ(Worried,deviceMood({Sleepy, Sleepy, Worried}, ...));                   // Sle
 EQ(Sleepy, deviceMood({Sleepy, Sleepy}, ...));
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_mood`.
-- [ ] **Step 3: Implement** `stopMood` and `deviceMood`.
-- [ ] **Step 4: Run and confirm pass.**
-- [ ] **Step 5: Commit.** `git commit -m "feat(cta): stop and device mood rules"`
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_mood`.
+- [x] **Step 3: Implement** `stopMood` and `deviceMood`.
+- [x] **Step 4: Run and confirm pass.**
+- [x] **Step 5: Commit.** `git commit -m "feat(cta): stop and device mood rules"`
+- *Done (2026-11-07).* Built as planned, mirroring the app's `MoodRules`, plus tests for the 5-min boundary, alert beating delay, stale beating Sad, hype outranking a stop's own Sad, scheduled-only and empty records never hyping, per-stop eligibility, and a three-way tie. Rulings:
+  - **`isStale` is public and signed:** `now − ts` is computed in 64 bits, so a `ts` a little ahead of `now` (a relayed snapshot from a phone whose clock runs ahead) is fresh, as in the app, instead of wrapping to stale.
+  - **`hypedEligible == nullptr`** means no stop may hype.
 
 ---
 
 ### Task 8: Approach rows (LED mapping)
+
+> **Moved to Plan 2 (Leo, 2026-11-07):** only the dock has LED rows, so this task is built with the dock, not here. Its text stays as the reference for Plan 2. Note from the Task 5 review: `bus_patterns.json` gives `pdist` as decimals (`1000.0`), so read it as a float, not with `json::toInt32`.
 
 **Files:**
 - Create: `firmware/lib/cta/src/approach.{h,cpp}`, `firmware/native/test/test_approach/test_main.cpp`
