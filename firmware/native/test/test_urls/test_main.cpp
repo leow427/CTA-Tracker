@@ -58,6 +58,11 @@ static void test_alerts_and_weather() {
     TEST_ASSERT_EQUAL_STRING(
         "https://api.open-meteo.com/v1/forecast?latitude=41.8781&longitude=-87.6298&current=temperature_2m,weather_code", buf);
     TEST_ASSERT_FALSE(cta::weatherUrl(buf, sizeof(buf), NAN, 0));
+    TEST_ASSERT_FALSE(cta::weatherUrl(buf, sizeof(buf), 0, NAN));
+    TEST_ASSERT_TRUE(cta::weatherUrl(buf, sizeof(buf), -90, -180));  // the longest coordinates still fit
+    TEST_ASSERT_EQUAL_STRING(
+        "https://api.open-meteo.com/v1/forecast?latitude=-90.0000&longitude=-180.0000&current=temperature_2m,weather_code",
+        buf);
     TEST_ASSERT_FALSE(cta::weatherUrl(buf, sizeof(buf), 91, 0));
     TEST_ASSERT_FALSE(cta::weatherUrl(buf, sizeof(buf), 0, 181));
 }
@@ -96,6 +101,42 @@ static void test_cap() {
     TEST_ASSERT_EQUAL_CHAR('#', exact[need - 1]);
 }
 
+// Every builder at every cap from 0 to need + 1: true only when it fits with its NUL, nothing written at or past
+// cap, and "" left on failure, so a half-written URL holding the key never reads as a string.
+static void sweep(const char* name, bool (*build)(char*, size_t)) {
+    char full[512];
+    TEST_ASSERT_TRUE_MESSAGE(build(full, sizeof(full)), name);
+    const size_t need = strlen(full) + 1;
+    char b[600];
+    for (size_t cap = 0; cap <= need + 1; ++cap) {
+        memset(b, '#', sizeof(b));
+        const bool ok = build(b, cap);
+        TEST_ASSERT_EQUAL_MESSAGE(cap >= need, ok, name);
+        for (size_t i = cap; i < sizeof(b); ++i) TEST_ASSERT_EQUAL_CHAR_MESSAGE('#', b[i], name);
+        if (ok) TEST_ASSERT_EQUAL_STRING_MESSAGE(full, b, name);
+        if (!ok && cap > 0) TEST_ASSERT_EQUAL_CHAR_MESSAGE('\0', b[0], name);
+    }
+}
+
+static void test_cap_sweep() {
+    static const char* two[] = {"1001", "1002"};
+    sweep("arrivals", [](char* b, size_t c) { return cta::trainArrivalsUrl(b, c, "K", "41320"); });
+    sweep("positions", [](char* b, size_t c) { return cta::trainPositionsUrl(b, c, "K", "Red"); });
+    sweep("predictions", [](char* b, size_t c) { return cta::busPredictionsUrl(b, c, "K", two, 2); });
+    sweep("vehicles", [](char* b, size_t c) { return cta::busVehiclesUrl(b, c, "K", two, 2); });
+    sweep("patterns", [](char* b, size_t c) { return cta::busPatternsUrl(b, c, "a b", "X"); });  // %XX at the cap
+    sweep("alerts", [](char* b, size_t c) { return cta::alertsUrl(b, c, two, 2); });
+    sweep("weather", [](char* b, size_t c) { return cta::weatherUrl(b, c, -90, -180); });
+    // invalid arguments leave "" too
+    char b[200];
+    memset(b, '#', sizeof(b));
+    TEST_ASSERT_FALSE(cta::trainArrivalsUrl(b, sizeof(b), "K", "12345"));
+    TEST_ASSERT_EQUAL_STRING("", b);
+    memset(b, '#', sizeof(b));
+    TEST_ASSERT_FALSE(cta::weatherUrl(b, sizeof(b), 0, NAN));
+    TEST_ASSERT_EQUAL_STRING("", b);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_train);
@@ -103,5 +144,6 @@ int main(int, char**) {
     RUN_TEST(test_alerts_and_weather);
     RUN_TEST(test_encoding);
     RUN_TEST(test_cap);
+    RUN_TEST(test_cap_sweep);
     return UNITY_END();
 }

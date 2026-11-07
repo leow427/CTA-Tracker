@@ -73,7 +73,7 @@ firmware/lib/cta/src/approach.{h,cpp}      Task 8
 firmware/lib/cta/src/urls.{h,cpp}          Task 9
 firmware/lib/cta/src/train_sequences.h     Task 10 (hand-written declarations)
 firmware/lib/cta/src/train_sequences.cpp   Task 10 (generated)
-firmware/lib/cta_net/src/cta_fetch.{h,cpp} Task 9 (Arduino only)
+firmware/lib/cta_net/src/cta_fetch.{h,cpp} Task 9b, right after Task 1 (Arduino only)
 firmware/smoke/                            Task 9: on-device fetch smoke test
 firmware/lib/pet/src/pet_render.{h,cpp}    Task 11
 firmware/lib/pet/src/pet_sprites.h         Task 11 (hand-written declarations)
@@ -114,6 +114,7 @@ This is a feasibility test. Its output is `docs/notes/toolchain.md`, not code. T
 - [ ] **Step 6: HTTPS alongside BLE.** While the iPhone stays connected, GET `https://api.open-meteo.com/v1/forecast?latitude=41.8781&longitude=-87.6298&current=temperature_2m,weather_code` every 10 s for 10 min, using the core's built-in CA bundle. Also GET `https://lapi.transitchicago.com/api/1.0/ttarrivals.aspx` with no key once, which should return an error body over a verified TLS connection. Pass: every request returns HTTP 200, there are no resets, and the minimum free heap logged stays above 40 KB. Record the minimum heap.
 - [ ] **Step 7: Fallback, only if Steps 2–6 can't pass on pioarduino.** Repeat them with `arduino-cli` on the same core version, and record that the firmware builds use arduino-cli.
 - [ ] **Step 8: Write `docs/notes/toolchain.md`.** Include every value listed under Interfaces → Produces, the pass/fail result of each step, the minimum heap, and the LVGL decision. Delete `spike/`.
+- **Next, right after this task: Task 9b** (`ctaGet` in `firmware/lib/cta_net` and the smoke project, Task 9 Steps 3b and 5–7). It uses this file's CA-bundle snippet and dock board settings, so write Step 6's HTTPS fetch with `ctaGet`'s signature (`int ctaGet(const char* url, char* buf, size_t cap, uint32_t timeoutMs)`) and keep it for 9b.
 - [ ] **Step 9: Commit.**
 
 ```bash
@@ -525,9 +526,10 @@ TEST_ASSERT_EQUAL_HEX8(0b1000000, cta::litMaskBuses(rows + 1, 1, v, 6));
 
 - [x] **Step 1: Write the failing native tests.** `trainArrivalsUrl(…, "K", "41320")` contains `mapid=41320` and `outputType=JSON`; with `"30255"` it contains `stpid=30255`. `busPredictionsUrl` with 11 IDs returns false, and with `{"1001","1002"}` contains `stpid=1001,1002&format=json`. `weatherUrl(…, 41.87812, -87.62980)` contains `latitude=41.8781&longitude=-87.6298`. Any builder with `cap=20` returns false.
 - [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_urls`.
-- [x] **Step 3: Implement** `urls.cpp` ~~with `snprintf`~~, then `ctaGet` (**9b**, see below).
+- [x] **Step 3a: Implement** `urls.cpp`.
+- [ ] **Step 3b (9b, after Task 1): Implement** `ctaGet`.
 - [x] **Step 4: Run and confirm the native tests pass.**
-- *URL builders done (2026-11-07).* Mirroring the app's `CTAClient` and `URLTests`. Rulings: values are percent-encoded (RFC 3986 unreserved characters pass) through a bounded builder instead of `snprintf`, so a stray character can't add a query parameter and nothing is written past `cap`; list separators are bare commas. `trainArrivalsUrl` rejects an id starting with neither 4 nor 3; `weatherUrl` rejects non-finite or out-of-range coordinates; `alertsUrl` needs at least one route. On failure `buf` holds "".
+- *URL builders done (2026-11-07).* Mirroring the app's `CTAClient` and `URLTests`. Rulings: values are percent-encoded (RFC 3986 unreserved characters pass) through a bounded builder instead of `snprintf`, so a stray character can't add a query parameter and nothing is written past `cap`; list separators are bare commas. `trainArrivalsUrl` rejects an id starting with neither 4 nor 3; `weatherUrl` rejects non-finite or out-of-range coordinates; `alertsUrl` needs at least one route. On failure `buf` holds "". Review round 1 added a sweep over every `cap` for every builder (nothing written at or past `cap`, `""` on failure), a NaN-longitude case, and a checked `snprintf` for the coordinates. Task 9 lands as two commits (URL builders now, 9b after Task 1).
 - **9b, after Task 1 (worker ruling, 2026-11-07):** `ctaGet` (`firmware/lib/cta_net`) and the smoke project (Steps 5–6) wait for `docs/notes/toolchain.md`: `ctaGet` uses the CA-bundle snippet Task 1 records for the pinned core, and neither can be compiled in a container without the ESP32 toolchain. Build them right after Task 1, with `WIFI_SSID`/`WIFI_PASS` added to `secrets.example.h` then.
 - [ ] **Step 5: Write the smoke project** `firmware/smoke/src/main.cpp`. It joins the Wi-Fi from `secrets.h` (add `#define WIFI_SSID` and `#define WIFI_PASS` to `secrets.example.h`, for the smoke test only; real devices get Wi-Fi from the app), fetches weather and prints the accessory, then, if `CTA_TRAIN_KEY` is non-empty, fetches arrivals for `41320` and prints `encodeStopRecord` output.
 - [ ] **Step 6 (Leo, once keys arrive): run the smoke test on the dock board.** Pass: the serial output shows a weather code and a stop record JSON with at least one arrival. Save the raw arrivals body as `fixtures/cta/recorded_train_arrivals.json`, and re-run `pio test -e native` with a test that parses it (`count ≥ 0`, returns true). Also save one `ttpositions?rt=Red` body and check whether `route` is a list or one object, and whether a line with one train sends `train` as one object (Task 4's filters handle all of these; the recording settles which is real).

@@ -118,8 +118,9 @@ bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n) {
 
 bool weatherUrl(char* buf, size_t cap, double lat, double lon) {
     if (!isfinite(lat) || !isfinite(lon) || fabs(lat) > 90 || fabs(lon) > 180) return fail(buf, cap);
-    char coords[48];
-    snprintf(coords, sizeof(coords), "latitude=%.4f&longitude=%.4f", lat, lon);
+    char coords[48];  // "latitude=-90.0000&longitude=-180.0000" is 37
+    const int len = snprintf(coords, sizeof(coords), "latitude=%.4f&longitude=%.4f", lat, lon);
+    if (len < 0 || static_cast<size_t>(len) >= sizeof(coords)) return fail(buf, cap);
     return Url(buf, cap)
         .raw("https://api.open-meteo.com/v1/forecast?").raw(coords).raw("&current=temperature_2m,weather_code")
         .done();

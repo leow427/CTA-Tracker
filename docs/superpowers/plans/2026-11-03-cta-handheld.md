@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-03-cta-tracker-design.md` (sections 3, 6, 8, 10, 12)
 
-**Depends on Plan 1:** toolchain notes, the `cta` library (parsers, `stopMood`, `deviceMood`, stop record codec, URL builders, `cta_config.h`, `ble_ids.h`), `cta_net::ctaGet`, and the `pet` library.
+**Depends on Plan 1:** toolchain notes, the `cta` library (parsers, `stopMood`, `deviceMood`, stop record codec, URL builders, `cta_config.h`, `ble_ids.h`), `cta_net::ctaGet` (Plan 1 Task 9b, built right after Task 1), and the `pet` library.
 
 **Depends on Plan 2:** `device_config` (DeviceConfig, `applyConfigJson`, `encodeInfoJson`, `decodeWifiJson`) and `scheduler`. If the handheld is built first, move those two shared pieces here.
 
