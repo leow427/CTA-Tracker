@@ -276,7 +276,7 @@ TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
   - `bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out)`: sets `type=Train`, `name` (staNm), `route` (rt of the soonest arrival), and `ts=now`. Fills up to 4 arrivals sorted by `min`, where `min = floor(ctaSecondsBetween(tmst, arrT)/60)` clamped at ≥ 0 (Task 2, DST-aware), `live = isSch=="0"`, `delayed = isDly=="1"`, and `dest = destNm`. Leaves `id`, `dir`, and `alert` as the caller set them. Returns false if `errCd != "0"` or the JSON is malformed; returns true with `count=0` when there are no etas.
   - `int parseTrainPositions(const char* json, size_t len, TrainPos* out, size_t max)`: returns the number of trains written, or −1 on error. Accepts `train` as either an array or a single object.
 
-- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
+- [x] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 cta::StopRecord r{}; strcpy(r.id, "41320");
@@ -292,10 +292,16 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 // positions: red → 2 trains, [0].nextStpId "30005"; single → 1 train
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_train`.
-- [ ] **Step 3: Implement** both functions. Use a `DeserializationOption::Filter` covering `tmst`, `errCd`, and the eta and train fields that are read.
-- [ ] **Step 4: Run and confirm pass.**
-- [ ] **Step 5: Commit.** `git commit -m "feat(cta): Train Tracker arrivals and positions parsing"`
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_train`.
+- [x] **Step 3: Implement** both functions. Use a `DeserializationOption::Filter` covering `tmst`, `errCd`, and the eta and train fields that are read.
+- [x] **Step 4: Run and confirm pass.**
+- [x] **Step 5: Commit.** `git commit -m "feat(cta): Train Tracker arrivals and positions parsing"`
+- *Done (2026-11-07).* Built as planned, plus tests for a lone `eta` object, null/empty/missing `eta`, bad `arrT`, past predictions, ordering by seconds, DST nights, and long names. Rulings:
+  - **Lone objects vs. the filter:** an ArduinoJson array filter turns a lone object into null, so each parser filters for the list shape and re-parses unfiltered only when the list comes back null. Those responses are small (one arrival, one train, or none), so the memory goal holds.
+  - **Minutes** use `ctaSecondsBetween(tmst, arrT)` (Task 2's DST fix), floored, clamped to 0–32767. Arrivals are ordered by seconds, so 3:10 comes before 3:40 though both read 3 min; equal times keep response order.
+  - **An eta whose `arrT` doesn't parse is skipped**, like the app's `compactMap`. Arrivals with no parseable `tmst` fail the whole response; no arrivals at all is `true` with `count = 0`, and `name`/`route` stay as the caller set them.
+  - **`errCd`** may be the string `"0"` or the number 0; anything else, or missing, fails.
+  - **Positions** keep a train with no `nextStpId` as `""` (it lights no LED), matching the app.
 
 ---
 
