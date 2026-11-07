@@ -223,7 +223,7 @@ git commit -m "feat(cta): library scaffold, constants, line colors, CTA time par
   - `size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap)`: writes the spec §6.2 JSON (`id, type:"train"|"bus", route, dir, name, arrivals:[{min,dest,live,delayed}], alert, ts`). Returns the length, or 0 if it doesn't fit in `cap`.
   - `bool decodeStopRecord(const char* json, size_t len, StopRecord& out)`: returns false on malformed JSON or a missing `id`, keeps at most 4 arrivals, and truncates names with `copyTruncated`.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
 
 ```cpp
 // round trip: a record with 2 arrivals survives encode → decode field for field
@@ -240,10 +240,15 @@ TEST_ASSERT_EQUAL_UINT8(4, decoded.count);
 TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_stop_record`. Expected: undefined symbols.
-- [ ] **Step 3: Implement** `copyTruncated`, `encodeStopRecord`, and `decodeStopRecord` with ArduinoJson.
-- [ ] **Step 4: Run and confirm pass.**
-- [ ] **Step 5: Commit.** `git commit -m "feat(cta): stop record JSON codec with UTF-8-safe truncation"`
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_stop_record`. Expected: undefined symbols.
+- [x] **Step 3: Implement** `copyTruncated`, `encodeStopRecord`, and `decodeStopRecord` with ArduinoJson.
+- [x] **Step 4: Run and confirm pass.**
+- [x] **Step 5: Commit.** `git commit -m "feat(cta): stop record JSON codec with UTF-8-safe truncation"`
+- *Done (2026-11-07).* Built as planned, mirroring the app's `StopRecordTests` case for case. Rulings:
+  - **Control characters are written as spaces.** ArduinoJson writes bytes below 0x20 raw, which isn't valid JSON and would fail the app's decoder; CTA names never contain them. (The app escapes them as `\u0001` instead; both are valid JSON.) The over-512 test uses quotes, which escape to 2 bytes.
+  - **Decode also rejects** a non-string `id` and a `type` other than `"train"` or `"bus"`, matching the app's `Codable` decode; other missing fields default to empty, 0, or false.
+  - **Ids and routes are cut to 7 bytes** (`char[8]`), like the app's `idLen`; `min` is clamped to 0–32767.
+  - **`encodeStopRecord` uses a bounded writer**, so a record of exactly `cap` bytes fits (no room taken for a NUL) and nothing is ever written past `cap`.
 
 ---
 
