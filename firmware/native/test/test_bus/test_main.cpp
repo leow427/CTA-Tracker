@@ -87,18 +87,26 @@ static void test_skips_and_orders() {
     cta::StopRecord recs[3];
     const std::string b = body("\"prd\":[" + prd("1001", "22", "garbage", "4") + "," +
                                prd("1001", "22", "20261105 08:07:40", "7") + "," +
-                               prd("1001", "8", "20261105 08:07:10", "7") + "," +
-                               prd("1001", "36", "20261105 07:58", "DUE") + "," +
-                               prd("1001", "22", "20261105 07:59", "1") + "]");
+                               prd("1001", "8", "20261105 08:07:10", "7", false, "20261105 08:00",
+                                   "Clark & Belmont", "Pershing") + "," +
+                               prd("1001", "36", "20261105 07:58", "DUE", false, "20261105 08:00",
+                                   "Clark & Belmont", "Broadway") + "," +
+                               prd("1001", "22", "20261105 07:59", "1", false, "20261105 08:00",
+                                   "Clark & Belmont", "Howard", "Northbound") + "]");
     TEST_ASSERT_EQUAL_INT(1, preds(b, nullptr, recs, 3));
     TEST_ASSERT_EQUAL_UINT8(4, recs[0].count);  // the unparseable one is skipped
-    TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);  // DUE
-    TEST_ASSERT_EQUAL_STRING("36", recs[0].route);
-    TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[1].min);  // 07:59 is in the past: 0, after DUE
+    // an already-passed prediction (−60 s) sorts before DUE (0 s), as in the app; both read 0 min
+    TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_STRING("Howard", recs[0].arrivals[0].dest);
+    TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
+    TEST_ASSERT_EQUAL_STRING("Northbound", recs[0].dir);
+    TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[1].min);
+    TEST_ASSERT_EQUAL_STRING("Broadway", recs[0].arrivals[1].dest);  // DUE
+    // 08:07:10 before 08:07:40, though both read 7 min
     TEST_ASSERT_EQUAL_INT16(7, recs[0].arrivals[2].min);
+    TEST_ASSERT_EQUAL_STRING("Pershing", recs[0].arrivals[2].dest);
     TEST_ASSERT_EQUAL_INT16(7, recs[0].arrivals[3].min);
-    TEST_ASSERT_EQUAL_STRING("Harrison", recs[0].arrivals[2].dest);
-    TEST_ASSERT_EQUAL_INT16(7, recs[0].arrivals[2].min);
+    TEST_ASSERT_EQUAL_STRING("Harrison", recs[0].arrivals[3].dest);
 }
 
 static void test_keeps_four_soonest_per_stop() {
@@ -115,6 +123,44 @@ static void test_keeps_four_soonest_per_stop() {
     TEST_ASSERT_EQUAL_INT16(5, recs[0].arrivals[1].min);
     TEST_ASSERT_EQUAL_INT16(9, recs[0].arrivals[2].min);
     TEST_ASSERT_EQUAL_INT16(12, recs[0].arrivals[3].min);
+}
+
+static void test_interleaved_stops_keep_their_own_order() {
+    cta::StopRecord recs[3];
+    // multi-stop responses can mix stops in time order: each stop's top 4 must use its own sort keys
+    const std::string b = body("\"prd\":[" + prd("A", "22", "20261105 08:09", "9") + "," +
+                               prd("B", "22", "20261105 08:05", "5") + "," +
+                               prd("A", "22", "20261105 08:02", "2") + "," +
+                               prd("B", "22", "20261105 08:12", "12") + "," +
+                               prd("A", "22", "20261105 08:05", "5") + "]");
+    TEST_ASSERT_EQUAL_INT(2, preds(b, nullptr, recs, 3));
+    TEST_ASSERT_EQUAL_STRING("A", recs[0].id);
+    TEST_ASSERT_EQUAL_UINT8(3, recs[0].count);
+    TEST_ASSERT_EQUAL_INT16(2, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(5, recs[0].arrivals[1].min);
+    TEST_ASSERT_EQUAL_INT16(9, recs[0].arrivals[2].min);
+    TEST_ASSERT_EQUAL_STRING("B", recs[1].id);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[1].count);
+    TEST_ASSERT_EQUAL_INT16(5, recs[1].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(12, recs[1].arrivals[1].min);
+    // B's soonest must not decide where A's next arrival goes
+    const std::string c = body("\"prd\":[" + prd("A", "22", "20261105 08:10", "10") + "," +
+                               prd("B", "22", "20261105 08:01", "1") + "," +
+                               prd("A", "22", "20261105 08:05", "5") + "]");
+    TEST_ASSERT_EQUAL_INT(2, preds(c, nullptr, recs, 3));
+    TEST_ASSERT_EQUAL_INT16(5, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(10, recs[0].arrivals[1].min);
+}
+
+static void test_delayed_from_either_field() {
+    cta::StopRecord recs[1];
+    TEST_ASSERT_EQUAL_INT(1, preds(body("\"prd\":[" + prd("1", "22", "20261105 08:04", "4", true) + "]"), nullptr, recs, 1));
+    TEST_ASSERT_TRUE(recs[0].arrivals[0].delayed);  // dly alone
+    TEST_ASSERT_EQUAL_INT(1, preds(body("\"prd\":[" + prd("1", "22", "20261105 08:04", "DLY", false) + "]"), nullptr, recs, 1));
+    TEST_ASSERT_TRUE(recs[0].arrivals[0].delayed);  // the DLY countdown alone
+    TEST_ASSERT_EQUAL_INT16(4, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT(1, preds(body("\"prd\":[" + prd("1", "22", "20261105 08:04", "4", false) + "]"), nullptr, recs, 1));
+    TEST_ASSERT_FALSE(recs[0].arrivals[0].delayed);
 }
 
 static void test_daylight_saving_and_names() {
@@ -168,6 +214,8 @@ int main(int, char**) {
     RUN_TEST(test_lone_prediction_and_mixed);
     RUN_TEST(test_skips_and_orders);
     RUN_TEST(test_keeps_four_soonest_per_stop);
+    RUN_TEST(test_interleaved_stops_keep_their_own_order);
+    RUN_TEST(test_delayed_from_either_field);
     RUN_TEST(test_daylight_saving_and_names);
     RUN_TEST(test_vehicles);
     RUN_TEST(test_vehicle_shapes);

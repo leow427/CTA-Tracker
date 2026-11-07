@@ -16,11 +16,6 @@ namespace {
 
 constexpr size_t kIdLen = sizeof(StopRecord::id) - 1;
 
-void addErrorFilter(JsonDocument& filter) {
-    JsonObject e = filter["bustime-response"]["error"][0].to<JsonObject>();
-    for (const char* key : {"stpid", "rt", "pid", "msg"}) e[key] = true;
-}
-
 // With no list: 0 if every error names a stop, route, or pattern (nothing there now), −1 otherwise.
 int noListResult(JsonVariantConst errors) {
     int result = 0;
@@ -32,7 +27,7 @@ int noListResult(JsonVariantConst errors) {
 
 // Parses a Bus Tracker body whose list lives under `listKey`; returns false if malformed.
 bool parseBody(const char* json, size_t len, const char* listKey, JsonDocument& filter, JsonDocument& doc) {
-    addErrorFilter(filter);
+    // Errors are only read when there's no list, and that case is always re-parsed unfiltered below.
     // Re-parse unfiltered only when the list isn't a list (a lone item, or none and maybe a lone error): those
     // responses are small. A multi-stop response with both predictions and per-stop errors stays filtered.
     auto missing = [listKey](JsonDocument& d) { return !d["bustime-response"][listKey].is<JsonArrayConst>(); };
@@ -64,7 +59,7 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
         const bool due = countdown != nullptr && strcmp(countdown, "DUE") == 0;
         int64_t secs = 0;
         if (!due && !ctaSecondsBetween(p["tmstmp"].as<const char*>(), p["prdtm"].as<const char*>(), secs)) return;
-        const int64_t key = secs < 0 ? 0 : secs;  // past predictions read 0 min, like DUE; ties keep response order
+        const int64_t key = secs;  // DUE is 0 s, so an already-passed prediction sorts first, as in the app
 
         size_t i = 0;
         char id[kIdLen + 1];

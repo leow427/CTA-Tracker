@@ -116,5 +116,6 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 
 - **Dim level and frame rate** that still look alive on AMOLED: tune against the battery test.
 - **Raise-to-wake** with the QMI8658 IMU: stretch.
+- **Bus stops with several routes:** `parseBusPredictions` makes one record per stop, its 4 arrivals mixing routes, and an `Arrival` has no route. Spec 8.1's detail ("each line and direction at that stop") needs per-route arrivals: split bus records per (stop, route) like train cards, or add the route to each arrival. Decide before milestone 6. (Task 5 review.)
 - **Wake vs. phone not connected:** keep the old list (current plan). Should cards show their age?
 - **GPS module** as a second `LocationSource`: stretch; the interface is ready for it.

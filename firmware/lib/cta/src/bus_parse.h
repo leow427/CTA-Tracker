@@ -8,7 +8,8 @@
 namespace cta {
 
 // One record per distinct stpid, in order of first appearance, up to max. Each has type = Bus, id, name (stpnm),
-// ts = now, alert = false, and up to kMaxArrivals arrivals, soonest first: min = 0 for prdctdn "DUE", otherwise
+// ts = now, alert = false (the caller merges alerts), and up to kMaxArrivals arrivals, soonest first by seconds
+// (DUE counts as 0 s, a passed prediction as negative; ties keep response order): min = 0 for prdctdn "DUE", otherwise
 // floor(ctaSecondsBetween(tmstmp, prdtm) / 60) clamped to 0–32767; live = true; delayed = dly || prdctdn "DLY";
 // dest = des. route and dir are the rt and rtdir of the soonest. routeFilter (nullptr = all) drops other routes.
 // A prediction whose time doesn't parse is skipped. prd may be a list or one object.
