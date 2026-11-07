@@ -211,7 +211,7 @@ Leo can send a screen back for polish before the commit.
      - `config` fields are cut to the dock's sizes on the way in: ids and routes 7 bytes, names and dirs 24, the pet name 16 (`petName[17]`, Plan 2). Real station names reach 41 bytes, which would push a full `config` past 512.
      - `WifiMessage` is encode-only, and its descriptions and mirror leave the password out, so a stray log can't leak it.
      - Bus `prdctdn: "DUE"` sets the prediction's time to `fetched`, so it reads "Due" and 0 min, matching the firmware.
-     - A Bus Tracker error that names no stop, route, or pattern (bad key, daily limit) throws, so the app can show "CTA data unavailable". One that names a stop ("No arrival times") is an empty list. The firmware returns 0 records for both.
+     - A Bus Tracker error that names no stop, route, or pattern (bad key, daily limit) throws, so the app can show "CTA data unavailable". One that names a stop ("No arrival times") is an empty list. The firmware matches: −1 for the first, 0 records for the second (Plan 1 Task 5).
      - Train and bus vehicles, and pattern points, whose coordinates are missing or don't parse are dropped (they can't be drawn); the rest of the response still parses. Numbers may arrive as numbers or strings.
      - `config.pet.colors` is two 0xRRGGBB numbers, for palette slots 2 and 3 of the chosen preset. The base spec doesn't define the shape yet; Plans 2 and 3 must read the same.
      - `config.settings.screen` and `led` are percents; `night_start` and `night_end` are minutes after midnight.

@@ -1,0 +1,24 @@
+#pragma once
+// Bus Tracker v2 responses, format=json (spec 5, 6.2, 6.4).
+#include <stddef.h>
+#include <stdint.h>
+
+#include "cta_types.h"
+
+namespace cta {
+
+// One record per distinct stpid, in order of first appearance, up to max. Each has type = Bus, id, name (stpnm),
+// ts = now, alert = false, and up to kMaxArrivals arrivals, soonest first: min = 0 for prdctdn "DUE", otherwise
+// floor(ctaSecondsBetween(tmstmp, prdtm) / 60) clamped to 0–32767; live = true; delayed = dly || prdctdn "DLY";
+// dest = des. route and dir are the rt and rtdir of the soonest. routeFilter (nullptr = all) drops other routes.
+// A prediction whose time doesn't parse is skipped. prd may be a list or one object.
+// Returns the count. With no prd: 0 when every error names a stop, route, or pattern ("No arrival times"), and −1
+// for any other error (a bad key, the daily limit), so a failed fetch isn't read as "no buses". −1 if malformed.
+int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out,
+                        size_t max);
+
+// Writes up to max vehicles' pid and pdist, each a number or a numeric string; a vehicle without both is
+// skipped. Returns the number written, with the same error rules as parseBusPredictions.
+int parseBusVehicles(const char* json, size_t len, BusVehicle* out, size_t max);
+
+}  // namespace cta

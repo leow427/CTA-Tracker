@@ -329,7 +329,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
   - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct `stpid`, in order of first appearance. Sets `type=Bus`, `id`, `name` (stpnm), `route` and `dir` (rt and rtdir of the soonest kept prediction), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor(ctaSecondsBetween(tmstmp, prdtm)/60)` clamped at ≥ 0 (Task 2, DST-aware); `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count, 0 for a `bustime-response.error` with no `prd`, or −1 if malformed.
   - `int parseBusVehicles(const char* json, size_t len, BusVehicle* out, size_t max)`: accepts numbers or numeric strings for `pid` and `pdist`. Returns −1 on error.
 
-- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
+- [x] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 int n = cta::parseBusPredictions(f.c_str(), f.size(), 1000, nullptr, recs, 5);
@@ -346,10 +346,16 @@ TEST_ASSERT_EQUAL_INT(3, cta::parseBusVehicles(v.c_str(), v.size(), vs, 10));
 TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdist);
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_bus`.
-- [ ] **Step 3: Implement** both functions, with filters.
-- [ ] **Step 4: Run and confirm pass.**
-- [ ] **Step 5: Commit.** `git commit -m "feat(cta): Bus Tracker predictions and vehicles parsing"`
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_bus`.
+- [x] **Step 3: Implement** both functions, with filters.
+- [x] **Step 4: Run and confirm pass.**
+- [x] **Step 5: Commit.** `git commit -m "feat(cta): Bus Tracker predictions and vehicles parsing"`
+- *Done (2026-11-07).* Built as planned, plus tests for lone `prd` and `vehicle` objects, mixed predictions and errors, unparseable times, past predictions, the 4 soonest per stop, DST, long names, and vehicles without a usable `pid`/`pdist`. Rulings:
+  - **Errors (changes "0 for a `bustime-response.error` with no `prd`"):** with no list, an error that names a stop, route, or pattern ("No arrival times") returns 0, and any other error (bad key, daily limit) returns −1, as the app throws. Otherwise a hit daily limit would read as "no buses": the dock would clear its arrivals and the pet would turn Sad instead of the data ageing to Sleepy.
+  - **Ordering:** by seconds with past predictions counted as 0, so DUE and an already-passed prediction tie and keep response order (DUE first in the fixture); `route`/`dir` come from the first.
+  - **Lone objects:** the filter covers the list shape; only a non-list `prd`/`vehicle` (one item, or none with a possibly lone error) triggers the unfiltered re-parse. A multi-stop response with per-stop errors stays filtered.
+  - **Vehicles** without both a numeric `pid` and `pdist` are skipped (they can't be placed on a pattern). Records are capped at `max`; a stop past it is dropped.
+  - Shared parser helpers moved to `json_util.h` (internal); `train_parse.cpp` moves onto it after its review.
 
 ---
 
