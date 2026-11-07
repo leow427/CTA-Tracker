@@ -7,11 +7,12 @@
 
 namespace cta {
 
-// One record per distinct stpid, in order of first appearance, up to max. Each has type = Bus, id, name (stpnm),
+// One record per distinct (stpid, rt), in order of first appearance, up to max: each route at a stop is its own
+// card (spec 6.2). Each has type = Bus, id, route, name (stpnm),
 // ts = now, alert = false (the caller merges alerts), and up to kMaxArrivals arrivals, soonest first by seconds
 // (DUE counts as 0 s, a passed prediction as negative; ties keep response order): min = 0 for prdctdn "DUE", otherwise
 // floor(ctaSecondsBetween(tmstmp, prdtm) / 60) clamped to 0–32767; live = true; delayed = dly || prdctdn "DLY";
-// dest = des. route and dir are the rt and rtdir of the soonest. routeFilter (nullptr = all) drops other routes.
+// dest = des (where it ends). dir is the soonest's rtdir. routeFilter (nullptr = all) drops other routes.
 // A prediction whose time doesn't parse is skipped. prd may be a list or one object.
 // Returns the count. With no prd: 0 when every error names a stop, route, or pattern ("No arrival times"), and −1
 // for any other error (a bad key, the daily limit), so a failed fetch isn't read as "no buses". −1 if malformed.

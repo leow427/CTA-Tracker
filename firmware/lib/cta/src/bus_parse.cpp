@@ -53,22 +53,25 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
     json::forEachItem(list, [&](JsonObjectConst p) {
         const char* stpid = p["stpid"].as<const char*>();
         const char* rt = p["rt"].as<const char*>();
-        if (stpid == nullptr) return;
-        if (routeFilter != nullptr && (rt == nullptr || strcmp(rt, routeFilter) != 0)) return;
+        if (stpid == nullptr || rt == nullptr) return;
+        if (routeFilter != nullptr && strcmp(rt, routeFilter) != 0) return;
         const char* countdown = p["prdctdn"].as<const char*>();
         const bool due = countdown != nullptr && strcmp(countdown, "DUE") == 0;
         int64_t secs = 0;
         if (!due && !ctaSecondsBetween(p["tmstmp"].as<const char*>(), p["prdtm"].as<const char*>(), secs)) return;
         const int64_t key = secs;  // DUE is 0 s, so an already-passed prediction sorts first, as in the app
 
+        // One record per (stop, route): each route at a stop is its own card (spec 6.2).
         size_t i = 0;
-        char id[kIdLen + 1];
+        char id[kIdLen + 1], route[kIdLen + 1];
         copyTruncated(id, stpid, kIdLen);
-        while (i < n && strcmp(out[i].id, id) != 0) ++i;
+        copyTruncated(route, rt, kIdLen);
+        while (i < n && (strcmp(out[i].id, id) != 0 || strcmp(out[i].route, route) != 0)) ++i;
         if (i == n) {
             if (n == max) return;
             out[n] = StopRecord{};
             memcpy(out[n].id, id, sizeof(id));
+            memcpy(out[n].route, route, sizeof(route));
             out[n].type = Kind::Bus;
             out[n].ts = now;
             copyTruncated(out[n].name, p["stpnm"].as<const char*>(), kNameLen);
@@ -90,10 +93,7 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
         a.delayed = p["dly"].as<bool>() || (countdown != nullptr && strcmp(countdown, "DLY") == 0);
         k[at] = key;
         if (r.count < kMaxArrivals) ++r.count;
-        if (at == 0) {
-            copyTruncated(r.route, rt, kIdLen);
-            copyTruncated(r.dir, p["rtdir"].as<const char*>(), kNameLen);
-        }
+        if (at == 0) copyTruncated(r.dir, p["rtdir"].as<const char*>(), kNameLen);
     });
     return static_cast<int>(n);
 }

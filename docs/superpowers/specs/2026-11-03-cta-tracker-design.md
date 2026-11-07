@@ -137,6 +137,7 @@ The one data shape every device uses for "what's happening at a stop," whether i
 - `live: false` means a timetable time, not a live prediction (shown as a clock time in the app and dimmed with a "Sched" badge on the devices).
 - `ts` is Unix time of the fetch, used to judge staleness.
 - A train *card* record (the handheld's train cards) covers one line and direction at a station: `id` is the station ID (4xxxx), `route` the line, and `dir` the platform's direction label from `train_sequences.h` (the same labels as the app's `stops.json`), so a card agrees with the app's. One `ttarrivals?mapid=` response is split into one record per (platform `stpId`, `rt`); Belmont gives six (Red, Brown, and Purple, each way). A record is keyed by (`id`, `route`, `dir`).
+- A bus record covers one route at one direction-specific stop: `id` is the stop ID, `route` the route, and `dir` its direction (`rtdir`, "Southbound"). One `getpredictions` response is split into one record per (`stpid`, `rt`), so a stop served by the 22 and the 36 gives two (Leo, 2026-11-07).
 
 ### 6.3 Pet moods
 
@@ -189,7 +190,7 @@ In the background the app polls nothing, except the handheld relay (9.5) and the
 - Intervals are constants in the shared library, so they can be tuned once the daily limits from the key emails are known. If the Bus Tracker limit is tight, dock bus polling moves to 60 s first.
 - Night hours default to 1:00–5:00 and can be changed from the app.
 - Both ESP32s get time over NTP with the Chicago time zone (`CST6CDT,M3.2.0,M11.1.0`).
-- **Arrival minutes** count from the response's own timestamp (`tmst`, `tmstmp`) to the arrival time. Both are Chicago wall times with no offset, so the difference follows Chicago's daylight saving rules: on the spring-forward night, 1:58 to 3:03 is 5 min. On the fall-back night, 1:00–1:59 happens twice, and the two readings of a time are an hour apart; each time is read whichever way puts the arrival nearest 25 min after the response, so arrivals from 4 min ago to 55 min ahead come out right (Leo asked for DST handling, 2026-11-07; the +25 min rule came out of review, pending Leo's OK).
+- **Arrival minutes** count from the response's own timestamp (`tmst`, `tmstmp`) to the arrival time. Both are Chicago wall times with no offset, so the difference follows Chicago's daylight saving rules: on the spring-forward night, 1:58 to 3:03 is 5 min. On the fall-back night, 1:00–1:59 happens twice, and the two readings of a time are an hour apart; each time is read whichever way puts the arrival nearest 25 min after the response, so arrivals from 4 min ago to 55 min ahead come out right (Leo, 2026-11-07).
 
 ## 7. Dock
 
@@ -234,8 +235,8 @@ The look follows the iPhone app's pixel style (the app design specs), on black. 
 - **Background:** black on every screen, for the AMOLED's battery.
 - **Cards:** every stop is a card in its line's color: a darker shade of the line as the fill and a lighter shade for its text, with the app's `LineColors.card` and `cardText` math. Buses share the bus color. Cards have stepped pixel corners and a hard bottom edge, and minutes use the app's 5×7 pixel digits. Cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
 - **Home:** the time and weather icon at the top, Trackie (the app's 32×32 pet sprite, drawn at 4×, straight on black with no tile behind him) with a speech bubble, and one card for the most urgent stop, so "should I hurry?" needs no swipe. The bubble says a mood word ("Go now!", "All on time", "Running late", "Uh oh…", "Sleepy…", "Zzz…"); tapping Trackie switches it to the reason ("Red in 2 min!", "22 is 4 min late", "Red Line alert") for a few seconds. Swipe up for stops.
-- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per direction-specific stop, up to 10. Each card shows the line or route, direction, stop name, and the next arrival in minutes. Swipe down to go back to Home.
-- **Stop detail:** tap a card to see the next 3–4 arrivals for each line and direction at that stop, the tapped one first, with the same badges as the dock. Swipe right to go back.
+- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per route at each of the 10 nearest direction-specific stops (section 6.2), soonest first within a stop. Every card shows the line or route, where it ends (the soonest arrival's destination: "95th/Dan Ryan", "Harrison"), the direction it goes (a bus's direction, "Southbound"; a train's platform direction, "toward Loop"), the stop name, and the next arrival in minutes. Swipe down to go back to Home (Leo, 2026-11-07).
+- **Stop detail:** tap a card to see the next 3–4 arrivals for each line or route and direction at that stop, each with where it ends, the tapped one first, with the same badges as the dock. Swipe right to go back.
 - **Dim (always-on):** black with Trackie alone, shifted a few pixels every 10 s against burn-in.
 
 ### 8.2 Screen behavior
@@ -247,7 +248,7 @@ The screen is always on, dimmed. After 15 s with no touch it drops to low bright
 1. On every wake, the handheld sends a `request` to the app over BLE with whether it has Wi-Fi.
 2. The app takes one location fix and writes `nearby`: the location, the 10 nearest train station IDs, the 10 nearest bus stop IDs, and `close`, the 3 nearest stops of either kind. The handheld can't rank stations against bus stops itself because it has no stop coordinates.
 3. **On Wi-Fi:** the handheld polls those stops itself (section 6.6).
-4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per card (one per train line and direction at a station, one per bus stop) every 60 s while connected.
+4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per card (one per train line and direction at a station, one per bus route at a stop) every 60 s while connected.
 5. **Neither:** the last data stays on screen greyed out, and the pet turns Sleepy once data is more than 5 min old.
 
 The handheld keeps its last nearby list in flash. A brand-new handheld shows "Open the CTA app" until it receives its first list.

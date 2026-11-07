@@ -22,7 +22,7 @@ firmware/handheld/src/power.*        AXP2101 via XPowersLib: USB present, batter
 firmware/handheld/src/screen.*       brightness states: full ↔ dim after kScreenDimSec; tap = wake event
 firmware/handheld/src/ui_kit.*       black background, line-colored pixel cards, 5×7 pixel digits, pixel corners
 firmware/handheld/src/ui_home.*      time + weather, Trackie (32×32 at 4×) + speech bubble, the most urgent card; swipe up → stops
-firmware/handheld/src/ui_stops.*     Trains | Buses tab pill, card list (train cards per line and direction)
+firmware/handheld/src/ui_stops.*     Trains | Buses tab pill, card list (train cards per line and direction, bus cards per route)
 firmware/handheld/src/ui_detail.*    next 3–4 arrivals per line and direction at one stop
 firmware/handheld/src/net.*          up to 3 saved networks, connect/backoff, NTP + time zone
 firmware/handheld/src/poller.*       Wi-Fi fetch cadence for the nearby list
@@ -89,7 +89,8 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 6. **Stops and detail screens** (spec §8.1; the mockup in `docs/ideas/` shows the look).
    - `ui_kit.*` first: black background, line-colored cards with the app's `LineColors.card`/`cardText` math, pixel corners, the 5×7 pixel digits as a bitmap font at whole scales.
    - Tabs and a card list suited to a round screen: center-weighted, cards away from the focus shrink, fade, and narrow inside the circle.
-   - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per stop.
+   - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per route at each stop (Plan 1 Task 5 records), soonest first within a stop.
+   - Every card shows where it ends (`arrivals[0].dest`) and the direction it goes (`dir`: a bus's "Southbound", a train's platform label shown as "toward Loop"), plus the stop name and next minutes (spec §8.1).
    - Tap a card for detail (the stop's lines and directions, tapped one first); swipe right to go back; swipe down returns home.
    - Stale cards grey out.
 7. **BLE relay intake.** `snapshot` writes decode into the record with the matching (`id`, `route`, `dir`); the app sends one per card. For each record the newer `ts` wins, whether it came from Wi-Fi or BLE. With no Wi-Fi and no snapshots, the data ages out and the pet turns Sleepy after `kStaleSec`.
@@ -108,6 +109,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 ## Decisions so far
 
 - **The handheld never needs CTA's full stop table.** The app sends IDs, and names arrive with the predictions. Until the first fetch, cards show "Loading…".
+- **Bus cards (Leo, 2026-11-07):** one card per route at a stop, like train cards; `parseBusPredictions` makes one record per (stop, route). Every card shows where it ends and its direction.
 - **Look (Leo, 2026-11-06):** the app's pixel style on black, not navy; Trackie is drawn straight on black, with no tile; his bubble shows the mood word and the reason on tap; train cards are one per line and direction at each station; the map is a stretch goal.
 - **One state object** (`HandheldState`) is written only on the loop task. BLE callbacks copy the payload into a small queue for the loop.
 - **Keep internal RAM free** for Wi-Fi, TLS, and BLE; put LVGL buffers and response buffers in PSRAM.
@@ -116,6 +118,5 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 
 - **Dim level and frame rate** that still look alive on AMOLED: tune against the battery test.
 - **Raise-to-wake** with the QMI8658 IMU: stretch.
-- **Bus stops with several routes:** `parseBusPredictions` makes one record per stop, its 4 arrivals mixing routes, and an `Arrival` has no route. Spec 8.1's detail ("each line and direction at that stop") needs per-route arrivals: split bus records per (stop, route) like train cards, or add the route to each arrival. Decide before milestone 6. (Task 5 review.)
 - **Wake vs. phone not connected:** keep the old list (current plan). Should cards show their age?
 - **GPS module** as a second `LocationSource`: stretch; the interface is ready for it.

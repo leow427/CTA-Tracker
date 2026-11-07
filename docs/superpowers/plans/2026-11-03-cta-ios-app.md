@@ -337,7 +337,7 @@ Leo can send a screen back for polish before the commit.
      - Pet and settings are written to every device on connect and on change.
    - **Checkpoint C: handheld relay.**
      - Subscribe to `request`. On each request, take one `CLLocationManager.requestLocation()` fix and write `nearby` with the 10 nearest stations, the 10 nearest bus stops, and `close` (the 3 nearest of either kind).
-     - If the request says `wifi:false`, fetch arrivals for those stops and write one `snapshot` per stop every 60 s while connected.
+     - If the request says `wifi:false`, fetch arrivals for those stops and write one `snapshot` per handheld card every 60 s while connected: one per train line and direction at a station (`id` = station ID, `dir` = the platform's label), one per bus route at a stop (`id` = stop ID, `dir` = rtdir), matching the firmware's records (base spec 6.2, changed 2026-11-07).
      - Background modes: Bluetooth central and location; `NSLocationAlwaysAndWhenInUseUsageDescription`. "While Using" permission still works with the app open.
    - *Checks (Leo):*
      - A fresh dock gets onto Wi-Fi from the found card (demo item 4).

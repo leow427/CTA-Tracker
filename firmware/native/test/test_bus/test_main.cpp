@@ -30,34 +30,62 @@ static std::string body(const std::string& inner) { return "{\"bustime-response\
 static void test_predictions_fixture() {
     const std::string f = readFixture("bus_predictions.json");
     cta::StopRecord recs[5];
+    // one record per (stop, route), in order of first appearance (spec 6.2): 1001/22, 1001/36, 1002/77
     int n = preds(f, nullptr, recs, 5);
-    TEST_ASSERT_EQUAL_INT(2, n);
+    TEST_ASSERT_EQUAL_INT(3, n);
     TEST_ASSERT_EQUAL_STRING("1001", recs[0].id);
-    TEST_ASSERT_EQUAL_UINT8(3, recs[0].count);
-    TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);  // 36, DUE
-    TEST_ASSERT_EQUAL_INT16(4, recs[0].arrivals[1].min);
-    TEST_ASSERT_EQUAL_INT16(15, recs[0].arrivals[2].min);
-    TEST_ASSERT_TRUE(recs[0].arrivals[2].delayed);  // DLY
-    TEST_ASSERT_FALSE(recs[0].arrivals[1].delayed);
-    TEST_ASSERT_TRUE(recs[0].arrivals[0].live);
-    TEST_ASSERT_EQUAL_STRING("Harrison", recs[0].arrivals[0].dest);
-    TEST_ASSERT_EQUAL_STRING("36", recs[0].route);  // route and dir of the soonest
+    TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
     TEST_ASSERT_EQUAL_STRING("Southbound", recs[0].dir);
     TEST_ASSERT_EQUAL_STRING("Clark & Belmont", recs[0].name);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
+    TEST_ASSERT_EQUAL_INT16(4, recs[0].arrivals[0].min);
+    TEST_ASSERT_FALSE(recs[0].arrivals[0].delayed);
+    TEST_ASSERT_TRUE(recs[0].arrivals[0].live);
+    TEST_ASSERT_EQUAL_STRING("Harrison", recs[0].arrivals[0].dest);  // where it ends
+    TEST_ASSERT_EQUAL_INT16(15, recs[0].arrivals[1].min);
+    TEST_ASSERT_TRUE(recs[0].arrivals[1].delayed);  // DLY
     TEST_ASSERT_EQUAL_INT((int)cta::Kind::Bus, (int)recs[0].type);
     TEST_ASSERT_EQUAL_UINT32(1000, recs[0].ts);
     TEST_ASSERT_FALSE(recs[0].alert);
-    TEST_ASSERT_EQUAL_STRING("1002", recs[1].id);
-    TEST_ASSERT_EQUAL_STRING("Westbound", recs[1].dir);
-    TEST_ASSERT_EQUAL_STRING("77", recs[1].route);
-    TEST_ASSERT_EQUAL_INT16(9, recs[1].arrivals[0].min);
+    TEST_ASSERT_EQUAL_STRING("1001", recs[1].id);
+    TEST_ASSERT_EQUAL_STRING("36", recs[1].route);
+    TEST_ASSERT_EQUAL_UINT8(1, recs[1].count);
+    TEST_ASSERT_EQUAL_INT16(0, recs[1].arrivals[0].min);  // DUE
+    TEST_ASSERT_EQUAL_STRING("1002", recs[2].id);
+    TEST_ASSERT_EQUAL_STRING("77", recs[2].route);
+    TEST_ASSERT_EQUAL_STRING("Westbound", recs[2].dir);
+    TEST_ASSERT_EQUAL_STRING("Cumberland", recs[2].arrivals[0].dest);
+    TEST_ASSERT_EQUAL_INT16(9, recs[2].arrivals[0].min);
     n = preds(f, "22", recs, 5);
     TEST_ASSERT_EQUAL_INT(1, n);
     TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
     TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
-    TEST_ASSERT_EQUAL_INT(1, preds(f, nullptr, recs, 1));  // max respected: the first stop only
-    TEST_ASSERT_EQUAL_STRING("1001", recs[0].id);
+    TEST_ASSERT_EQUAL_INT(1, preds(f, nullptr, recs, 1));  // max respected: the first card only
+    TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);  // later predictions for a kept card still count
     TEST_ASSERT_EQUAL_INT(0, preds(f, "151", recs, 5));
+}
+
+static void test_one_record_per_route_at_a_stop() {
+    cta::StopRecord recs[4];
+    const std::string b = body("\"prd\":[" + prd("1001", "22", "20261105 08:06", "6") + "," +
+                               prd("1001", "36", "20261105 08:02", "2", false, "20261105 08:00", "Clark & Belmont",
+                                   "Broadway") + "," +
+                               prd("1002", "22", "20261105 08:03", "3", false, "20261105 08:00", "Belmont & Clark",
+                                   "Howard", "Northbound") + "," +
+                               prd("1001", "22", "20261105 08:01", "1") + "]");
+    TEST_ASSERT_EQUAL_INT(3, preds(b, nullptr, recs, 4));
+    TEST_ASSERT_EQUAL_STRING("1001", recs[0].id);
+    TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
+    TEST_ASSERT_EQUAL_UINT8(2, recs[0].count);
+    TEST_ASSERT_EQUAL_INT16(1, recs[0].arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(6, recs[0].arrivals[1].min);
+    TEST_ASSERT_EQUAL_STRING("1001", recs[1].id);
+    TEST_ASSERT_EQUAL_STRING("36", recs[1].route);
+    TEST_ASSERT_EQUAL_STRING("Broadway", recs[1].arrivals[0].dest);
+    TEST_ASSERT_EQUAL_STRING("1002", recs[2].id);  // the same route at another stop is its own card
+    TEST_ASSERT_EQUAL_STRING("22", recs[2].route);
+    TEST_ASSERT_EQUAL_STRING("Northbound", recs[2].dir);
 }
 
 static void test_errors() {
@@ -88,9 +116,9 @@ static void test_skips_and_orders() {
     cta::StopRecord recs[3];
     const std::string b = body("\"prd\":[" + prd("1001", "22", "garbage", "4") + "," +
                                prd("1001", "22", "20261105 08:07:40", "7") + "," +
-                               prd("1001", "8", "20261105 08:07:10", "7", false, "20261105 08:00",
+                               prd("1001", "22", "20261105 08:07:10", "7", false, "20261105 08:00",
                                    "Clark & Belmont", "Pershing") + "," +
-                               prd("1001", "36", "20261105 07:58", "DUE", false, "20261105 08:00",
+                               prd("1001", "22", "20261105 07:58", "DUE", false, "20261105 08:00",
                                    "Clark & Belmont", "Broadway") + "," +
                                prd("1001", "22", "20261105 07:59", "1", false, "20261105 08:00",
                                    "Clark & Belmont", "Howard", "Northbound") + "]");
@@ -100,7 +128,7 @@ static void test_skips_and_orders() {
     TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[0].min);
     TEST_ASSERT_EQUAL_STRING("Howard", recs[0].arrivals[0].dest);
     TEST_ASSERT_EQUAL_STRING("22", recs[0].route);
-    TEST_ASSERT_EQUAL_STRING("Northbound", recs[0].dir);
+    TEST_ASSERT_EQUAL_STRING("Northbound", recs[0].dir);  // dir from the soonest
     TEST_ASSERT_EQUAL_INT16(0, recs[0].arrivals[1].min);
     TEST_ASSERT_EQUAL_STRING("Broadway", recs[0].arrivals[1].dest);  // DUE
     // 08:07:10 before 08:07:40, though both read 7 min
@@ -213,7 +241,7 @@ static void test_big_responses_stay_filtered() {
     cta::StopRecord recs[5];
     cta::BusVehicle vs[10];
     passes = 0;
-    TEST_ASSERT_EQUAL_INT(2, preds(readFixture("bus_predictions.json"), nullptr, recs, 5));
+    TEST_ASSERT_EQUAL_INT(3, preds(readFixture("bus_predictions.json"), nullptr, recs, 5));
     const std::string v = readFixture("bus_vehicles.json");
     TEST_ASSERT_EQUAL_INT(3, cta::parseBusVehicles(v.c_str(), v.size(), vs, 10));
     TEST_ASSERT_EQUAL_UINT(0, passes);
@@ -229,6 +257,7 @@ static void test_big_responses_stay_filtered() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_predictions_fixture);
+    RUN_TEST(test_one_record_per_route_at_a_stop);
     RUN_TEST(test_errors);
     RUN_TEST(test_lone_prediction_and_mixed);
     RUN_TEST(test_skips_and_orders);
