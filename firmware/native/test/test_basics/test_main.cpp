@@ -136,6 +136,32 @@ static void test_cta_seconds_between_fall_back() {
     TEST_ASSERT_EQUAL_INT64(300, d);  // 2027's first Sunday of November
     TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-08T01:58:00", "2026-11-08T01:03:00", d));
     TEST_ASSERT_EQUAL_INT64(-55 * 60, d);  // a week later: no repeated hour
+    // Arrivals 31–55 min out must not read as negative ("Due"): the reading nearest +25 min wins.
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:05:00", "2026-11-01T01:45:00", d));
+    TEST_ASSERT_EQUAL_INT64(40 * 60, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:50:00", "2026-11-01T01:25:00", d));
+    TEST_ASSERT_EQUAL_INT64(35 * 60, d);  // 1:50 CDT, then 1:25 CST
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:00:00", "2026-11-01T01:55:00", d));
+    TEST_ASSERT_EQUAL_INT64(55 * 60, d);  // the far edge of the window
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:15:00", "2026-11-01T01:11:00", d));
+    TEST_ASSERT_EQUAL_INT64(-4 * 60, d);  // a prediction slightly in the past stays slightly negative
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 01:30", "20261101 01:25", d));
+    TEST_ASSERT_EQUAL_INT64(55 * 60, d);  // a tie (−5 or +55 min) goes to the later reading
+}
+
+static void test_cta_seconds_between_boundaries() {
+    int64_t d;
+    // Bus Tracker times are whole minutes, so the exact change times are common.
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20260308 01:58", "20260308 03:00", d));
+    TEST_ASSERT_EQUAL_INT64(120, d);  // 3:00 is already daylight time
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20260308 01:59", "20260308 01:59", d));
+    TEST_ASSERT_EQUAL_INT64(0, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 00:59", "20261101 01:00", d));
+    TEST_ASSERT_EQUAL_INT64(60, d);  // into the repeated hour at its first minute
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 01:29", "20261101 02:00", d));
+    TEST_ASSERT_EQUAL_INT64(1860, d);  // 2:00 is already standard time
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 02:00", "20261101 02:05", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);
 }
 
 static void test_cta_seconds_between_rejects() {
@@ -215,6 +241,7 @@ int main(int, char**) {
     RUN_TEST(test_cta_seconds_between);
     RUN_TEST(test_cta_seconds_between_spring_forward);
     RUN_TEST(test_cta_seconds_between_fall_back);
+    RUN_TEST(test_cta_seconds_between_boundaries);
     RUN_TEST(test_cta_seconds_between_rejects);
     RUN_TEST(test_night_hours);
     RUN_TEST(test_config_values);

@@ -189,7 +189,7 @@ In the background the app polls nothing, except the handheld relay (9.5) and the
 - Intervals are constants in the shared library, so they can be tuned once the daily limits from the key emails are known. If the Bus Tracker limit is tight, dock bus polling moves to 60 s first.
 - Night hours default to 1:00–5:00 and can be changed from the app.
 - Both ESP32s get time over NTP with the Chicago time zone (`CST6CDT,M3.2.0,M11.1.0`).
-- **Arrival minutes** count from the response's own timestamp (`tmst`, `tmstmp`) to the arrival time. Both are Chicago wall times with no offset, so the difference follows Chicago's daylight saving rules: on the spring-forward night, 1:58 to 3:03 is 5 min. On the fall-back night, 1:00–1:59 happens twice; each time is read whichever way puts the two closest together (Leo, 2026-11-07).
+- **Arrival minutes** count from the response's own timestamp (`tmst`, `tmstmp`) to the arrival time. Both are Chicago wall times with no offset, so the difference follows Chicago's daylight saving rules: on the spring-forward night, 1:58 to 3:03 is 5 min. On the fall-back night, 1:00–1:59 happens twice, and the two readings of a time are an hour apart; each time is read whichever way puts the arrival nearest 25 min after the response, so arrivals from 4 min ago to 55 min ahead come out right (Leo, 2026-11-07).
 
 ## 7. Dock
 

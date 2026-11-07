@@ -118,12 +118,16 @@ bool ctaSecondsBetween(const char* from, const char* to, int64_t& secs) {
     if (!parseCtaTime(from, a) || !parseCtaTime(to, b)) return false;
     int64_t ra[2], rb[2];
     const int na = utcReadings(a, ra), nb = utcReadings(b, rb);
+    // In the repeated hour the readings are exactly an hour apart, so one window of an hour picks one: the
+    // difference nearest kExpectedGap, i.e. (−5, +55] min, where real arrivals fall. Ties go to the later one.
+    constexpr int64_t kExpectedGap = 25 * 60;
     bool found = false;
     int64_t best = 0;
     for (int i = 0; i < na; ++i) {
         for (int j = 0; j < nb; ++j) {
             const int64_t d = rb[j] - ra[i];
-            const int64_t ad = d < 0 ? -d : d, abest = best < 0 ? -best : best;
+            const int64_t off = d - kExpectedGap, bestOff = best - kExpectedGap;
+            const int64_t ad = off < 0 ? -off : off, abest = bestOff < 0 ? -bestOff : bestOff;
             if (!found || ad < abest || (ad == abest && d > best)) {
                 best = d;
                 found = true;
