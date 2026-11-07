@@ -379,7 +379,7 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
   - `bool parseWeather(const char* json, size_t len, int& wmo, float& tempC)`.
   - `Accessory accessoryFor(int wmo, float tempC)`: Umbrella for codes 51–67, 80–82, and 95–99. Otherwise Scarf for codes 71–77, 85–86, or tempC < 0. Otherwise None.
 
-- [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
+- [x] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
 TEST_ASSERT_EQUAL_INT(2, cta::parseAlertRoutes(a.c_str(), a.size(), routes, 8));   // "Red", "22"; station "41320" ignored
@@ -394,10 +394,15 @@ TEST_ASSERT_EQUAL((int)cta::Accessory::Scarf,    (int)cta::accessoryFor(3, -1));
 TEST_ASSERT_EQUAL((int)cta::Accessory::None,     (int)cta::accessoryFor(2, 10));
 ```
 
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_alerts_weather`.
-- [ ] **Step 3: Implement** the three functions.
-- [ ] **Step 4: Run and confirm pass.**
-- [ ] **Step 5: Commit.** `git commit -m "feat(cta): alert route and weather parsing, accessory rule"`
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_alerts_weather`.
+- [x] **Step 3: Implement** the three functions.
+- [x] **Step 4: Run and confirm pass.**
+- [x] **Step 5: Commit.** `git commit -m "feat(cta): alert route and weather parsing, accessory rule"`
+- *Done (2026-11-07).* Built as planned, plus tests for duplicate routes, `max`, non-route services, alerts without `ImpactedService`, every accessory range edge and 0 °C, and malformed or partial weather. Rulings:
+  - **`ErrorCode` is ignored; a missing `Alert` is 0 routes**, as in the app (CTA's "no alerts" reply can carry a nonzero code). Only malformed JSON, or no `CTAAlerts` object, is −1.
+  - **Filter:** each alert keeps only its `ImpactedService` (whole, since CTA mixes a `Service` list in one alert with a lone object in the next), dropping the HTML descriptions; a lone `Alert` object has its own filter. Only a reply with no alerts reaches the unfiltered pass.
+  - **Routes are cut to 7 bytes**, like record routes, so `alert` matching compares like with like.
+  - **Weather:** `weather_code` must be an integer and `temperature_2m` a number; otherwise false with both outputs untouched.
 
 ---
 
