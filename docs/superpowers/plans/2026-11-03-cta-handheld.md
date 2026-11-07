@@ -98,7 +98,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
    - The home pet is Trackie (Plan 1 Task 11's sprites, 4×, straight on black with no tile) and shows `deviceMood` over all cards, with `hypedEligible` set for cards whose `id` is in `close`.
    - The speech bubble shows the mood word; a tap on Trackie shows the reason for a few seconds (spec §8.1 copy). Home also shows the most urgent card.
    - Dim always-on: black with Trackie alone, shifted a few pixels every 10 s.
-   - Weather accessory from Open-Meteo.
+   - Weather accessory from Open-Meteo, drawn with `pet::overlayFor(state, accessoryFor(...))`, which draws nothing while Asleep.
    - `petStateFor(mood, docked)`, where docked means USB present **and** connected to the slot 0 SSID.
    - Asleep while docked, with the screen extra-dim and slow polling.
    - The two-finger long-press debug cycle.

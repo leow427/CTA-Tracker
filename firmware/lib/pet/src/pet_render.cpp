@@ -1,5 +1,7 @@
 #include "pet_render.h"
 
+#include "pet_sprites.h"
+
 namespace pet {
 
 PetState petStateFor(cta::Mood m, bool docked) {
@@ -12,6 +14,16 @@ PetState petStateFor(cta::Mood m, bool docked) {
         case cta::Mood::Hyped: return PetState::Hyped;
     }
     return PetState::Sleepy;
+}
+
+const Sprite* overlayFor(PetState state, cta::Accessory accessory) {
+    if (state == PetState::Asleep) return nullptr;
+    switch (accessory) {
+        case cta::Accessory::Umbrella: return &kOverlayUmbrella;
+        case cta::Accessory::Scarf: return &kOverlayScarf;
+        case cta::Accessory::None: break;
+    }
+    return nullptr;
 }
 
 uint16_t rgb565(uint32_t rgb) {

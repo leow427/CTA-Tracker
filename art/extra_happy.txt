@@ -1,4 +1,4 @@
-# The happy extra (7x7): a heart, floating at his upper right and bobbing opposite him.
+# The happy extra (7x7): a heart, floating at his upper right and bobbing with him (as the app does).
 # Copied from Glyphs in ios/CTATracker/Design/Pixel.swift; placed as in the handheld mockup.
 @ 33 -6
 .PP.PP.

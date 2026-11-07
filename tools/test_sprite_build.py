@@ -80,6 +80,70 @@ class SpriteBuildTests(unittest.TestCase):
         with self.assertRaises(sprite_build.ArtError):
             sprite_build.build(art.dir)
 
+    def expect_error(self, art, *needles):
+        with self.assertRaises(sprite_build.ArtError) as e:
+            sprite_build.build(art.dir)
+        for needle in needles:
+            self.assertIn(needle, str(e.exception))
+
+    def test_line_numbers_count_comments(self):
+        art = Art(self)
+        rows = grid(32, 32).splitlines()
+        rows[19] = "." * 31  # one short row
+        art.write("body.txt", "# a comment\n# another\n" + "\n".join(rows) + "\n")
+        self.expect_error(art, "body.txt:22:", "31 columns")  # 2 comment lines + row 20
+
+    def test_blank_lines(self):
+        art = Art(self)
+        art.write("body.txt", "\n" + grid(32, 32) + "\n\n")  # around the grid: fine
+        sprite_build.build(art.dir)
+        rows = grid(32, 32).splitlines()
+        art.write("body.txt", "\n".join(rows[:10]) + "\n\n" + "\n".join(rows[10:]) + "\n")
+        self.expect_error(art, "body.txt:11:", "blank line inside the grid")
+
+    def test_placement_lines(self):
+        art = Art(self)
+        art.write("extra_happy.txt", grid(7, 7, "W"))
+        self.expect_error(art, "extra_happy.txt", "missing its '@ dx dy' line")
+        art = Art(self)
+        art.write("overlay_scarf.txt", "@ 0 22\n@ 0 23\n" + grid(32, 5, "B"))
+        self.expect_error(art, "overlay_scarf.txt:2:", "second '@'")
+        art = Art(self)
+        art.write("body.txt", "@ 1 1\n" + grid(32, 32))
+        self.expect_error(art, "body.txt:1:", "only places extras and overlays")
+        art = Art(self)
+        art.write("extra_hyped.txt", "@ 200 0\n" + grid(7, 7, "W"))
+        self.expect_error(art, "extra_hyped.txt:1:", "-128..127")
+
+    def test_overlay_shape(self):
+        art = Art(self)
+        art.write("overlay_umbrella.txt", "@ 0 -6\n" + grid(31, 7, "K"))
+        self.expect_error(art, "overlay_umbrella.txt:2:", "expected 32")
+        art = Art(self)
+        art.write("overlay_umbrella.txt", "@ 0 -6\n")
+        self.expect_error(art, "overlay_umbrella.txt", "expected 1-255")
+
+    def test_palette_rules(self):
+        for bad, needle in [(PALETTE + "K 4 #000000 dup\n", "listed twice"),
+                            (PALETTE.replace(". 0 -", "X 0 -"), "slot 0"),
+                            (PALETTE + "Z 4 #-7FD3F sign\n", "#RRGGBB"),
+                            (PALETTE + "Z 4 #0x12ab hex\n", "#RRGGBB"),
+                            (PALETTE + "Z 4 12AB34 nohash\n", "#RRGGBB")]:
+            art = Art(self)
+            art.write("palette.txt", bad)
+            self.expect_error(art, "palette.txt", needle)
+
+    def test_previews_show_overlays(self):
+        art = Art(self)
+        out = sprite_build.build(art.dir)
+        png_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, png_dir)
+        written = sprite_build.write_previews(out, png_dir, scale=1)
+        plain = open(os.path.join(png_dir, "happy.png"), "rb").read()
+        umbrella = open(os.path.join(png_dir, "happy_umbrella.png"), "rb").read()
+        self.assertNotEqual(plain, umbrella)
+        self.assertEqual(len(written), 18)
+
     def test_face_stamp(self):
         art = Art(self)
         out = sprite_build.build(art.dir)

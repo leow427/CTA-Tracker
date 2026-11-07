@@ -3,12 +3,14 @@
 Plan 1, task 11. Standard library only. The art is the app's Trackie (ios/CTATracker/Design/Pixel.swift):
 one 32x32 body, a 10x8 face per state stamped on the door at columns 11-20, rows 12-19, a 7x7 extra that
 floats beside him, and umbrella and scarf overlays. Grid files: one row per line, one palette character per
-pixel; lines starting with "#" are comments; an "@ dx dy" line places the grid relative to the body's top left.
+pixel; lines starting with "#" are comments; extras and overlays have one "@ dx dy" line placing the grid relative
+to the body's top left.
 
     python3 tools/sprite_build.py            # writes pet_sprites.cpp and art/build/*.png
 """
 import argparse
 import os
+import re
 import struct
 import sys
 import zlib
@@ -71,54 +73,65 @@ def load_palette(path):
                     raise ArtError(f"{path}:{n}: slot 0 must be '. 0 -' (transparent)")
                 colors.append(None)
             else:
-                if len(color) != 7 or color[0] != "#":
+                if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
                     raise ArtError(f"{path}:{n}: '{color}' is not #RRGGBB")
-                try:
-                    colors.append(int(color[1:], 16))
-                except ValueError:
-                    raise ArtError(f"{path}:{n}: '{color}' is not #RRGGBB") from None
+                colors.append(int(color[1:], 16))
             chars.append(ch)
+    if not chars:
+        raise ArtError(f"{path}: no palette entries")
     return chars, colors
 
 
-def load_grid(path, chars, size=None, width=None):
-    """A grid of slot indexes. size = (w, h) exactly, or width alone for overlays."""
+def load_grid(path, chars, size=None, width=None, placed=False):
+    """A grid of slot indexes. size = (w, h) exactly, or width alone (overlays: any height 1-255).
+
+    placed: the file must have exactly one "@ dx dy" line (extras and overlays); otherwise it must have none.
+    Blank lines before or after the grid are ignored; a blank line inside it is an error.
+    """
     index = {c: i for i, c in enumerate(chars)}
-    rows, dx, dy, first_row_line = [], 0, 0, None
+    rows, dx, dy, at_line, blank_line = [], 0, 0, None, None
     with open(path) as f:
         for n, raw in enumerate(f, 1):
-            line = raw.rstrip("\n")
-            if line.startswith("#") or (not line.strip() and not rows):
+            line = raw.rstrip("\r\n")
+            if line.startswith("#"):
+                continue
+            if not line.strip():
+                if rows and blank_line is None:
+                    blank_line = n
                 continue
             if line.startswith("@"):
+                if not placed:
+                    raise ArtError(f"{path}:{n}: '@ dx dy' only places extras and overlays")
+                if at_line is not None:
+                    raise ArtError(f"{path}:{n}: a second '@' line (the first is line {at_line})")
                 try:
                     _, sdx, sdy = line.split()
                     dx, dy = int(sdx), int(sdy)
                 except ValueError:
                     raise ArtError(f"{path}:{n}: expected '@ dx dy'") from None
+                if not (-128 <= dx <= 127 and -128 <= dy <= 127):
+                    raise ArtError(f"{path}:{n}: dx and dy must be within -128..127")
+                at_line = n
                 continue
-            if first_row_line is None:
-                first_row_line = n
+            if blank_line is not None:
+                raise ArtError(f"{path}:{blank_line}: blank line inside the grid")
             row = []
             for ch in line:
                 if ch not in index:
                     raise ArtError(f"{path}:{n}: '{ch}' is not in palette.txt")
                 row.append(index[ch])
-            rows.append(row)
-    if size:
-        w, h = size
-        if len(rows) != h:
-            raise ArtError(f"{path}: {len(rows)} rows, expected {h} rows")
-        for k, row in enumerate(rows):
-            if len(row) != w:
-                raise ArtError(f"{path}:{first_row_line + k}: {len(row)} columns, expected {w}")
-    elif width:
-        if not rows:
-            raise ArtError(f"{path}: no rows")
-        for k, row in enumerate(rows):
-            if len(row) != width:
-                raise ArtError(f"{path}:{first_row_line + k}: {len(row)} columns, expected {width}")
-    return Grid(rows, dx, dy)
+            rows.append((n, row))
+    if placed and at_line is None:
+        raise ArtError(f"{path}: missing its '@ dx dy' line")
+    expect_w = size[0] if size else width
+    for n, row in rows:
+        if len(row) != expect_w:
+            raise ArtError(f"{path}:{n}: {len(row)} columns, expected {expect_w}")
+    if size and len(rows) != size[1]:
+        raise ArtError(f"{path}: {len(rows)} rows, expected {size[1]} rows")
+    if not size and not 1 <= len(rows) <= 255:
+        raise ArtError(f"{path}: {len(rows)} rows, expected 1-255")
+    return Grid([row for _, row in rows], dx, dy)
 
 
 def stamp(body, face):
@@ -137,9 +150,9 @@ def build(art_dir):
     chars, colors = load_palette(p("palette.txt"))
     body = load_grid(p("body.txt"), chars, BODY_SIZE)
     states = {s: stamp(body, load_grid(p(f"face_{s}.txt"), chars, FACE_SIZE)) for s in STATES}
-    extras = {e: load_grid(p(f"extra_{e}.txt"), chars, EXTRA_SIZE) for e in EXTRA_FILES}
-    umbrella = load_grid(p("overlay_umbrella.txt"), chars, width=OVERLAY_WIDTH)
-    scarf = load_grid(p("overlay_scarf.txt"), chars, width=OVERLAY_WIDTH)
+    extras = {e: load_grid(p(f"extra_{e}.txt"), chars, EXTRA_SIZE, placed=True) for e in EXTRA_FILES}
+    umbrella = load_grid(p("overlay_umbrella.txt"), chars, width=OVERLAY_WIDTH, placed=True)
+    scarf = load_grid(p("overlay_scarf.txt"), chars, width=OVERLAY_WIDTH, placed=True)
     return Art(chars, colors, states, extras, umbrella, scarf)
 
 

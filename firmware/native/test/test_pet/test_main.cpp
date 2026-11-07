@@ -3,6 +3,8 @@
 
 #include <string.h>
 
+#include <initializer_list>
+
 #include "cta_types.h"
 #include "pet_render.h"
 #include "pet_sprites.h"
@@ -64,6 +66,29 @@ static void test_render_offsets_and_clips() {
     TEST_ASSERT_EQUAL_HEX16(0x7777, mid[63 * 64 + 63]);
 }
 
+static void test_render_exact_image() {
+    // a 3×2 sprite with distinct indexes, offset dx 2, dy 1, at scale 2 and x = −6: column 0 clips off the left
+    const uint8_t idx[6] = {1, 2, 3, 4, 5, 6};
+    const pet::Sprite s = {idx, 3, 2, 2, 1};
+    uint16_t pal[7] = {0, 0x0101, 0x0202, 0x0303, 0x0404, 0x0505, 0x0606};
+    const int W = 10, H = 6;
+    static uint16_t buf[W * H + 2 * 16];
+    for (uint16_t& p : buf) p = 0x1234;
+    uint16_t* d = buf + 16;
+    pet::renderSprite(s, -6, 0, pal, 2, d, W, H);
+    for (int i = 0; i < 16; ++i) {
+        TEST_ASSERT_EQUAL_HEX16(0x1234, buf[i]);               // guard before
+        TEST_ASSERT_EQUAL_HEX16(0x1234, buf[16 + W * H + i]);  // guard after
+    }
+    // art column c lands at x = −6 + (2 + c) × 2: c0 → −2..−1 (clipped), c1 → 0..1, c2 → 2..3; rows at y 2..5
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            uint16_t want = 0x1234;
+            if (y >= 2 && y < 6 && x < 4) want = pal[(y < 4 ? 0 : 3) + (x < 2 ? 2 : 3)];
+            TEST_ASSERT_EQUAL_HEX16_MESSAGE(want, d[y * W + x], "pixel");
+        }
+}
+
 static void test_pet_state_for() {
     TEST_ASSERT_EQUAL_INT((int)pet::PetState::Asleep, (int)pet::petStateFor(cta::Mood::Happy, true));
     TEST_ASSERT_EQUAL_INT((int)pet::PetState::Asleep, (int)pet::petStateFor(cta::Mood::Hyped, true));
@@ -87,8 +112,41 @@ static void test_generated_sprites() {
     TEST_ASSERT_TRUE(pet::kOverlayUmbrella.dy < 0);  // held over the roof, above the body
     TEST_ASSERT_EQUAL_HEX16(pet::rgb565(0x2D6BE6), pet::kDefaultPalette565[pet::kPaintSlot]);
     TEST_ASSERT_EQUAL_HEX16(pet::rgb565(0x7DB4FF), pet::kDefaultPalette565[pet::kPaintLightSlot]);
+    // each state's own face, in PetState order (one telling pixel each; indexes from art/palette.txt)
+    auto at = [](pet::PetState s, int x, int y) { return pet::kPet[(int)s].idx[y * 32 + x]; };
+    TEST_ASSERT_EQUAL_UINT8(13, at(pet::PetState::Sad, 12, 15));     // a tear (T)
+    TEST_ASSERT_EQUAL_UINT8(11, at(pet::PetState::Happy, 11, 17));   // a cheek (P)
+    TEST_ASSERT_EQUAL_UINT8(11, at(pet::PetState::Hyped, 15, 18));   // the open mouth (P)
+    TEST_ASSERT_EQUAL_UINT8(6, at(pet::PetState::Worried, 13, 12));  // a brow (W)
+    TEST_ASSERT_EQUAL_UINT8(6, at(pet::PetState::Sleepy, 11, 15));   // a closed eye (W)
+    TEST_ASSERT_NOT_EQUAL(11, at(pet::PetState::Sleepy, 11, 17));    // no cheek: the door shows through
+    auto extra = [](pet::PetState s, int x, int y) { return pet::kPetExtra[(int)s]->idx[y * 7 + x]; };
+    TEST_ASSERT_EQUAL_UINT8(11, extra(pet::PetState::Happy, 1, 0));   // the heart
+    TEST_ASSERT_EQUAL_UINT8(6, extra(pet::PetState::Hyped, 4, 0));    // excitement lines
+    TEST_ASSERT_EQUAL_UINT8(13, extra(pet::PetState::Worried, 3, 0)); // the sweat drop
+    for (int s : {0, 2, 3, 4, 5}) {
+        TEST_ASSERT_EQUAL_UINT8(7, pet::kPetExtra[s]->w);
+        TEST_ASSERT_EQUAL_UINT8(7, pet::kPetExtra[s]->h);
+        TEST_ASSERT_EQUAL_INT8(33, pet::kPetExtra[s]->dx);  // upper right, beside him
+        TEST_ASSERT_EQUAL_INT8(-6, pet::kPetExtra[s]->dy);
+    }
+    TEST_ASSERT_EQUAL_UINT8(32, pet::kOverlayUmbrella.w);
+    TEST_ASSERT_EQUAL_UINT8(7, pet::kOverlayUmbrella.h);
+    TEST_ASSERT_EQUAL_INT8(-6, pet::kOverlayUmbrella.dy);
+    TEST_ASSERT_EQUAL_UINT8(32, pet::kOverlayScarf.w);
+    TEST_ASSERT_EQUAL_UINT8(5, pet::kOverlayScarf.h);
+    TEST_ASSERT_EQUAL_INT8(22, pet::kOverlayScarf.dy);
     // the faces differ: each mood has its own art
     TEST_ASSERT_NOT_EQUAL(0, memcmp(pet::kPet[(int)pet::PetState::Happy].idx, pet::kPet[(int)pet::PetState::Sad].idx, 1024));
+}
+
+static void test_overlay_for() {
+    using pet::PetState;
+    TEST_ASSERT_EQUAL_PTR(&pet::kOverlayUmbrella, pet::overlayFor(PetState::Happy, cta::Accessory::Umbrella));
+    TEST_ASSERT_EQUAL_PTR(&pet::kOverlayScarf, pet::overlayFor(PetState::Sad, cta::Accessory::Scarf));
+    TEST_ASSERT_NULL(pet::overlayFor(PetState::Happy, cta::Accessory::None));
+    TEST_ASSERT_NULL(pet::overlayFor(PetState::Asleep, cta::Accessory::Umbrella));  // not while docked and asleep
+    TEST_ASSERT_NULL(pet::overlayFor(PetState::Asleep, cta::Accessory::Scarf));
 }
 
 int main(int, char**) {
@@ -96,7 +154,9 @@ int main(int, char**) {
     RUN_TEST(test_rgb565);
     RUN_TEST(test_render_one_pixel_at_scale_2);
     RUN_TEST(test_render_offsets_and_clips);
+    RUN_TEST(test_render_exact_image);
     RUN_TEST(test_pet_state_for);
+    RUN_TEST(test_overlay_for);
     RUN_TEST(test_generated_sprites);
     return UNITY_END();
 }

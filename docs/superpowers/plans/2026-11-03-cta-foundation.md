@@ -634,7 +634,7 @@ git commit -m "feat(tools): GTFS build for train sequences and stop list"
 **Art brief: Trackie (Leo, 2026-11-06).** The pet is Trackie, the iPhone app's pet: Leo's train, a blue L car seen from the front with a face on its door, and no CTA logo or wordmark (iOS redesign spec, "The pet"). **The art is already drawn;** don't redesign it. Copy it into `art/` from `Glyphs` in `ios/CTATracker/Design/Pixel.swift` (the same grids are in the handheld mockup, `docs/ideas/2026-11-04-handheld-ui-mockup.html`):
 - **Body** (`petBody`): one 32×32 grid shared by every mood.
 - **Faces** (`petFaces`): one 10×8 patch per mood, stamped onto the door at columns 11–20, rows 12–19, where `.` keeps the body's pixel. Happy (closed smiling eyes), Hyped (> < eyes, open mouth), Worried (brows, wavy mouth), Sad (T_T with tears), Sleepy (closed eyes). `face_asleep.txt` starts as a copy of Sleepy's, as in the mockup, so it can change on its own later.
-- **Extras** (`petExtras`): a 7×7 one floating at his upper right, bobbing opposite him: a heart (Happy), excitement lines (Hyped), a sweat drop (Worried), Zz (Sleepy, and Asleep reuses it). Sad has none; its tears are on its face.
+- **Extras** (`petExtras`): a 7×7 one floating at his upper right, bobbing with him (as the app and mockup do): a heart (Happy), excitement lines (Hyped), a sweat drop (Worried), Zz (Sleepy, and Asleep reuses it). Sad has none; its tears are on its face.
 - **Weather overlays** (from the mockup's `drawPet`, Open-Meteo rules in spec §6.3): an umbrella held over the roof (32 wide, drawn in the 6 rows *above* the body) and a striped scarf over the bumper (rows 22–26). Neither shows while Asleep. Turn the mockup's rectangles into grids.
 - **Animation:** no extra frames. He bobs one art pixel twice a second (the renderer moves him), as in the app.
 - Trackie is drawn straight on the background (black on the handheld, spec §8.1): no tile behind him.
@@ -698,6 +698,7 @@ git commit -m "feat(pet): Trackie sprites, build tool, renderer"
   - **Grid files** take `#` comment lines and an `@ dx dy` line placing the grid relative to the body's top left: extras at `@ 33 -6` (upper right, as in the mockup), the umbrella at `@ 0 -6`, the scarf at `@ 0 22`.
   - **The palette size check** (17, `kPaletteSize`) lives in `main()`, so tests can use a small palette; the generated `.cpp` also `static_assert`s it. `pet_sprites.h` names the paint slots (`kPaintSlot`, `kPaintLightSlot`).
   - **Previews** are each state plain, with the umbrella, and with the scarf (18 PNGs, 8×, on black like the handheld).
+  - **Review round 1:** `pet::overlayFor(state, accessory)` returns the weather overlay, never while Asleep, so the rule lives in the shared library. Tests now pin an exact clipped image with dx, a negative x, and a non-square sprite and buffer, and one telling pixel per state and extra plus every extra and overlay size and offset (so reordering `STATES` fails). The tool reports the real line after comments, ignores blank lines around a grid but rejects one inside, requires exactly one `@` line in extras and overlays (and none elsewhere), checks dx/dy and overlay heights, and validates colors strictly. The extras bob with Trackie, as the app and mockup do (the brief said opposite).
 
 ---
 
