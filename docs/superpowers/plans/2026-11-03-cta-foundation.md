@@ -152,10 +152,10 @@ struct ApproachRow { char stops[7][8]; int32_t pdist[7]; int32_t before; int32_t
 
 - Produces (`cta_config.h`, `constexpr` values from the spec): `kDockPollSec=30`, `kHandheldClosePollSec=60`, `kHandheldFarPollSec=180`, `kHandheldBusPollSec=60`, `kAlertsPollSec=300`, `kWeatherPollSec=900`, `kSlowPollSec=300`, `kHypedMaxMin=3`, `kStaleSec=300`, `kLedStaleSec=120`, `kNightStartMin=60`, `kNightEndMin=300`, `kTz="CST6CDT,M3.2.0,M11.1.0"`, `kBleMaxPayload=512`, `kNearbyPerTab=10`, `kHypedClosestStops=3`, `kScreenDimSec=15`.
 - Produces (`ble_ids.h`): `kServiceUuid`, `kInfoUuid`, `kWifiUuid`, `kConfigUuid`, `kRequestUuid`, `kNearbyUuid`, `kSnapshotUuid` as `const char*`, using the spec §10 values.
-- Produces: `uint32_t lineColor(const char* route)` (0xRRGGBB, case-insensitive); `bool parseCtaTime(const char* s, int64_t& secs)`; `bool inNightHours(int minuteOfDay, int startMin, int endMin)`.
+- Produces: `uint32_t lineColor(const char* route)` (0xRRGGBB, case-insensitive); `bool parseCtaTime(const char* s, int64_t& secs)` (naive wall seconds); `bool ctaSecondsBetween(const char* from, const char* to, int64_t& secs)` (real elapsed seconds, Chicago DST rules; added 2026-11-07); `bool inNightHours(int minuteOfDay, int startMin, int endMin)`.
 - Produces (`test/fixture.h`): `std::string readFixture(const char* name)`, which reads `../../fixtures/cta/<name>` and fails the test if the file is missing.
 
-- [ ] **Step 1: Create the scaffold.** Add `library.json` (name `cta`, depends on `bblanchon/ArduinoJson@^7`), `firmware/secrets.example.h` (`#define CTA_TRAIN_KEY ""` and `#define CTA_BUS_KEY ""`), and `firmware/native/platformio.ini`:
+- [x] **Step 1: Create the scaffold.** Add `library.json` (name `cta`, depends on `bblanchon/ArduinoJson@^7`), `firmware/secrets.example.h` (`#define CTA_TRAIN_KEY ""` and `#define CTA_BUS_KEY ""`), and `firmware/native/platformio.ini`:
 
 ```ini
 [env:native]
@@ -167,7 +167,7 @@ build_flags = -std=gnu++17
 lib_ignore = cta_net
 ```
 
-- [ ] **Step 2: Write the failing tests** in `test_basics/test_main.cpp`:
+- [x] **Step 2: Write the failing tests** in `test_basics/test_main.cpp`:
 
 ```cpp
 TEST_ASSERT_EQUAL_HEX32(0xC60C30, cta::lineColor("Red"));
@@ -196,15 +196,18 @@ TEST_ASSERT_FALSE(cta::inNightHours(7*60, 23*60, 6*60));
 TEST_ASSERT_FALSE(cta::inNightHours(100, 120, 120));  // start == end means never
 ```
 
-- [ ] **Step 3: Run and confirm failure.** `cd firmware/native && pio test -e native -f test_basics`. Expected: build fails, symbols undefined.
-- [ ] **Step 4: Implement the headers and functions** listed under Interfaces. `parseCtaTime` accepts `YYYY-MM-DDTHH:MM:SS`, `YYYYMMDD HH:MM`, and `YYYYMMDD HH:MM:SS`. It returns naive seconds (local wall time treated as UTC, using a days-from-civil calculation); only differences are ever used.
-- [ ] **Step 5: Run and confirm pass.** Same command. Expected: all tests pass.
-- [ ] **Step 6: Commit.**
+- [x] **Step 3: Run and confirm failure.** `cd firmware/native && pio test -e native -f test_basics`. Expected: build fails, symbols undefined.
+- [x] **Step 4: Implement the headers and functions** listed under Interfaces. `parseCtaTime` accepts `YYYY-MM-DDTHH:MM:SS`, `YYYYMMDD HH:MM`, and `YYYYMMDD HH:MM:SS`. It returns naive seconds (local wall time treated as UTC, using a days-from-civil calculation); only differences are ever used.
+- [x] **Step 5: Run and confirm pass.** Same command. Expected: all tests pass.
+- [x] **Step 6: Commit.**
 
 ```bash
 git add firmware/secrets.example.h firmware/lib/cta firmware/native
 git commit -m "feat(cta): library scaffold, constants, line colors, CTA time parsing"
 ```
+
+- *Done (2026-11-06/07).* Built as planned, plus extra tests (leap days, impossible dates, lookalike routes, every guard the review's mutation tests found uncovered). PlatformIO's registry needed allowing in the cloud environment.
+- *Daylight saving (Leo, 2026-11-07):* naive differences were off by an hour across a clock change (spring-forward 1:58 → 3:03 read 65 min). `ctaSecondsBetween(from, to)` applies Chicago's rules (US rules since 2007, computed, not a table): CDT from the second Sunday of March at 2:00 to the first Sunday of November at 2:00. In the repeated 1:00–1:59 hour each time has two readings, and the pair closest together wins (a tie goes to `to` after `from`), so neither "every arrival is Due" nor "−55 min" can happen. A wall time in the skipped spring hour is read as standard time. Checked against the system tz database for 2007–2040: no mismatch except repeated-hour times resolved to the nearer reading. Tasks 4 and 5 compute minutes with it; `parseCtaTime` stays as the naive primitive.
 
 ---
 
@@ -265,7 +268,7 @@ TEST_ASSERT_FALSE(cta::decodeStopRecord("{\"id\":", 6, r));
 **Interfaces:**
 - Consumes: `StopRecord`, `TrainPos`, `parseCtaTime`, `copyTruncated`.
 - Produces:
-  - `bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out)`: sets `type=Train`, `name` (staNm), `route` (rt of the soonest arrival), and `ts=now`. Fills up to 4 arrivals sorted by `min`, where `min = floor((arrT − tmst)/60)` clamped at ≥ 0, `live = isSch=="0"`, `delayed = isDly=="1"`, and `dest = destNm`. Leaves `id`, `dir`, and `alert` as the caller set them. Returns false if `errCd != "0"` or the JSON is malformed; returns true with `count=0` when there are no etas.
+  - `bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out)`: sets `type=Train`, `name` (staNm), `route` (rt of the soonest arrival), and `ts=now`. Fills up to 4 arrivals sorted by `min`, where `min = floor(ctaSecondsBetween(tmst, arrT)/60)` clamped at ≥ 0 (Task 2, DST-aware), `live = isSch=="0"`, `delayed = isDly=="1"`, and `dest = destNm`. Leaves `id`, `dir`, and `alert` as the caller set them. Returns false if `errCd != "0"` or the JSON is malformed; returns true with `count=0` when there are no etas.
   - `int parseTrainPositions(const char* json, size_t len, TrainPos* out, size_t max)`: returns the number of trains written, or −1 on error. Accepts `train` as either an array or a single object.
 
 - [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).
@@ -312,7 +315,7 @@ TEST_ASSERT_EQUAL_STRING("Belmont", r.name); TEST_ASSERT_EQUAL_STRING("41320", r
 **Interfaces:**
 - Consumes: `StopRecord`, `BusVehicle`, `parseCtaTime`, `copyTruncated`.
 - Produces:
-  - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct `stpid`, in order of first appearance. Sets `type=Bus`, `id`, `name` (stpnm), `route` and `dir` (rt and rtdir of the soonest kept prediction), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor((prdtm − tmstmp)/60)` clamped at ≥ 0; `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count, 0 for a `bustime-response.error` with no `prd`, or −1 if malformed.
+  - `int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* routeFilter, StopRecord* out, size_t max)`: one record per distinct `stpid`, in order of first appearance. Sets `type=Bus`, `id`, `name` (stpnm), `route` and `dir` (rt and rtdir of the soonest kept prediction), and `ts=now`. Arrivals are sorted by `min`, up to 4, with `min = 0` if `prdctdn=="DUE"`, otherwise `floor(ctaSecondsBetween(tmstmp, prdtm)/60)` clamped at ≥ 0 (Task 2, DST-aware); `live = true`; `delayed = dly || prdctdn=="DLY"`; `dest = des`. `routeFilter` (nullptr means all) drops other routes. Returns the count, 0 for a `bustime-response.error` with no `prd`, or −1 if malformed.
   - `int parseBusVehicles(const char* json, size_t len, BusVehicle* out, size_t max)`: accepts numbers or numeric strings for `pid` and `pdist`. Returns −1 on error.
 
 - [ ] **Step 1: Write the failing tests** (the fixtures exist; see above).

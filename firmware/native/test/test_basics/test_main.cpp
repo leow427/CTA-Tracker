@@ -90,6 +90,62 @@ static void test_parse_cta_time_rejects() {
     TEST_ASSERT_EQUAL_INT64(42, t);  // untouched on failure
 }
 
+static void test_cta_seconds_between() {
+    int64_t d;
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-05T08:00:00", "2026-11-05T08:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(180, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261105 08:00", "20261105 08:04:30", d));
+    TEST_ASSERT_EQUAL_INT64(270, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-05T23:58:30", "2026-11-06T00:03:30", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // midnight
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-12-31T23:59:00", "2027-01-01T00:01:00", d));
+    TEST_ASSERT_EQUAL_INT64(120, d);  // New Year
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-05T08:03:00", "2026-11-05T08:00:00", d));
+    TEST_ASSERT_EQUAL_INT64(-180, d);  // an arrival before the response time stays negative; callers clamp
+}
+
+static void test_cta_seconds_between_spring_forward() {
+    int64_t d;
+    // 2026-03-08: 2:00 CST jumps to 3:00 CDT, so 1:58 → 3:03 is 5 min, not 65.
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-03-08T01:58:00", "2026-03-08T03:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20260308 01:59", "20260308 03:01", d));
+    TEST_ASSERT_EQUAL_INT64(120, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2027-03-14T01:55:00", "2027-03-14T03:05:00", d));
+    TEST_ASSERT_EQUAL_INT64(600, d);  // 2027's second Sunday of March
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-03-01T01:58:00", "2026-03-01T03:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(3900, d);  // an ordinary Sunday: no jump
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-03-07T23:00:00", "2026-03-08T04:00:00", d));
+    TEST_ASSERT_EQUAL_INT64(4 * 3600, d);  // across the whole change
+}
+
+static void test_cta_seconds_between_fall_back() {
+    int64_t d;
+    // 2026-11-01: 2:00 CDT falls back to 1:00 CST, so 1:00–1:59 happens twice; the nearest reading wins.
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:10:00", "2026-11-01T01:15:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // both in the repeated hour
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:58:00", "2026-11-01T01:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // 1:58 CDT, then 1:03 CST
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T00:58:00", "2026-11-01T01:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // into the repeated hour
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-01T01:58:00", "2026-11-01T02:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // out of it
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 00:30", "20261101 02:30", d));
+    TEST_ASSERT_EQUAL_INT64(3 * 3600, d);  // across the whole change
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2027-11-07T01:58:00", "2027-11-07T01:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(300, d);  // 2027's first Sunday of November
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("2026-11-08T01:58:00", "2026-11-08T01:03:00", d));
+    TEST_ASSERT_EQUAL_INT64(-55 * 60, d);  // a week later: no repeated hour
+}
+
+static void test_cta_seconds_between_rejects() {
+    int64_t d = 42;
+    TEST_ASSERT_FALSE(cta::ctaSecondsBetween("garbage", "2026-11-05T08:00:00", d));
+    TEST_ASSERT_FALSE(cta::ctaSecondsBetween("2026-11-05T08:00:00", "2026-02-30T08:00:00", d));
+    TEST_ASSERT_FALSE(cta::ctaSecondsBetween(nullptr, nullptr, d));
+    TEST_ASSERT_EQUAL_INT64(42, d);  // untouched on failure
+}
+
 static void test_night_hours() {
     TEST_ASSERT_TRUE(cta::inNightHours(60, 60, 300));    // 1:00 starts night
     TEST_ASSERT_FALSE(cta::inNightHours(300, 60, 300));  // 5:00 ends it (exclusive)
@@ -156,6 +212,10 @@ int main(int, char**) {
     RUN_TEST(test_parse_cta_time);
     RUN_TEST(test_parse_cta_time_formats_agree);
     RUN_TEST(test_parse_cta_time_rejects);
+    RUN_TEST(test_cta_seconds_between);
+    RUN_TEST(test_cta_seconds_between_spring_forward);
+    RUN_TEST(test_cta_seconds_between_fall_back);
+    RUN_TEST(test_cta_seconds_between_rejects);
     RUN_TEST(test_night_hours);
     RUN_TEST(test_config_values);
     RUN_TEST(test_ble_ids);
