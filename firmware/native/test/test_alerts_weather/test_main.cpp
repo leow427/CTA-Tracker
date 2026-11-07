@@ -14,10 +14,6 @@
 void setUp() {}
 void tearDown() {}
 
-static int routesOf(const std::string& json, char routes[][8], size_t max) {
-    return cta::parseAlertRoutes(json.c_str(), json.size(), routes, max);
-}
-
 static std::string alerts(const std::string& alertValue) {
     return "{\"CTAAlerts\":{\"TimeStamp\":\"2026-11-05T08:00:00\",\"ErrorCode\":\"0\",\"ErrorMessage\":null,\"Alert\":" +
            alertValue + "}}";
@@ -32,49 +28,79 @@ static std::string svc(const char* type, const char* id) {
     return std::string("{\"ServiceType\":\"") + type + "\",\"ServiceName\":\"n\",\"ServiceId\":\"" + id + "\"}";
 }
 
-static void test_alerts_fixtures() {
-    char routes[8][8];
-    TEST_ASSERT_EQUAL_INT(2, routesOf(readFixture("alerts.json"), routes, 8));  // station "41320" ignored
-    TEST_ASSERT_EQUAL_STRING("Red", routes[0]);
-    TEST_ASSERT_EQUAL_STRING("22", routes[1]);  // its Service is a lone object
-    TEST_ASSERT_EQUAL_INT(1, routesOf(readFixture("alerts_single.json"), routes, 8));
-    TEST_ASSERT_EQUAL_STRING("Brn", routes[0]);
+// Marks which of `wanted` are alerted; returns the count, or −1.
+static int mark(const std::string& json, std::initializer_list<const char*> wanted, bool* alerted) {
+    const char* w[16];
+    size_t n = 0;
+    for (const char* r : wanted) w[n++] = r;
+    return cta::parseAlertRoutes(json.c_str(), json.size(), w, n, alerted);
 }
 
-static void test_alerts_distinct_capped_and_shapes() {
-    char routes[3][8];
-    const std::string a = alerts("[" + alert("[" + svc("R", "Red") + "," + svc("B", "22") + "]") + "," +
-                                 alert(svc("R", "Red")) + "," + alert("[" + svc("B", "36") + "," + svc("R", "G") + "]") + "]");
-    TEST_ASSERT_EQUAL_INT(3, routesOf(a, routes, 3));  // Red once; capped at max
-    TEST_ASSERT_EQUAL_STRING("Red", routes[0]);
-    TEST_ASSERT_EQUAL_STRING("22", routes[1]);
-    TEST_ASSERT_EQUAL_STRING("36", routes[2]);
-    TEST_ASSERT_EQUAL_INT(0, routesOf(a, routes, 0));
-    // an alert with no ImpactedService, or a non-route service, adds nothing
-    TEST_ASSERT_EQUAL_INT(0, routesOf(alerts("[{\"AlertId\":\"9\"}," + alert(svc("T", "41320")) + "]"), routes, 3));
-    TEST_ASSERT_EQUAL_INT(1, routesOf(alerts(alert(svc("B", "151"))), routes, 3));
-    TEST_ASSERT_EQUAL_STRING("151", routes[0]);
-    char cut[1][8];
-    TEST_ASSERT_EQUAL_INT(1, routesOf(alerts(alert(svc("B", "VERYLONGROUTE"))), cut, 1));
-    TEST_ASSERT_EQUAL_STRING("VERYLON", cut[0]);  // cut to 7 bytes, like record routes
+static void test_alerts_fixtures() {
+    bool a[4];
+    TEST_ASSERT_EQUAL_INT(2, mark(readFixture("alerts.json"), {"Red", "22", "36", "41320"}, a));
+    TEST_ASSERT_TRUE(a[0]);   // Red
+    TEST_ASSERT_TRUE(a[1]);   // 22: its Service is a lone object
+    TEST_ASSERT_FALSE(a[2]);  // 36: no alert
+    TEST_ASSERT_FALSE(a[3]);  // station "41320" is a T service, not a route
+    TEST_ASSERT_EQUAL_INT(1, mark(readFixture("alerts_single.json"), {"Red", "Brn"}, a));
+    TEST_ASSERT_FALSE(a[0]);
+    TEST_ASSERT_TRUE(a[1]);
+}
+
+static void test_alerts_mark_only_wanted_routes() {
+    bool a[3];
+    // a big event alert listing many routes can't crowd out the ones the caller tracks
+    std::string many = "[";
+    for (int r = 1; r <= 60; ++r) many += std::string(r > 1 ? "," : "") + svc("B", std::to_string(r).c_str());
+    many += "]";
+    TEST_ASSERT_EQUAL_INT(2, mark(alerts("[" + alert(many) + "," + alert(svc("R", "G")) + "]"), {"22", "Red", "G"}, a));
+    TEST_ASSERT_TRUE(a[0]);
+    TEST_ASSERT_FALSE(a[1]);
+    TEST_ASSERT_TRUE(a[2]);
+    // the same route in several alerts counts once
+    TEST_ASSERT_EQUAL_INT(1, mark(alerts("[" + alert(svc("R", "Red")) + "," + alert("[" + svc("R", "Red") + "]") + "]"),
+                                  {"Red"}, a));
+    TEST_ASSERT_EQUAL_INT(0, mark(alerts(alert(svc("R", "Red"))), {}, a));
+    // matching is exact, on routes cut to 7 bytes like record routes
+    TEST_ASSERT_EQUAL_INT(1, mark(alerts(alert(svc("B", "VERYLONGROUTE"))), {"VERYLON", "2"}, a));
+    TEST_ASSERT_TRUE(a[0]);
+    TEST_ASSERT_FALSE(a[1]);
+    TEST_ASSERT_EQUAL_INT(0, mark(alerts(alert(svc("B", "222"))), {"22"}, a));
+}
+
+static void test_alerts_skip_bad_services() {
+    bool a[2];
+    // no ImpactedService, a non-route service, a missing type or id, a numeric id: none mark anything
+    const std::string b = alerts("[{\"AlertId\":\"9\"}," + alert(svc("T", "41320")) + "," +
+                                 alert("[{\"ServiceId\":\"22\"},{\"ServiceType\":\"B\"},{\"ServiceType\":\"B\",\"ServiceId\":36}," +
+                                       svc("B", "151") + "]") + "]");
+    TEST_ASSERT_EQUAL_INT(1, mark(b, {"22", "151"}, a));
+    TEST_ASSERT_FALSE(a[0]);
+    TEST_ASSERT_TRUE(a[1]);
 }
 
 static void test_alerts_empty_and_errors() {
-    char routes[4][8];
-    // no Alert (CTA's "no alerts" reply) is zero routes, whatever ErrorCode says, as in the app
-    TEST_ASSERT_EQUAL_INT(0, routesOf("{\"CTAAlerts\":{\"ErrorCode\":\"50\",\"ErrorMessage\":\"No alerts\"}}", routes, 4));
-    TEST_ASSERT_EQUAL_INT(0, routesOf(alerts("[]"), routes, 4));
-    TEST_ASSERT_EQUAL_INT(-1, routesOf("{\"CTAAlerts\":", routes, 4));
-    TEST_ASSERT_EQUAL_INT(-1, routesOf("{\"other\":1}", routes, 4));
-    TEST_ASSERT_EQUAL_INT(-1, cta::parseAlertRoutes(nullptr, 0, routes, 4));
+    bool a[2] = {true, true};
+    // no Alert (CTA's "no alerts" reply) marks nothing, whatever ErrorCode says, as in the app
+    TEST_ASSERT_EQUAL_INT(0, mark("{\"CTAAlerts\":{\"ErrorCode\":\"50\",\"ErrorMessage\":\"No alerts\"}}", {"Red", "22"}, a));
+    TEST_ASSERT_FALSE(a[0]);
+    TEST_ASSERT_FALSE(a[1]);
+    TEST_ASSERT_EQUAL_INT(0, mark(alerts("[]"), {"Red"}, a));
+    a[0] = true;
+    TEST_ASSERT_EQUAL_INT(-1, mark("{\"CTAAlerts\":", {"Red"}, a));
+    TEST_ASSERT_TRUE(a[0]);  // untouched on failure: the caller keeps its last alerts
+    TEST_ASSERT_EQUAL_INT(-1, mark("{\"other\":1}", {"Red"}, a));
+    const char* w[1] = {"Red"};
+    TEST_ASSERT_EQUAL_INT(-1, cta::parseAlertRoutes(nullptr, 0, w, 1, a));
 }
 
 static void test_alerts_stay_filtered() {
     unsigned& passes = cta::json::unfilteredPasses();
-    char routes[8][8];
+    bool a[2];
     passes = 0;
-    routesOf(readFixture("alerts.json"), routes, 8);  // mixes a Service list and a lone Service
-    routesOf(readFixture("alerts_single.json"), routes, 8);  // a lone Alert
+    mark(readFixture("alerts.json"), {"Red", "22"}, a);  // mixes a Service list and a lone Service
+    mark(readFixture("alerts_single.json"), {"Brn"}, a);  // a lone Alert
     TEST_ASSERT_EQUAL_UINT(0, passes);
 }
 
@@ -122,7 +148,8 @@ static void test_accessory() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_alerts_fixtures);
-    RUN_TEST(test_alerts_distinct_capped_and_shapes);
+    RUN_TEST(test_alerts_mark_only_wanted_routes);
+    RUN_TEST(test_alerts_skip_bad_services);
     RUN_TEST(test_alerts_empty_and_errors);
     RUN_TEST(test_alerts_stay_filtered);
     RUN_TEST(test_weather);

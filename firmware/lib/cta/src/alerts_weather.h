@@ -6,10 +6,12 @@
 
 namespace cta {
 
-// Writes the distinct ServiceIds whose ServiceType is "R" (train route) or "B" (bus route), in order, up to max,
-// each cut to 7 bytes. Alert and Service may each be a list or one object. A missing Alert (CTA's "no alerts"
-// reply, whatever its ErrorCode) is 0 routes, as in the app. Returns the count, or −1 on malformed JSON.
-int parseAlertRoutes(const char* json, size_t len, char routes[][8], size_t max);
+// Marks which of the caller's routes have an alert: alerted[i] is true when some alert lists wanted[i] as a
+// ServiceType "R" (train route) or "B" (bus route) service, matched exactly after cutting the ServiceId to 7 bytes,
+// as record routes are. Alert and Service may each be a list or one object; an alert can list any number of
+// routes. A missing Alert (CTA's "no alerts" reply, whatever its ErrorCode) marks nothing, as in the app.
+// Returns how many wanted routes are alerted, or −1 on malformed JSON, leaving alerted untouched.
+int parseAlertRoutes(const char* json, size_t len, const char* const* wanted, size_t nWanted, bool* alerted);
 
 // Reads current.weather_code (an integer) and current.temperature_2m (a number). False, leaving both untouched,
 // if either is missing or the JSON is malformed.

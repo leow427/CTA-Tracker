@@ -375,15 +375,16 @@ TEST_ASSERT_EQUAL_INT32(100, vs[1].pid); TEST_ASSERT_EQUAL_INT32(1500, vs[1].pdi
 
 **Interfaces:**
 - Produces:
-  - `int parseAlertRoutes(const char* json, size_t len, char routes[][8], size_t max)`: returns the distinct `ServiceId`s whose `ServiceType` is "R" (train route) or "B" (bus route), or −1 on error. Accepts `Alert` and `Service` as an array or a single object.
+  - `int parseAlertRoutes(const char* json, size_t len, const char* const* wanted, size_t nWanted, bool* alerted)` (changed 2026-11-07, review round 1, from returning up to `max` routes in CTA's order): marks which of the caller's routes some alert lists as a `ServiceType` "R" (train route) or "B" (bus route) service; returns how many, or −1 on error, leaving `alerted` untouched. Accepts `Alert` and `Service` as an array or a single object.
   - `bool parseWeather(const char* json, size_t len, int& wmo, float& tempC)`.
   - `Accessory accessoryFor(int wmo, float tempC)`: Umbrella for codes 51–67, 80–82, and 95–99. Otherwise Scarf for codes 71–77, 85–86, or tempC < 0. Otherwise None.
 
 - [x] **Step 1: Write the failing tests** (the fixtures exist; see above).
 
 ```cpp
-TEST_ASSERT_EQUAL_INT(2, cta::parseAlertRoutes(a.c_str(), a.size(), routes, 8));   // "Red", "22"; station "41320" ignored
-TEST_ASSERT_EQUAL_INT(1, cta::parseAlertRoutes(s.c_str(), s.size(), routes, 8));   TEST_ASSERT_EQUAL_STRING("Brn", routes[0]);
+const char* w[] = {"Red", "22", "36", "41320"}; bool on[4];
+TEST_ASSERT_EQUAL_INT(2, cta::parseAlertRoutes(a.c_str(), a.size(), w, 4, on));   // Red, 22; 36 has none; station "41320" is not a route
+const char* b[] = {"Brn"}; TEST_ASSERT_EQUAL_INT(1, cta::parseAlertRoutes(s.c_str(), s.size(), b, 1, on));
 int w; float t; TEST_ASSERT_TRUE(cta::parseWeather(wx.c_str(), wx.size(), w, t));  TEST_ASSERT_EQUAL_INT(61, w);
 TEST_ASSERT_EQUAL((int)cta::Accessory::Umbrella, (int)cta::accessoryFor(61, 5));
 TEST_ASSERT_EQUAL((int)cta::Accessory::Umbrella, (int)cta::accessoryFor(61, -1));   // rain beats cold
@@ -400,8 +401,9 @@ TEST_ASSERT_EQUAL((int)cta::Accessory::None,     (int)cta::accessoryFor(2, 10));
 - [x] **Step 5: Commit.** `git commit -m "feat(cta): alert route and weather parsing, accessory rule"`
 - *Done (2026-11-07).* Built as planned, plus tests for duplicate routes, `max`, non-route services, alerts without `ImpactedService`, every accessory range edge and 0 °C, and malformed or partial weather. Rulings:
   - **`ErrorCode` is ignored; a missing `Alert` is 0 routes**, as in the app (CTA's "no alerts" reply can carry a nonzero code). Only malformed JSON, or no `CTAAlerts` object, is −1.
-  - **Filter:** each alert keeps only its `ImpactedService` (whole, since CTA mixes a `Service` list in one alert with a lone object in the next), dropping the HTML descriptions; a lone `Alert` object has its own filter. Only a reply with no alerts reaches the unfiltered pass.
-  - **Routes are cut to 7 bytes**, like record routes, so `alert` matching compares like with like.
+  - **Wanted routes, not a list (review round 1):** the first version returned routes in CTA's order up to `max`, so a parade or marathon alert listing 40 routes could crowd out the 22 the dock tracks (no ⚠, no Sad). Now the caller passes the routes it polls and gets a flag for each, as the app keeps only the asked-for routes. Matching is exact on the `ServiceId` cut to 7 bytes, like record routes.
+  - **Filter, two passes:** only each service's `ServiceType` and `ServiceId` are kept, dropping the HTML descriptions and the other service fields (a big event alert kept whole cost 20–30 KB of internal heap). A filter holds one shape per path, and CTA mixes a `Service` list in one alert with a lone object in the next, so the reply is read twice, once keeping lists and once keeping lone services; each alert's services survive in exactly one pass. Only a reply with no alerts reaches the unfiltered pass.
+  - **Check with the first real recording:** if CTA files elevator outages as `ServiceType` "R" services (as `alerts_single.json` models), most train lines would read alerted (⚠, Sad) nearly all the time. If so, filter them out in the alerts URL (Customer Alerts has an accessibility parameter; verify its name) or by `Impact`, in the firmware and the app.
   - **Weather:** `weather_code` must be an integer and `temperature_2m` a number; otherwise false with both outputs untouched.
 
 ---

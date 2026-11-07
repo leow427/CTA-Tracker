@@ -3,42 +3,57 @@
 #include <ArduinoJson.h>
 #include <string.h>
 
+#include <initializer_list>
+#include <vector>
+
 #include "json_util.h"
 #include "text.h"
 
 namespace cta {
 
-int parseAlertRoutes(const char* json, size_t len, char routes[][8], size_t max) {
-    // Keep only each alert's ImpactedService (small) and drop its HTML descriptions (large). ImpactedService is kept
-    // whole because CTA mixes a Service list in one alert with a lone Service object in the next.
-    JsonDocument asList, asObject;
-    asList["CTAAlerts"]["Alert"][0]["ImpactedService"] = true;
-    asObject["CTAAlerts"]["Alert"]["ImpactedService"] = true;
-    JsonDocument doc;
-    if (!json::parseShapes(json, len, doc, {&asList, &asObject}, [](JsonDocument& d) {
-            JsonVariantConst a = d["CTAAlerts"]["Alert"];
-            return a.is<JsonArrayConst>() || a.is<JsonObjectConst>();  // none: the small unfiltered pass decides
-        }))
-        return -1;
-    JsonVariantConst body = doc["CTAAlerts"];
-    if (!body.is<JsonObjectConst>()) return -1;
+int parseAlertRoutes(const char* json, size_t len, const char* const* wanted, size_t nWanted, bool* alerted) {
+    // Keep only each service's ServiceType and ServiceId, dropping the HTML descriptions and the other service
+    // fields. A filter holds one shape per path, and CTA mixes a Service list in one alert with a lone Service
+    // object in the next, so this reads the reply twice: once keeping Service lists, once keeping lone Services.
+    // Each alert's services survive in exactly one of the two documents. Alert itself may be a list or one object.
+    std::vector<char> marks(nWanted, 0);
+    for (int pass = 0; pass < 2; ++pass) {
+        JsonDocument asList, asObject;  // Alert as a list, Alert as one object
+        const JsonObject alerts[2] = {asList["CTAAlerts"]["Alert"][0].to<JsonObject>(),
+                                      asObject["CTAAlerts"]["Alert"].to<JsonObject>()};
+        for (JsonObject alert : alerts) {
+            JsonObject service = pass == 0 ? alert["ImpactedService"]["Service"][0].to<JsonObject>()
+                                           : alert["ImpactedService"]["Service"].to<JsonObject>();
+            service["ServiceType"] = true;
+            service["ServiceId"] = true;
+        }
+        JsonDocument doc;
+        if (!json::parseShapes(json, len, doc, {&asList, &asObject}, [](JsonDocument& d) {
+                JsonVariantConst a = d["CTAAlerts"]["Alert"];
+                return a.is<JsonArrayConst>() || a.is<JsonObjectConst>();  // none: the small unfiltered pass decides
+            }))
+            return -1;
+        if (!doc["CTAAlerts"].is<JsonObjectConst>()) return -1;
 
-    size_t n = 0;
-    json::forEachItem(body["Alert"], [&](JsonObjectConst alert) {
-        json::forEachItem(alert["ImpactedService"]["Service"], [&](JsonObjectConst s) {
-            const char* type = s["ServiceType"].as<const char*>();
-            const char* id = s["ServiceId"].as<const char*>();
-            if (type == nullptr || id == nullptr || (strcmp(type, "R") != 0 && strcmp(type, "B") != 0)) return;
-            char cut[8];
-            copyTruncated(cut, id, sizeof(cut) - 1);
-            for (size_t i = 0; i < n; ++i) {
-                if (strcmp(routes[i], cut) == 0) return;
-            }
-            if (n >= max) return;
-            memcpy(routes[n++], cut, sizeof(cut));
+        json::forEachItem(doc["CTAAlerts"]["Alert"], [&](JsonObjectConst alert) {
+            json::forEachItem(alert["ImpactedService"]["Service"], [&](JsonObjectConst s) {
+                const char* type = s["ServiceType"].as<const char*>();
+                const char* id = s["ServiceId"].as<const char*>();
+                if (type == nullptr || id == nullptr || (strcmp(type, "R") != 0 && strcmp(type, "B") != 0)) return;
+                char cut[8];
+                copyTruncated(cut, id, sizeof(cut) - 1);
+                for (size_t i = 0; i < nWanted; ++i) {
+                    if (wanted[i] != nullptr && strcmp(wanted[i], cut) == 0) marks[i] = 1;
+                }
+            });
         });
-    });
-    return static_cast<int>(n);
+    }
+    int n = 0;
+    for (size_t i = 0; i < nWanted; ++i) {
+        alerted[i] = marks[i] != 0;
+        n += marks[i];
+    }
+    return n;
 }
 
 bool parseWeather(const char* json, size_t len, int& wmo, float& tempC) {
