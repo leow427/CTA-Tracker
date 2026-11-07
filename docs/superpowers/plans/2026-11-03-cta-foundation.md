@@ -680,19 +680,24 @@ void renderSprite(const Sprite& s, int x, int y, const uint16_t* palette565, uin
 - Produces (`pet_sprites.h`): `extern const Sprite kPet[6];` (indexed by `PetState`: the body with that face already stamped, 32×32), `extern const Sprite* const kPetExtra[6];` (nullptr for Sad), `extern const Sprite kOverlayUmbrella, kOverlayScarf;`, `extern const uint16_t kDefaultPalette565[17];`. The build composes body + face, so the device never stamps faces.
 - CLI: `python3 tools/sprite_build.py` validates every grid (body 32×32, faces 10×8, extras 7×7, overlays at their declared sizes; only palette characters), writes `pet_sprites.cpp`, and writes 8× PNG previews of each state, with and without each overlay (stdlib `zlib` + `struct`). It exits non-zero and names the file and line on any invalid grid. The iPhone app plan later extends it to write `data/pet_sprites.json`, so `art/` becomes the one source and the app's hard-coded grids go away.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - **Python:** `test_rejects_short_grid` (a 31-row body → error naming the file); `test_rejects_unknown_char`; `test_rejects_wrong_face_size`; `test_face_stamp` (a face's non-`.` pixels replace the body's at columns 11–20, rows 12–19, and its `.` pixels keep the body's); `test_cpp_has_all_states` (the output contains `kPet` with 6 entries and `kPetExtra` with nullptr for Sad); `test_png_signature` (the preview starts with `\x89PNG`).
   - **Native** `test_pet`: `rgb565(0xFFFFFF) == 0xFFFF`; `rgb565(0x2D6BE6) == 0x2B5C`. `renderSprite` with a 32×32 sprite whose only non-zero pixel is (0,0) = slot 6, at scale 2 into a 64×64 buffer pre-filled with 0x1234, sets exactly the 4 pixels (0..1, 0..1) to `palette[6]` and leaves everything else at 0x1234. A sprite with `dy = −6` at y = 0 draws only its rows that land inside the buffer and writes nothing out of bounds. `petStateFor(Mood::Happy, true) == PetState::Asleep`.
-- [ ] **Step 2: Run and confirm failure.** `python3 -m unittest discover -s tools -v` and `cd firmware/native && pio test -e native -f test_pet`.
-- [ ] **Step 3: Implement** `sprite_build.py`, `pet_render.cpp`, and `pet_sprites.h`.
-- [ ] **Step 4: Copy Trackie into `art/`** from the app's `Glyphs` (body, 5 faces, 4 extras), add the Asleep face, and draw the umbrella and scarf grids from the mockup's shapes. Run `python3 tools/sprite_build.py`. Pass: exit code 0, and the 6 state previews match the app's pet pixel for pixel (compare against a render of the Swift grids). Show Leo the previews, including the overlays.
-- [ ] **Step 5: Run all tests and confirm pass.** Both commands from Step 2, plus `pio test -e native` for everything.
-- [ ] **Step 6: Commit.**
+- [x] **Step 2: Run and confirm failure.** `python3 -m unittest discover -s tools -v` and `cd firmware/native && pio test -e native -f test_pet`.
+- [x] **Step 3: Implement** `sprite_build.py`, `pet_render.cpp`, and `pet_sprites.h`.
+- [x] **Step 4: Copy Trackie into `art/`** from the app's `Glyphs` (body, 5 faces, 4 extras), add the Asleep face, and draw the umbrella and scarf grids from the mockup's shapes. Run `python3 tools/sprite_build.py`. Pass: exit code 0, and the 6 state previews match the app's pet pixel for pixel (compare against a render of the Swift grids). Show Leo the previews, including the overlays.
+- [x] **Step 5: Run all tests and confirm pass.** Both commands from Step 2, plus `pio test -e native` for everything.
+- [x] **Step 6: Commit.**
 
 ```bash
 git add art/*.txt tools/sprite_build.py tools/test_sprite_build.py firmware/lib/pet firmware/native/test/test_pet .gitignore
 git commit -m "feat(pet): Trackie sprites, build tool, renderer"
 ```
+
+- *Done (2026-11-07).* Built as planned. The body, the 5 faces, and the 4 extras were copied into `art/` by a script that reads `Glyphs` in the app's `Pixel.swift`, and the 5 composed moods match the app's pixel for pixel; the umbrella and scarf grids come from the mockup's `drawPet` shapes. Rulings:
+  - **Grid files** take `#` comment lines and an `@ dx dy` line placing the grid relative to the body's top left: extras at `@ 33 -6` (upper right, as in the mockup), the umbrella at `@ 0 -6`, the scarf at `@ 0 22`.
+  - **The palette size check** (17, `kPaletteSize`) lives in `main()`, so tests can use a small palette; the generated `.cpp` also `static_assert`s it. `pet_sprites.h` names the paint slots (`kPaintSlot`, `kPaintLightSlot`).
+  - **Previews** are each state plain, with the umbrella, and with the scarf (18 PNGs, 8×, on black like the handheld).
 
 ---
 

@@ -1,0 +1,20 @@
+# Trackie's palette: <char> <slot> <#RRGGBB or - for transparent> <role>.
+# Slots 0-13 are the app's petChars/petPalette (ios/CTATracker/Design/Pixel.swift), in order; 14-16 color the
+# weather overlays (from the handheld mockup). The app's pet paint replaces slots 2 and 3.
+. 0 - transparent
+K 1 #0B0D14 outline, door
+B 2 #2D6BE6 body (pet paint replaces it)
+L 3 #7DB4FF body light (pet paint, lightened)
+G 4 #C3C8CE trim
+S 5 #8E949B trim shade
+W 6 #FFFFFF windows, face
+D 7 #5A6069 couplers
+C 8 #9BEFF5 destination sign
+R 9 #E5333D marker light, scarf stripe
+Y 10 #FFD43B headlight
+P 11 #F27DAE cheeks, heart
+U 12 #A9AEB5 bumper, wheels, door handles
+T 13 #7FD3FF tears, sweat
+F 14 #F3E6D0 scarf stripe
+M 15 #FF5F7A umbrella
+N 16 #B8324B umbrella edge

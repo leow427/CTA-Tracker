@@ -1,0 +1,14 @@
+{
+  "name": "pet",
+  "version": "0.1.0",
+  "description": "Trackie, the pet: generated sprites and an index-sprite renderer.",
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": {
+    "cta": "*"
+  },
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}
