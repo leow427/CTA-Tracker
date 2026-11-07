@@ -520,13 +520,15 @@ TEST_ASSERT_EQUAL_HEX8(0b1000000, cta::litMaskBuses(rows + 1, 1, v, 6));
   - `bool weatherUrl(char* buf, size_t cap, double lat, double lon)`: `https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code`.
 - Produces (`cta_fetch.h`, Arduino only): `int ctaGet(const char* url, char* buf, size_t cap, uint32_t timeoutMs = 8000)`. Returns the body length, or −1 for connect/TLS failure, −2 for a non-200 status, −3 if the body exceeds `cap`. Uses the CA-bundle snippet recorded in `docs/notes/toolchain.md`. Callers pass PSRAM buffers for large responses (bus patterns).
 
-- [ ] **Step 1: Write the failing native tests.** `trainArrivalsUrl(…, "K", "41320")` contains `mapid=41320` and `outputType=JSON`; with `"30255"` it contains `stpid=30255`. `busPredictionsUrl` with 11 IDs returns false, and with `{"1001","1002"}` contains `stpid=1001,1002&format=json`. `weatherUrl(…, 41.87812, -87.62980)` contains `latitude=41.8781&longitude=-87.6298`. Any builder with `cap=20` returns false.
-- [ ] **Step 2: Run and confirm failure.** `pio test -e native -f test_urls`.
-- [ ] **Step 3: Implement** `urls.cpp` with `snprintf`, then `ctaGet`.
-- [ ] **Step 4: Run and confirm the native tests pass.**
+- [x] **Step 1: Write the failing native tests.** `trainArrivalsUrl(…, "K", "41320")` contains `mapid=41320` and `outputType=JSON`; with `"30255"` it contains `stpid=30255`. `busPredictionsUrl` with 11 IDs returns false, and with `{"1001","1002"}` contains `stpid=1001,1002&format=json`. `weatherUrl(…, 41.87812, -87.62980)` contains `latitude=41.8781&longitude=-87.6298`. Any builder with `cap=20` returns false.
+- [x] **Step 2: Run and confirm failure.** `pio test -e native -f test_urls`.
+- [x] **Step 3: Implement** `urls.cpp` ~~with `snprintf`~~, then `ctaGet` (**9b**, see below).
+- [x] **Step 4: Run and confirm the native tests pass.**
+- *URL builders done (2026-11-07).* Mirroring the app's `CTAClient` and `URLTests`. Rulings: values are percent-encoded (RFC 3986 unreserved characters pass) through a bounded builder instead of `snprintf`, so a stray character can't add a query parameter and nothing is written past `cap`; list separators are bare commas. `trainArrivalsUrl` rejects an id starting with neither 4 nor 3; `weatherUrl` rejects non-finite or out-of-range coordinates; `alertsUrl` needs at least one route. On failure `buf` holds "".
+- **9b, after Task 1 (worker ruling, 2026-11-07):** `ctaGet` (`firmware/lib/cta_net`) and the smoke project (Steps 5–6) wait for `docs/notes/toolchain.md`: `ctaGet` uses the CA-bundle snippet Task 1 records for the pinned core, and neither can be compiled in a container without the ESP32 toolchain. Build them right after Task 1, with `WIFI_SSID`/`WIFI_PASS` added to `secrets.example.h` then.
 - [ ] **Step 5: Write the smoke project** `firmware/smoke/src/main.cpp`. It joins the Wi-Fi from `secrets.h` (add `#define WIFI_SSID` and `#define WIFI_PASS` to `secrets.example.h`, for the smoke test only; real devices get Wi-Fi from the app), fetches weather and prints the accessory, then, if `CTA_TRAIN_KEY` is non-empty, fetches arrivals for `41320` and prints `encodeStopRecord` output.
 - [ ] **Step 6 (Leo, once keys arrive): run the smoke test on the dock board.** Pass: the serial output shows a weather code and a stop record JSON with at least one arrival. Save the raw arrivals body as `fixtures/cta/recorded_train_arrivals.json`, and re-run `pio test -e native` with a test that parses it (`count ≥ 0`, returns true). Also save one `ttpositions?rt=Red` body and check whether `route` is a list or one object, and whether a line with one train sends `train` as one object (Task 4's filters handle all of these; the recording settles which is real).
-- [ ] **Step 7: Commit.** `git commit -m "feat(cta): URL builders, HTTPS fetch, on-device smoke sketch"`
+- [ ] **Step 7: Commit.** URL builders: `feat(cta): URL builders` (done). 9b: `git commit -m "feat(cta): HTTPS fetch and on-device smoke sketch"`
 
 ---
 
