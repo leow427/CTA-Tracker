@@ -162,6 +162,12 @@ static void test_cta_seconds_between_boundaries() {
     TEST_ASSERT_EQUAL_INT64(1860, d);  // 2:00 is already standard time
     TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 02:00", "20261101 02:05", d));
     TEST_ASSERT_EQUAL_INT64(300, d);
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 01:59", "20261101 01:00", d));
+    TEST_ASSERT_EQUAL_INT64(60, d);  // 1:00 has a standard reading too: 1:59 CDT, then 1:00 CST
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20261101 00:30", "20261101 02:00", d));
+    TEST_ASSERT_EQUAL_INT64(150 * 60, d);  // 2:00 has only its standard reading
+    TEST_ASSERT_TRUE(cta::ctaSecondsBetween("20260308 01:58", "20260308 02:05", d));
+    TEST_ASSERT_EQUAL_INT64(420, d);  // the skipped spring hour reads as standard time
 }
 
 static void test_cta_seconds_between_rejects() {
