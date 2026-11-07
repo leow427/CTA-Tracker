@@ -530,7 +530,7 @@ function drawHome(ctx, st, now, aod) {
   HOME.tile = { x: tx, y: ty, w: tile, h: tile };
   plate(ctx, tx, ty, tile, tile, { fill: T.cream, rim: T.navy, rimW: 3 });
   drawPet(ctx, st.mood, tx + 12, ty + 12 + (up ? -4 : 0) - hop * 4, 4, st.paint, st.weather);
-  if (EXTRAS[st.mood]) art(ctx, EXTRAS[st.mood], tx + tile - 7, ty + (up ? -14 : -10), 4, st.paint);   // floats the other way
+  if (EXTRAS[st.mood]) art(ctx, EXTRAS[st.mood], tx + tile - 7, ty + (up ? -14 : -10), 4, st.paint);   // bobs with him (Leo, 2026-11-07)
   bubble(ctx, text, tx + tile + gap, ty + tile / 2);
   HOME.card = null;
   if (docked) {

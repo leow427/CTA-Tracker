@@ -134,7 +134,7 @@ struct PetAvatar: View {
                     .overlay(alignment: .topTrailing) {
                         if let extra = Glyphs.petExtra(mood) {
                             PixelImage(image: extra, points: 21)   // 3×, the pet's scale
-                                .offset(x: 16, y: up ? -12 : -9)   // floats the other way
+                                .offset(x: 16, y: up ? -12 : -9)   // bobs with the pet (Leo, 2026-11-07)
                         }
                     }
             }
