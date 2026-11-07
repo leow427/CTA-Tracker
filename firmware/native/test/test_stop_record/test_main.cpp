@@ -3,6 +3,7 @@
 
 #include <string.h>
 
+#include <initializer_list>
 #include <string>
 
 #include "cta_config.h"
@@ -70,8 +71,10 @@ static void assertSame(const cta::StopRecord& a, const cta::StopRecord& b) {
 static void test_round_trip() {
     const cta::StopRecord r = sample();
     char buf[cta::kBleMaxPayload + 1];
+    memset(buf, '#', sizeof(buf));
     const size_t n = cta::encodeStopRecord(r, buf, sizeof(buf));
     TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_CHAR('\0', buf[n]);  // NUL-terminated when there's room
     TEST_ASSERT_EQUAL_size_t(strlen(buf), n);
     TEST_ASSERT_NULL(strstr(buf, "\\/"));  // no escaped slashes wasting bytes
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"type\":\"train\""));
@@ -195,15 +198,40 @@ static void test_over_limit_does_not_encode() {
 
 static void test_control_characters_stay_valid_json() {
     cta::StopRecord r = sample();
-    strcpy(r.name, "Bel\x01mont\tStop\n");
+    strcpy(r.name, "Bel\x01mont\tStop\n\x0B\x1F");  // 0x0B and 0x1F are also written raw by ArduinoJson
     char buf[cta::kBleMaxPayload + 1];
     const size_t n = cta::encodeStopRecord(r, buf, sizeof(buf));
     TEST_ASSERT_TRUE(n > 0);
     for (size_t i = 0; i < n; ++i) TEST_ASSERT_TRUE((unsigned char)buf[i] >= 0x20);  // no raw control bytes
     cta::StopRecord d{};
     TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, n, d));
-    TEST_ASSERT_EQUAL_STRING("Bel mont Stop ", d.name);
+    TEST_ASSERT_EQUAL_STRING("Bel mont Stop   ", d.name);
     TEST_ASSERT_EQUAL_STRING("Belmont", sample().name);
+}
+
+static void test_encode_clamps_count() {
+    cta::StopRecord r = worst();
+    char ref[cta::kBleMaxPayload + 1], buf[cta::kBleMaxPayload + 1];
+    const size_t n4 = cta::encodeStopRecord(r, ref, sizeof(ref));
+    TEST_ASSERT_TRUE(n4 > 0);
+    for (uint8_t bad : {(uint8_t)5, (uint8_t)255}) {  // a parser bug must not read past arrivals[]
+        r.count = bad;
+        const size_t n = cta::encodeStopRecord(r, buf, sizeof(buf));
+        TEST_ASSERT_EQUAL_size_t(n4, n);
+        TEST_ASSERT_EQUAL_STRING(ref, buf);
+        cta::StopRecord d{};
+        TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, n, d));
+        TEST_ASSERT_EQUAL_UINT8(cta::kMaxArrivals, d.count);
+    }
+}
+
+static void test_decode_respects_len() {
+    char buf[cta::kBleMaxPayload + 1];
+    const size_t n = cta::encodeStopRecord(sample(), buf, sizeof(buf));
+    TEST_ASSERT_TRUE(n > 0);
+    cta::StopRecord d{};
+    TEST_ASSERT_FALSE(cta::decodeStopRecord(buf, n - 1, d));  // the closing brace is past len: not received
+    TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, n, d));
 }
 
 static void test_decode_keeps_four_and_truncates() {
@@ -267,6 +295,8 @@ int main(int, char**) {
     RUN_TEST(test_encode_respects_cap_exactly);
     RUN_TEST(test_over_limit_does_not_encode);
     RUN_TEST(test_control_characters_stay_valid_json);
+    RUN_TEST(test_encode_clamps_count);
+    RUN_TEST(test_decode_respects_len);
     RUN_TEST(test_decode_keeps_four_and_truncates);
     RUN_TEST(test_decode_rejects);
     RUN_TEST(test_decode_defaults_and_clamps);
