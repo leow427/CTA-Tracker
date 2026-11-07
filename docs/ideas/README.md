@@ -4,7 +4,7 @@ Exploratory work that isn't part of the spec yet. Nothing here is a contract: th
 
 | File | What it is |
 |---|---|
-| `2026-11-04-handheld-ui-mockup.html` | Interactive mockup of the handheld's round 466×466 AMOLED UI, restyled on 2026-11-05 to match the iPhone app: night navy, line-colored pixel-plate cards, the app's pixel minutes, and Trackie (the app's 32×32 sprite) on a cream tile with a speech bubble. Home, Trains/Buses lists, stop detail, a pixel line map (swipe left from Home: the L lines drawn on the device from `data/train_shapes.json`, nearby stops, live trains, recenter), dim always-on, docked, pairing and first-run states, plus a panel-power meter. Open it in a browser. |
+| `2026-11-04-handheld-ui-mockup.html` | Interactive mockup of the handheld's round 466×466 AMOLED UI in the iPhone app's pixel style, updated 2026-11-07 to Leo's decisions: black on every screen, Trackie straight on black (no tile), one card per line and direction at a station and per route and direction at a bus stop, each saying where it ends and the way it goes. Home, Trains/Buses lists, stop detail, the stretch-goal map, dim always-on, docked, pairing and first-run states, plus a panel-power meter. Open it in a browser. The written guide is `docs/handheld-ui.md`. |
 | `2026-11-05-ios-diorama-mockup.html` | Scratch mockup of the iPhone app's diorama map (see the iOS redesign spec). |
 
 Questions from the handheld mockup, answered by Leo on 2026-11-06 (spec §8.1 and Plan 3 now follow these):

@@ -86,7 +86,7 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
    - Weather every 15 min at the phone's last location.
    - Night hours or docked: everything every `kSlowPollSec`.
    - Each station's response becomes card records through `parseTrainCards` (spec §6.2).
-6. **Stops and detail screens** (spec §8.1; the mockup in `docs/ideas/` shows the look).
+6. **Stops and detail screens** (spec §8.1; `docs/handheld-ui.md` is the screen-by-screen guide, and the mockup in `docs/ideas/` shows the look).
    - `ui_kit.*` first: black background, line-colored cards with the app's `LineColors.card`/`cardText` math, pixel corners, the 5×7 pixel digits as a bitmap font at whole scales.
    - Tabs and a card list suited to a round screen: center-weighted, cards away from the focus shrink, fade, and narrow inside the circle.
    - Trains: cards for the 10 nearest stations, nearest station first, soonest first within a station. Buses: one card per route and direction at each stop (Plan 1 Task 5 records), soonest first within a stop.

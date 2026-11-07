@@ -113,7 +113,7 @@ section { display: flex; flex-direction: column; gap: 14px; }
   <header>
     <span class="eyebrow">Trackie · handheld · 466 × 466 round AMOLED</span>
     <h1>Trackie on the handheld</h1>
-    <p class="lede">An interactive mockup of the handheld screens in the iPhone app's look: night navy, line-colored cards that sit up like game tiles, departure-board pixel minutes, and Trackie on his cream tile saying how he feels. Swipe and tap the screen like the real thing, or use the panel to jump between states.</p>
+    <p class="lede">An interactive mockup of the handheld screens in the iPhone app's pixel style, on black: line-colored cards that sit up like game tiles, departure-board pixel minutes, and Trackie, straight on black, saying how he feels. Updated 2026-11-07 to Leo's decisions; <code>docs/handheld-ui.md</code> is the written guide, and spec 8.1 wins where they differ. Swipe and tap the screen like the real thing, or use the panel to jump between states.</p>
   </header>
 
   <div class="stage">
@@ -124,7 +124,7 @@ section { display: flex; flex-direction: column; gap: 14px; }
       </div>
       <p class="hint">Swipe up for stops · swipe left from Home for the map (drag to pan, tap a stop, swipe in from the left edge to leave) · swipe down to go home · swipe right to go back · tap Trackie to ask why · long-press him to cycle moods (stands in for the two-finger debug gesture). Keyboard: arrows, Enter, Esc, Space.</p>
       <div class="meter" aria-live="polite">
-        <div class="px"><b id="mLit">–</b><span>pixels lit (navy counts as lit)</span></div>
+        <div class="px"><b id="mLit">–</b><span>pixels lit</span></div>
         <div class="px"><b id="mPow">–</b><span>est. panel power vs. an all-white screen</span></div>
       </div>
     </div>
@@ -164,35 +164,36 @@ section { display: flex; flex-direction: column; gap: 14px; }
     <h2>Why it looks like this</h2>
     <div class="notes">
       <div class="note px"><h3>Same as the app</h3><ul>
-        <li>Colors come from the app's design kit: night navy, raised navy, mist for secondary text, headlight yellow for the active control, cream behind Trackie, amber only for Delayed.</li>
+        <li>Colors come from the app's design kit on a black ground: raised navy for panels, mist for secondary text, headlight yellow for the active control, cream for Trackie's speech bubble, amber only for Delayed.</li>
         <li>Every route is a card in its line's color: a darker shade of the line as the fill, a lighter shade for all its text (the same <code>LineColors.card</code> and <code>cardText</code> math, ported). Buses share the bus blue.</li>
-        <li>Cards, tabs, chips, and Trackie's tile have stepped pixel corners, a rim, light from the top, and a hard edge under them, so they sit up like game tiles.</li>
+        <li>Cards, tabs, and chips have stepped pixel corners, a rim, light from the top, and a hard edge under them, so they sit up like game tiles.</li>
         <li>Minutes use the app's 5×7 pixel digits, like a departure board. Route names are heavy and rounded.</li>
-        <li>Trackie is the app's 32×32 sprite, with the same faces and floating extras for each mood.</li>
+        <li>Trackie is the app's 32×32 sprite, with the same faces and floating extras for each mood; the extras bob with him. The firmware's copy is built from <code>art/</code> by <code>tools/sprite_build.py</code>.</li>
+        <li>Trains are one card per line and direction at each station ("To Kimball"); buses one card per route and direction at each stop ("South to Harrison"). Every card says where it ends and the way it goes.</li>
       </ul></div>
       <div class="note px"><h3>On the ESP32</h3><ul>
         <li>Pixel corners are three rectangles each, so LVGL fills them with no anti-aliasing. A card is one vertical gradient plus a darker rectangle for its edge.</li>
-        <li>Trackie is an indexed 32×32 image drawn at 4×. His bob moves him one art pixel twice a second, so only his tile redraws.</li>
+        <li>Trackie is an indexed 32×32 image drawn at 4× (<code>pet::renderSprite</code>). His bob moves him one art pixel twice a second, so only his area redraws.</li>
         <li>The pixel digits are a bitmap font at whole scales only (3×–7×), so they stay crisp.</li>
         <li>SF Pro Rounded can't ship on a non-Apple device, so the mockup uses Nunito Black as the stand-in. Convert it with lv_font_conv at the four sizes used.</li>
         <li>The map draws the L lines itself from <code>data/train_shapes.json</code> (15 KB, built into the firmware), in whole pixels at half resolution, doubled. Over BLE it needs only your location (already sent), the nearby stops' coordinates (about 160 bytes more in the nearby message), and train positions (about 10 bytes a train, every 60 s). No map images cross BLE.</li>
         <li>Screen changes are short slides (about 200 ms). If full-frame slides stutter on the QSPI panel, cut instead and let Trackie hop.</li>
       </ul></div>
       <div class="note px"><h3>Battery and use</h3><ul>
-        <li>Awake screens are navy like the app, not black. Navy is dim, but the whole panel glows, so check the power meter against an all-black frame.</li>
+        <li>Every screen is black, for the AMOLED's battery: only what's drawn lights up.</li>
         <li>Dim always-on mode drops to black with Trackie alone, and shifts a few pixels every 10 s so he doesn't burn in.</li>
         <li>Home answers "should I hurry?" without a swipe: Trackie's face, his speech bubble, and one card for the most urgent stop.</li>
         <li>Cards away from the list's focus shrink and fade, and narrow to stay inside the circle.</li>
         <li>Tapping Trackie makes his bubble say why he feels that way.</li>
       </ul></div>
     </div>
-    <div class="qs"><h3>Questions for your critique</h3><ol>
-      <li>Navy instead of black on the awake screens: worth the battery cost? Compare the power numbers.</li>
-      <li>Trackie on the cream tile at Home (like the app), or straight on navy?</li>
-      <li>His bubble says a mood word ("Go now!") and switches to the reason when tapped. Right split?</li>
-      <li>Train rows are one card per station, colored by its soonest line. One card per line and direction instead, like the app?</li>
-      <li>The map: a handheld screen for the alpha, or a stretch item after the core path works? It's not in the spec yet.</li>
-      <li>Spec 8.1 still says "the pet centered on black" and rows with a line-color dot. Update it to this look if you like it.</li>
+    <div class="qs"><h3>Decided (Leo, 2026-11-06 and 07)</h3><ol>
+      <li>Black, not navy, on every screen.</li>
+      <li>Trackie straight on black, with no cream tile.</li>
+      <li>His bubble says a mood word ("Go now!") and the reason when tapped.</li>
+      <li>One card per line and direction at a station, and per route and direction at a bus stop, each showing where it ends and the way it goes.</li>
+      <li>The map is a stretch goal, after the core path works.</li>
+      <li>His floating extras bob with him.</li>
     </ol></div>
   </section>
 </div>
@@ -201,7 +202,7 @@ section { display: flex; flex-direction: column; gap: 14px; }
 (() => {
 'use strict';
 const W = 466, C = 233;
-const T = { navy: '#0b1a36', raised: '#17294f', mist: '#9db0d8', headlight: '#ffd95a', cream: '#f4ecc8', signal: '#34c759', amber: '#ffb000', white: '#ffffff' };
+const T = { bg: '#000000', navy: '#0b1a36', raised: '#17294f', mist: '#9db0d8', headlight: '#ffd95a', cream: '#f4ecc8', signal: '#34c759', amber: '#ffb000', white: '#ffffff' };
 const FONT = 'Nunito, ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
 function font(ctx, w, size) { ctx.font = `${w} ${size}px ${FONT}`; }
 const alpha = (hex6, a) => hex6 + Math.round(a * 255).toString(16).padStart(2, '0');
@@ -246,6 +247,13 @@ const TRAINS = [
   { name: 'Addison', lines: ['Brn'], line: 'Brn', dest: 'Kimball', min: 11, lat: 41.947028, lon: -87.674642 },
   { name: 'Irving Park', lines: ['Brn'], line: 'Brn', dest: 'Loop', min: 14, sched: true, lat: 41.954521, lon: -87.674868 },
 ];
+// One card per line and direction at each station (Leo, 2026-11-06; spec 8.1), nearest station first, soonest
+// first within it: Belmont gives six. `primary` is the station's soonest, which the per-mood demos tweak.
+const TRAIN_CARDS = TRAINS.flatMap((s, st) => s.lines.flatMap((ln, li) => DIRS[ln].map((dest, di) => {
+  const primary = ln === s.line && dest === s.dest;
+  return { name: s.name, lines: s.lines, line: ln, dest, primary, st, lat: s.lat, lon: s.lon,
+    min: primary ? s.min : s.min + 2 + li * 3 + di * 4, sched: primary && !!s.sched };
+})).sort((a, b) => a.min - b.min));
 // shortcut: 77, 151 and 152 use approximate corner coordinates; on the device they come with the nearby message.
 const BUSES = [
   { rt: '77', name: 'Belmont & Sheffield', dir: 'Westbound', dest: 'Harlem', min: 3, lat: 41.93975, lon: -87.65445 },
@@ -263,9 +271,9 @@ const busHeading = it => `${it.dir.replace(/bound$/, '')} to ${it.dest}`;   // "
 function flags(item, st) {
   const f = { delayed: false, alert: false, sched: !!item.sched, min: item.min };
   if (st.mood === 'worried' && (item.rt === '22' || item.line === 'Brn')) { f.delayed = true; f.min = item.min + 4; }
-  if (st.mood === 'sad' && (item.lines || []).includes('Red')) f.alert = true;
-  if (st.mood === 'hyped' && item.name === 'Belmont' && item.lines) f.min = 2;
-  if (st.mood === 'happy' && item.name === 'Belmont' && item.lines) f.min = 6;
+  if (st.mood === 'sad' && (item.line ? item.line === 'Red' : (item.lines || []).includes('Red'))) f.alert = true;
+  if (st.mood === 'hyped' && item.name === 'Belmont' && item.primary) f.min = 2;
+  if (st.mood === 'happy' && item.name === 'Belmont' && item.primary) f.min = 4;   // not Hyped, and still soonest-first
   return f;
 }
 function clock(offsetMin = 0) {
@@ -464,7 +472,8 @@ function routeCard(ctx, x, y, w, h, c, now) {
 }
 function trainCard(it, st) {
   const f = flags(it, st);
-  return { route: it.line, heading: it.dest, stop: it.name, min: f.min, sched: f.sched, clock: clock(f.min), delayed: f.delayed,
+  // where it ends and the way it goes: a train runs toward the end of its line, so "To Kimball" says both
+  return { route: it.line, heading: `To ${it.dest}`, stop: it.name, min: f.min, sched: f.sched, clock: clock(f.min), delayed: f.delayed,
     alert: f.alert, stale: st.data === 'stale', pips: it.lines.filter(l => l !== it.line) };
 }
 function busCard(it, st) {
@@ -493,11 +502,11 @@ function bubbleText(st, now) {
   return poked ? REASON[st.mood] : MOOD_SAYS[st.mood];
 }
 const GLANCE = { // the most urgent card for each mood
-  happy: { route: 'Brn', heading: 'Kimball', stop: 'Belmont', min: 4, pips: ['Red', 'P'] },
-  hyped: { route: 'Red', heading: '95th/Dan Ryan', stop: 'Belmont', min: 2, pips: ['Brn', 'P'] },
+  happy: { route: 'Brn', heading: 'To Kimball', stop: 'Belmont', min: 4, pips: ['Red', 'P'] },
+  hyped: { route: 'Red', heading: 'To 95th/Dan Ryan', stop: 'Belmont', min: 2, pips: ['Brn', 'P'] },
   worried: { route: '22', bus: true, heading: 'North to Howard', stop: 'Clark & Belmont', min: 8, delayed: true },
-  sad: { route: 'Red', heading: 'Howard', stop: 'Belmont', min: 9, alert: true, pips: ['Brn', 'P'] },
-  sleepy: { route: 'Brn', heading: 'Kimball', stop: 'Belmont', sched: true, clock: '5:02', pips: ['Red', 'P'] },
+  sad: { route: 'Red', heading: 'To Howard', stop: 'Belmont', min: 9, alert: true, pips: ['Brn', 'P'] },
+  sleepy: { route: 'Brn', heading: 'To Kimball', stop: 'Belmont', sched: true, clock: '5:02', pips: ['Red', 'P'] },
 };
 const HOME = { tile: null, card: null };
 function bubble(ctx, text, x, cy, label = 'TRACKIE') { // the cream pixel speech bubble, its tail pointing left at Trackie; returns its size
@@ -517,7 +526,7 @@ function drawHome(ctx, st, now, aod) {
   drawStatusRow(ctx, st, 68, aod || docked);
   const up = Math.floor(now / 500) % 2 === 0;   // bobs one art pixel twice a second, like the app
   if (aod) { drawPet(ctx, st.mood, C - 64, 146 + ((Math.floor(now / 1000) % 2) ? 0 : -4), 4, st.paint, null); return; }
-  if (!docked && st.weather !== 'clear') { // rain or snow behind the tile
+  if (!docked && st.weather !== 'clear') { // rain or snow behind Trackie
     for (let i = 0; i < 16; i++) {
       const x = (i * 97 + 31) % 340 + 63, sp = st.weather === 'rain' ? 0.12 : 0.03, y = 100 + ((now * sp + i * 53) % 190);
       ctx.fillStyle = st.weather === 'rain' ? '#24427a' : '#c9d4ea';
@@ -528,7 +537,7 @@ function drawHome(ctx, st, now, aod) {
   const text = bubbleText(st, now), tile = 152, gap = 20, total = tile + gap + bubbleWidth(ctx, text);
   const tx = Math.round(C - total / 2), ty = 108;
   HOME.tile = { x: tx, y: ty, w: tile, h: tile };
-  plate(ctx, tx, ty, tile, tile, { fill: T.cream, rim: T.navy, rimW: 3 });
+  // Trackie is drawn straight on black, with no tile behind him (Leo, 2026-11-06); `tile` is just his tap area
   drawPet(ctx, st.mood, tx + 12, ty + 12 + (up ? -4 : 0) - hop * 4, 4, st.paint, st.weather);
   if (EXTRAS[st.mood]) art(ctx, EXTRAS[st.mood], tx + tile - 7, ty + (up ? -14 : -10), 4, st.paint);   // bobs with him (Leo, 2026-11-07)
   bubble(ctx, text, tx + tile + gap, ty + tile / 2);
@@ -571,7 +580,7 @@ function drawTabs(ctx, tab) {
 function drawStops(ctx, st, now, tab) {
   drawTabs(ctx, tab);
   if (st.data === 'stale') { font(ctx, 800, 14); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = T.amber; ctx.fillText('Updated 7 min ago', C, 88); }
-  const items = tab === 'trains' ? TRAINS : BUSES, scroll = st.scroll[tab];
+  const items = tab === 'trains' ? TRAIN_CARDS : BUSES, scroll = st.scroll[tab];
   ctx.save(); ctx.beginPath(); ctx.rect(0, listTop(st), W, W); ctx.clip();
   items.forEach((it, i) => {
     const cy = FOCUS + i * ROW - scroll; if (cy < -60 || cy > 540) return;
@@ -594,10 +603,10 @@ function drawStops(ctx, st, now, tab) {
 function detailFor(st) {
   const tab = st.view.tab, idx = st.view.detail;
   if (tab === 'trains') {
-    const it = TRAINS[idx], fl = flags(it, st); let hero = null; const others = [];
-    it.lines.forEach((ln, li) => DIRS[ln].forEach((dest, di) => {
-      const main = ln === it.line && dest === it.dest, base = main ? fl.min : 3 + li * 3 + di * 4 + (idx % 3);
-      const g = { route: ln, heading: dest, times: [base, base + 7 + di, base + 15], delayed: main ? fl.delayed : st.mood === 'worried' && ln === 'Brn', sched: !main && ln === 'P' && di === 1 };
+    const card = TRAIN_CARDS[idx], it = TRAINS[card.st], fl = flags(card, st); let hero = null; const others = [];
+    it.lines.forEach((ln, li) => DIRS[ln].forEach((dest, di) => {   // the tapped line and direction first, then the rest
+      const main = ln === card.line && dest === card.dest, base = main ? fl.min : 3 + li * 3 + di * 4 + (card.st % 3);
+      const g = { route: ln, heading: `To ${dest}`, times: [base, base + 7 + di, base + 15], delayed: main ? fl.delayed : st.mood === 'worried' && ln === 'Brn', sched: !main && ln === 'P' && di === 1 };
       if (main) hero = g; else others.push(g);
     }));
     return { stop: it.name, hero, others, alert: fl.alert ? 'Red Line: delays near Belmont' : null };
@@ -676,7 +685,6 @@ function drawDetail(ctx, st, now) {
 }
 function drawPair(ctx, st, now) {
   const up = Math.floor(now / 500) % 2 === 0;
-  plate(ctx, C - 60, 40, 120, 120, { fill: T.cream, rim: T.navy, rimW: 3 });
   drawPet(ctx, 'happy', C - 48, 52 + (up ? -3 : 0), 3, st.paint, null);
   art(ctx, EXTRAS.happy, C + 52, up ? 30 : 33, 3, st.paint);
   pixelText(ctx, '482 913', C, 196, 7, T.white, 'center');
@@ -692,7 +700,7 @@ const KM = 120;   // screen px per km: the circle shows about 2 km across
 const KX = 111.32 * Math.cos(ME.lat * Math.PI / 180) * KM, KY = 111.32 * KM;
 const proj = (lat, lon, pan) => [C + (lon - ME.lon) * KX + pan.x, C - (lat - ME.lat) * KY + pan.y];
 const ON_NAVY = {};
-const onNavy = route => ON_NAVY[route] ??= hex(lifted(LINE[route] ?? BUS, 0x0B1A36, 3));   // the app's rule for big color on navy
+const onNavy = route => ON_NAVY[route] ??= hex(lifted(LINE[route] ?? BUS, 0x000000, 3));   // the app's rule for big color on a dark ground, here black
 const OFFSET = { Brn: 3, P: 6 };   // lines sharing the North Side tracks sit side by side, like a transit map
 const CASING = '#050d1d';
 const LO = document.createElement('canvas'); LO.width = LO.height = 233; const lctx = LO.getContext('2d');
@@ -771,11 +779,10 @@ function drawMap(ctx, st, now) {
   // station names
   font(ctx, 900, 13); ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = CASING; ctx.fillStyle = T.white;
   for (const s of TRAINS) { const [x, y] = proj(s.lat, s.lon, pan); ctx.strokeText(s.name, x + 22, y - 14); ctx.fillText(s.name, x + 22, y - 14); }   // above the line, so east–west track stays visible
-  // top: Trackie on his cream tile, saying the station nearest the map's center, like the app's "Near" bubble
+  // top: Trackie, straight on black, saying the station nearest the map's center, like the app's "Near" bubble
   const c = { x: C - pan.x, y: C - pan.y }, near = mapMarkers({ x: 0, y: 0 }).filter(m => m.tab === 'trains').sort((a, b) =>
     Math.hypot(a.xy[0] - c.x, a.xy[1] - c.y) - Math.hypot(b.xy[0] - c.x, b.xy[1] - c.y))[0].it.name;
   const up = Math.floor(now / 500) % 2 === 0, bw = bubbleWidth(ctx, near), x0 = Math.round(C - (72 + 14 + bw) / 2);
-  plate(ctx, x0, 40, 72, 72, { fill: T.cream, rim: T.navy, rimW: 3, edge: 4, ...SMALL });
   drawPet(ctx, st.mood, x0 + 4, 44 + (up ? -2 : 0), 2, st.paint, null);
   bubble(ctx, near, x0 + 86, 76, 'NEAR');
   if (stale) { font(ctx, 800, 14); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = T.amber; ctx.fillText('Updated 7 min ago', C, 352); }
@@ -802,7 +809,7 @@ function brightness(st) {
 }
 function drawFrame(ctx, st, now) {
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
-  ctx.fillStyle = isAod(st, st.view) ? '#000' : T.navy; ctx.fillRect(0, 0, W, W);   // always-on drops to black
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, W);   // black on every screen, for the AMOLED (Leo, 2026-11-06)
   ctx.save();
   if (st.display === 'dim') { const k = Math.floor(now / 10000); ctx.translate(((k * 7) % 7) - 3, ((k * 5) % 7) - 3); }
   const tr = st.trans;
@@ -858,7 +865,7 @@ setInterval(() => { const m = measure(ctx); document.getElementById('mLit').text
 /* ---------- gestures ---------- */
 let drag = null;
 function pt(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * W / r.height }; }
-const maxScroll = tab => ((tab === 'trains' ? TRAINS : BUSES).length - 1) * ROW;
+const maxScroll = tab => ((tab === 'trains' ? TRAIN_CARDS : BUSES).length - 1) * ROW;
 const detailMax = () => Math.max(0, DETAIL_H - 430);
 function snap(tab, v) { S.scrollTarget[tab] = Math.max(0, Math.min(maxScroll(tab), Math.round(v / ROW) * ROW)); }
 const inRect = (p, r) => r && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h;
@@ -913,13 +920,16 @@ function tap(x, y, now) {
   } else if (sc === 'stops') {
     if (y < 86) { const tab = x < C ? 'trains' : 'buses'; if (tab !== S.view.tab) go({ ...S.view, tab }, 'x', tab === 'buses' ? 1 : -1); return; }
     const t = S.view.tab; const i = Math.round((y - FOCUS + S.scroll[t]) / ROW);
-    if (i >= 0 && i < (t === 'trains' ? TRAINS : BUSES).length) { snap(t, i * ROW); S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: i, back: null }, 'x', 1); }
+    if (i >= 0 && i < (t === 'trains' ? TRAIN_CARDS : BUSES).length) { snap(t, i * ROW); S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', detail: i, back: null }, 'x', 1); }
   } else if (sc === 'detail' && x < 80) back();
   else if (sc === 'map') {
     if (inRect({ x, y }, MAP_UI.recenter)) { S.mapFollow = true; return; }
     if (x < 44) { go({ ...S.view, screen: 'home' }, 'x', -1); return; }
     const hit = mapMarkers(S.map).map(m => ({ ...m, d: Math.hypot(m.xy[0] - x, m.xy[1] - y) - (m.tab === 'trains' ? 8 : 0) })).sort((a, b) => a.d - b.d)[0];
-    if (hit && hit.d < 22) { S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', tab: hit.tab, detail: hit.i, back: 'map' }, 'x', 1); }
+    if (hit && hit.d < 22) { // a station opens on its soonest card
+      const detail = hit.tab === 'trains' ? TRAIN_CARDS.findIndex(c => c.st === hit.i) : hit.i;
+      S.detailScroll = 0; S.detailTarget = 0; go({ ...S.view, screen: 'detail', tab: hit.tab, detail, back: 'map' }, 'x', 1);
+    }
   }
 }
 const back = () => go({ ...S.view, screen: S.view.back || 'stops', back: null }, 'x', -1);

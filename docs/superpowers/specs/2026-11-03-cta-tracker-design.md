@@ -230,7 +230,7 @@ The dock finds its own location for weather, without the phone. At boot and then
 
 ### 8.1 Screens (round, 466×466)
 
-The look follows the iPhone app's pixel style (the app design specs), on black. The interactive mockup in `docs/ideas/2026-11-04-handheld-ui-mockup.html` shows it; this section wins where the two differ.
+The look follows the iPhone app's pixel style (the app design specs), on black. The interactive mockup in `docs/ideas/2026-11-04-handheld-ui-mockup.html` shows it, and `docs/handheld-ui.md` describes it screen by screen with where the code lives; this section wins where they differ.
 
 - **Background:** black on every screen, for the AMOLED's battery.
 - **Cards:** every stop is a card in its line's color: a darker shade of the line as the fill and a lighter shade for its text, with the app's `LineColors.card` and `cardText` math. Buses share the bus color. Cards have stepped pixel corners and a hard bottom edge, and minutes use the app's 5×7 pixel digits. Cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
