@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Rasterizes Nunito glyphs exactly as the mockup's canvas draws them; tools/font_build.py runs it in headless
+     Chrome and turns the result into src/fonts.cpp. -->
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=block" rel="stylesheet">
+<body>
+<script>
+const FONT = 'Nunito, ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
+const ASCII = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '…·°’';
+const ALNUM = ' ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const SETS = [];
+for (const s of [11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 24, 34]) SETS.push([900, s, ASCII]);
+for (const s of [12, 13, 14, 15, 16, 17, 18]) SETS.push([800, s, ASCII]);
+for (const s of [84, 76, 68, 60, 52, 44]) SETS.push([900, s, ALNUM]);
+Promise.all([document.fonts.load('900 34px Nunito'), document.fonts.load('800 16px Nunito')]).then(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 200;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const out = [];
+  for (const [w, size, chars] of SETS) {
+    ctx.font = `${w} ${size}px ${FONT}`;
+    ctx.textBaseline = 'alphabetic'; const asc = ctx.measureText('H').actualBoundingBoxAscent;
+    ctx.textBaseline = 'top'; const top = ctx.measureText('H').actualBoundingBoxAscent;
+    ctx.textBaseline = 'middle'; const mid = ctx.measureText('H').actualBoundingBoxAscent;
+    ctx.textBaseline = 'alphabetic';
+    const f = { weight: w, size, top: Math.round(asc - top), middle: Math.round(asc - mid), glyphs: [] };
+    const ox = 40, oy = 140;
+    for (const ch of chars) {
+      ctx.clearRect(0, 0, 200, 200); ctx.fillStyle = '#fff'; ctx.fillText(ch, ox, oy);
+      const d = ctx.getImageData(0, 0, 200, 200).data;
+      let x0 = 200, y0 = 200, x1 = -1, y1 = -1;
+      for (let y = 0; y < 200; y++) for (let x = 0; x < 200; x++) if (d[(y * 200 + x) * 4 + 3]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      const a = [];
+      if (x1 >= 0) for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) a.push(d[(y * 200 + x) * 4 + 3]);
+      f.glyphs.push({ cp: ch.codePointAt(0), adv: ctx.measureText(ch).width, x: x1 < 0 ? 0 : x0 - ox, y: x1 < 0 ? 0 : y0 - oy,
+        w: x1 < 0 ? 0 : x1 - x0 + 1, h: x1 < 0 ? 0 : y1 - y0 + 1, a });
+    }
+    out.push(f);
+  }
+  const pre = document.createElement('pre'); pre.id = 'fonts_out'; pre.textContent = JSON.stringify(out); document.body.appendChild(pre);
+});
+</script>
