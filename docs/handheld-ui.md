@@ -52,8 +52,8 @@ Swipe up for Stops. Swipe left for the Map (a stretch goal).
 
 A tab pill at the top, then a scrolling list of cards, nearest stop first.
 
-- **Trains:** one card per line and direction at each of the 10 nearest stations, soonest first within a station. Belmont shows six: Red, Brown, and Purple, each way.
-- **Buses:** one card per route and direction, at the nearest of the 10 listed stops that serves it (spec 8.3: each route and direction's nearest stop, the 10 nearest of those), soonest first within a stop. A stop served by the 22 and the 36 shows both.
+- **Trains:** one card per line and direction at each of the 5 nearest stations, soonest first within a station. Belmont shows six: Red, Brown, and Purple, each way.
+- **Buses:** one card per route and direction, at the nearest of the 5 listed stops that serves it (spec 8.3: each route and direction's nearest stop, the 5 nearest of those), soonest first within a stop. A stop served by the 22 and the 36 shows both.
 - **On a round screen,** cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
 - **Stale cards** grey out when their data is more than 5 min old.
 

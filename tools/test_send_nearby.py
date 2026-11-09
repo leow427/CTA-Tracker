@@ -32,11 +32,11 @@ class SendNearbyTests(unittest.TestCase):
         self.assertEqual([s["id"] for s in send_nearby.bus_stops(stops, 41.9, -87.65)], ["1", "3", "4"])
         many = [{"id": str(i), "name": "S", "lat": 41.9 + i / 1000, "lon": -87.65, "kind": "bus",
                  "lines": [{"route": str(i), "dir": "Northbound"}]} for i in range(14)]
-        self.assertEqual(len(send_nearby.bus_stops(many, 41.9, -87.65)), 10)
+        self.assertEqual(len(send_nearby.bus_stops(many, 41.9, -87.65)), 5)
 
-    def test_keeps_ten(self):
+    def test_keeps_five(self):
         many = [dict(STOPS[0], id=str(40100 + i), lat=41.9 + i / 1000) for i in range(14)]
-        self.assertEqual(len(send_nearby.nearest(many, "station", 41.9, -87.65)), 10)
+        self.assertEqual(len(send_nearby.nearest(many, "station", 41.9, -87.65)), 5)
 
     def test_message_ranks_close_across_kinds(self):
         trains = send_nearby.nearest(STOPS, "station", 41.9, -87.65)
@@ -57,8 +57,8 @@ class SendNearbyTests(unittest.TestCase):
         msg = send_nearby.message(lat, lon, send_nearby.nearest(stops, "station", lat, lon),
                                   send_nearby.bus_stops(stops, lat, lon))
         self.assertLess(len(send_nearby.encode(msg)), send_nearby.LINE_MAX)
-        self.assertEqual(len(msg["trains"]), 10)
-        self.assertEqual(len(msg["buses"]), 10)
+        self.assertEqual(len(msg["trains"]), 5)
+        self.assertEqual(len(msg["buses"]), 5)
 
     def test_too_long_is_refused(self):
         with self.assertRaises(ValueError):

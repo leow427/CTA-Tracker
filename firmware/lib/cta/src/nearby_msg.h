@@ -1,5 +1,5 @@
 #pragma once
-// The handheld's `nearby` message (spec 8.3, 9): where it is, its 10 nearest train stations and bus stops, nearest
+// The handheld's `nearby` message (spec 8.3, 9): where it is, its 5 nearest train stations and 5 bus stops, nearest
 // first, and the 3 closest stops of either kind. The app writes it over BLE; for the demo the laptop sends the same
 // JSON over USB serial.
 //   {"lat":41.94,"lon":-87.65,"trains":["41320",…],"buses":["14915",…],"close":["14915","1921","41320"]}

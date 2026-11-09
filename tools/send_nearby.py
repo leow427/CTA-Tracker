@@ -1,8 +1,8 @@
 """Send the handheld its `nearby` list (spec 8.3) from this Mac, standing in for the app's BLE write.
 
-Finds where the Mac is (CoreLocation, through a small app bundle so macOS can ask for permission), picks the 10
-nearest train stations and 10 bus stops from data/stops.json, and writes the message to the handheld over USB
-serial. The bus stops are each route and direction's nearest stop, the 10 nearest of those: the 10 nearest stops
+Finds where the Mac is (CoreLocation, through a small app bundle so macOS can ask for permission), picks the 5
+nearest train stations and 5 bus stops from data/stops.json, and writes the message to the handheld over USB
+serial. The bus stops are each route and direction's nearest stop, the 5 nearest of those: the nearest stops
 outright are often one corner's few routes, both ways, on every side of the street. The handheld keeps it in flash, so this is needed once per place, not once per boot.
 
     python3 tools/send_nearby.py                         # where this Mac is
@@ -28,7 +28,7 @@ STOPS = os.path.join(ROOT, "data", "stops.json")
 LOCATE_SRC = os.path.join(ROOT, "tools", "mac_location")
 LOCATE_APP = os.path.join(LOCATE_SRC, "build", "Trackie Locate.app")
 PIO_PYTHON = os.path.expanduser("~/.platformio/penv/bin/python")
-PER_TAB = 10  # cta::kNearbyPerTab
+PER_TAB = 5  # cta::kNearbyPerTab
 CLOSE = 3  # cta::kHypedClosestStops
 LINE_MAX = 639  # the handheld's serial line buffer, less the newline
 
@@ -45,7 +45,7 @@ def nearest(stops, kind, lat, lon):
 
 
 def bus_stops(stops, lat, lon):
-    """Each route and direction's nearest stop, then the 10 nearest of those stops (spec 8.3)."""
+    """Each route and direction's nearest stop, then the 5 nearest of those stops (spec 8.3)."""
     best = {}
     for s in stops:
         if s["kind"] != "bus":

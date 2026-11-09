@@ -85,7 +85,7 @@ int main() {
     store.fill(snap);
     CHECK(snap.nTrains == 6);   // the failed second reply kept the first one's cards
     CHECK(snap.nBuses == 2);    // stop 99999 isn't in the preset
-    CHECK(!snap.loaded);        // only one of the 10 stations polled
+    CHECK(!snap.loaded);        // only one of the 5 stations polled
     CHECK(snap.located && snap.nClose == 3);
 
     power::State bench;   // USB, no battery
@@ -172,12 +172,12 @@ int main() {
     CHECK(mock::weatherView(m).icon == nullptr);
 
     // A route and direction shows once, at the nearest listed stop that still has an arrival: the 77 westbound at
-    // 14915 (1st on the list) hides the one at 17379 (6th) until its only bus has passed, then 17379's shows.
+    // 14915 (1st on the list) hides the one at 14913 (5th) until its only bus has passed, then 14913's shows.
     {
         const std::string twice = std::string("{\"bustime-response\":{\"prd\":[") +
                                   prd("14915", "Belmont & Clark", "77", "Westbound", "Central", "20261109 09:12") + "," +
-                                  prd("17379", "Belmont Station", "77", "Westbound", "Central", "20261109 09:20") + "," +
-                                  prd("17379", "Belmont Station", "77", "Eastbound", "Broadway", "20261109 09:15") + "]}}";
+                                  prd("14913", "Belmont & Clark", "77", "Westbound", "Central", "20261109 09:20") + "," +
+                                  prd("14913", "Belmont & Clark", "77", "Eastbound", "Broadway", "20261109 09:15") + "]}}";
         CHECK(store.applyBuses(twice.data(), twice.size(), t0) == 3);
         static live::Snapshot d;
         live::clear(d);
@@ -194,7 +194,7 @@ int main() {
             return id ? id : "";
         };
         CHECK(strcmp(westAt(t0), "14915") == 0);
-        CHECK(strcmp(westAt(t0 + 150), "17379") == 0);
+        CHECK(strcmp(westAt(t0 + 150), "14913") == 0);
     }
 
     // A new list drops the old stops' data until they're polled again.

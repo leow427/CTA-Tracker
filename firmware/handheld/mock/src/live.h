@@ -13,8 +13,8 @@
 
 namespace live {
 
-using cta::kMaxBusCards;     // one per route and direction across the 10 nearest bus stops
-using cta::kMaxTrainCards;   // one per line and direction across the 10 nearest stations
+using cta::kMaxBusCards;     // one per route and direction across the nearby bus stops
+using cta::kMaxTrainCards;   // one per line and direction across the nearby stations
 
 struct Rec {
     cta::StopRecord rec;

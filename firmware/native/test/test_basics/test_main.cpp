@@ -206,7 +206,7 @@ static void test_config_values() {
     TEST_ASSERT_EQUAL_INT(300, cta::kNightEndMin);
     TEST_ASSERT_EQUAL_STRING("CST6CDT,M3.2.0,M11.1.0", cta::kTz);
     TEST_ASSERT_EQUAL_INT(512, cta::kBleMaxPayload);
-    TEST_ASSERT_EQUAL_INT(10, cta::kNearbyPerTab);
+    TEST_ASSERT_EQUAL_INT(5, cta::kNearbyPerTab);
     TEST_ASSERT_EQUAL_INT(3, cta::kHypedClosestStops);
     TEST_ASSERT_EQUAL_INT(15, cta::kScreenDimSec);
     TEST_ASSERT_EQUAL_INT(4, cta::kMaxArrivals);

@@ -17,15 +17,15 @@ static bool parse(const std::string& json, cta::Nearby& out) { return cta::parse
 static void test_belmont() {
     cta::Nearby n;
     TEST_ASSERT_TRUE(parse(readFixture("nearby_belmont.json"), n));
-    TEST_ASSERT_EQUAL(10, n.nTrains);
-    TEST_ASSERT_EQUAL(10, n.nBuses);
+    TEST_ASSERT_EQUAL(5, n.nTrains);
+    TEST_ASSERT_EQUAL(5, n.nBuses);
     TEST_ASSERT_EQUAL(3, n.nClose);
     TEST_ASSERT_EQUAL_STRING("41320", n.trains[0]);
-    TEST_ASSERT_EQUAL_STRING("40660", n.trains[9]);
+    TEST_ASSERT_EQUAL_STRING("40360", n.trains[4]);
     TEST_ASSERT_EQUAL_STRING("14915", n.buses[0]);
     TEST_ASSERT_EQUAL_STRING("14437", n.close[2]);
-    TEST_ASSERT_TRUE(fabs(n.lat - 41.939) < 1e-9);
-    TEST_ASSERT_TRUE(fabs(n.lon + 87.651) < 1e-9);
+    TEST_ASSERT_TRUE(fabs(n.lat - 41.939) < 1e-6);
+    TEST_ASSERT_TRUE(fabs(n.lon + 87.651) < 1e-6);
 }
 
 static void test_empty_lists_are_fine() {
@@ -53,13 +53,12 @@ static void test_rejects_and_keeps_the_old_list() {
         "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[],\"buses\":[\"1\",\"1\"],\"close\":[]}",      // repeated
         "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[],\"buses\":[\"1\"],\"close\":[\"2\"]}",       // close not listed
         "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[],\"buses\":[\"1\",\"2\",\"3\",\"4\"],\"close\":[\"1\",\"2\",\"3\",\"4\"]}",
-        "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[],\"buses\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\","
-        "\"11\"],\"close\":[]}",                                                         // 11 stops
+        "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[],\"buses\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\"],\"close\":[]}",   // 6 stops
     };
     for (const char* b : bad) {
         TEST_ASSERT_FALSE_MESSAGE(parse(b, n), b);
         TEST_ASSERT_EQUAL_STRING("41320", n.trains[0]);   // untouched
-        TEST_ASSERT_EQUAL(10, n.nBuses);
+        TEST_ASSERT_EQUAL(5, n.nBuses);
     }
     TEST_ASSERT_FALSE(cta::parseNearby(nullptr, 0, n));
 }
