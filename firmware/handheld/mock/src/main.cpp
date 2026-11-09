@@ -314,6 +314,8 @@ void setup() {
     if (uint16_t* cache = static_cast<uint16_t*>(ps_malloc(kCards * ui::kScratchPixels * 2))) ui::setCardCache(cache, kCards);
     touch.setPins(kTpRst, kTpInt);
     touchOk = touch.begin(Wire, CST92XX_SLAVE_ADDRESS, kSda, kScl);
+    Serial.printf("reset reason %d (1 power-on, 3 software, 4 panic, 6 task watchdog, 9 brownout)\n",
+                  static_cast<int>(esp_reset_reason()));
     Serial.printf("touch: %s, cpu %u MHz, internal free %u, psram free %u\n", touchOk ? "ok" : "failed",
                   getCpuFrequencyMhz(), heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
     startUnix = buildUnix();

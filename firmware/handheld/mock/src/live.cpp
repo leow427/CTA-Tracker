@@ -6,9 +6,11 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <string.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "cta_config.h"
+#include "local_time.h"
 #include "live_store.h"
 #include "secrets.h"
 #include "urls.h"
@@ -32,7 +34,7 @@ constexpr int kClosePolled = 3;               // the 3 closest stations poll fas
 constexpr uint32_t kRetrySec = 30;            // after a failed fetch
 // Joining backs off from 15 s to 5 min while the network is out of reach (the wearable's usual state away from
 // home), so the radio isn't scanning nonstop; a wake starts over.
-constexpr uint32_t kWifiRetryMinMs = 15000, kWifiRetryMaxMs = 300000, kWifiJoinMs = 12000;
+constexpr uint32_t kWifiRetryMinMs = 15000, kWifiRetryMaxMs = 300000, kWifiJoinMs = 20000;   // a campus network took about 12 s to join
 
 // Written only by the network task.
 Store store;
@@ -110,6 +112,31 @@ int get(const char* url, String& body, bool keep = false) {
         if (code < 0 && reused && attempt == 0) continue;   // the server had closed the idle connection: retry fresh
         return code;
     }
+}
+
+// Sets the clock from an HTTPS response's Date header, for networks that block NTP (UDP 123), as some campus and
+// guest networks do. Good to about a second, which is plenty for minute countdowns; NTP corrects it if it ever
+// gets through. Uses the train API, whose connection the first poll then reuses.
+bool clockFromHttp() {
+    static const char* keys[] = {"Date"};
+    closeConn();
+    snprintf(conn->host, sizeof(conn->host), "lapi.transitchicago.com");
+    conn->http.setReuse(true);
+    if (!conn->http.begin(conn->tls, "https://lapi.transitchicago.com/")) return false;
+    conn->http.collectHeaders(keys, 1);
+    const int code = conn->http.GET();
+    const String date = conn->http.header("Date");
+    conn->http.end();
+    closeConn();   // the body was never read
+    int64_t t;
+    if (code <= 0 || !cta::parseHttpDate(date.c_str(), t)) {
+        Serial.printf("net: clock from HTTP failed (HTTP %d)\n", code);
+        return false;
+    }
+    const timeval tv = {static_cast<time_t>(t), 0};
+    settimeofday(&tv, nullptr);
+    Serial.println("net: clock set from HTTP (NTP gave nothing)");
+    return true;
 }
 
 void publish() {
@@ -244,13 +271,18 @@ void netTask(void*) {
     // Why a join or a connection ended, in the driver's words (wifi_err_reason_t: 15 and 204 are a wrong password,
     // 201 the network out of reach, 8 left on purpose). Logged once per distinct reason in a row.
     WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
-        static uint8_t last = 0;
+        // Every reason, at most one line a second (the driver can repeat one many times a second).
+        static uint32_t lastMs = 0;
         const uint8_t reason = info.wifi_sta_disconnected.reason;
-        if (reason != last) Serial.printf("net: disconnected, reason %u\n", reason);
-        last = reason;
+        if (millis() - lastMs >= 1000) Serial.printf("net: disconnected, reason %u\n", reason);
+        lastMs = millis();
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     WiFi.setAutoReconnect(false);   // the driver would rescan right after every miss; this loop backs off instead
-    configTzTime(cta::kTz, "pool.ntp.org", "time.google.com", "time.nist.gov");
+    // NTP servers by address, not name: while SNTP's own DNS lookup is pending (as it stays on a network that
+    // blocks it), an HTTPS request's hostByName() clears the DNS cache, which runs SNTP's callback outside the
+    // TCP/IP lock and trips an lwIP assert (a reboot; seen 2026-11-09, core 3.3). These are time.google.com's and
+    // time.cloudflare.com's published anycast addresses.
+    configTzTime(cta::kTz, "216.239.35.0", "216.239.35.4", "162.159.200.1");
     uint32_t lastBegin = 0, retryMs = kWifiRetryMinMs;
     bool wasUp = false, joining = false, scanned = false;
     for (;;) {
@@ -305,6 +337,13 @@ void netTask(void*) {
             publish();   // back online now, not at the next due poll
         }
         if (!ntpSynced()) {
+            // NTP first; after 10 s with nothing, the Date header, every 30 s until something works.
+            static uint32_t waitingSince = 0, lastHttpTry = 0;
+            if (!waitingSince) waitingSince = millis();
+            if (millis() - waitingSince > 10000 && (!lastHttpTry || millis() - lastHttpTry > 30000)) {
+                lastHttpTry = millis();
+                if (clockFromHttp()) continue;
+            }
             setStatus("Setting the clock");
             publish();
             vTaskDelay(pdMS_TO_TICKS(500));

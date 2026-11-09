@@ -138,6 +138,23 @@ bool ctaSecondsBetween(const char* from, const char* to, int64_t& secs) {
     return true;
 }
 
+bool parseHttpDate(const char* s, int64_t& unix) {
+    // "Www, DD Mon YYYY HH:MM:SS GMT": 29 characters.
+    static const char* const kMonths = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    if (s == nullptr || length(s) != 29 || s[3] != ',' || s[4] != ' ' || s[7] != ' ' || s[11] != ' ' ||
+        s[16] != ' ' || s[19] != ':' || s[22] != ':' || s[25] != ' ' || s[26] != 'G' || s[27] != 'M' || s[28] != 'T')
+        return false;
+    int d, y, hh, mm, ss, m = 0;
+    if (!digits(s + 5, 2, d) || !digits(s + 12, 4, y) || !digits(s + 17, 2, hh) || !digits(s + 20, 2, mm) ||
+        !digits(s + 23, 2, ss))
+        return false;
+    for (int i = 0; i < 12 && !m; ++i)
+        if (s[8] == kMonths[3 * i] && s[9] == kMonths[3 * i + 1] && s[10] == kMonths[3 * i + 2]) m = i + 1;
+    if (!m || d < 1 || d > daysInMonth(y, m) || hh > 23 || mm > 59 || ss > 60) return false;
+    unix = daysFromCivil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss;
+    return true;
+}
+
 bool inNightHours(int minuteOfDay, int startMin, int endMin) {
     if (startMin == endMin) return false;
     if (startMin < endMin) return minuteOfDay >= startMin && minuteOfDay < endMin;

@@ -178,6 +178,26 @@ static void test_cta_seconds_between_rejects() {
     TEST_ASSERT_EQUAL_INT64(42, d);  // untouched on failure
 }
 
+static void test_http_date() {
+    int64_t t = 0;
+    TEST_ASSERT_TRUE(cta::parseHttpDate("Sun, 06 Nov 1994 08:49:37 GMT", t));   // RFC 9110's example
+    TEST_ASSERT_EQUAL_INT64(784111777, t);
+    TEST_ASSERT_TRUE(cta::parseHttpDate("Mon, 09 Nov 2026 17:28:22 GMT", t));   // the train API's, 2026-11-09
+    TEST_ASSERT_EQUAL_INT64(1794245302, t);
+    TEST_ASSERT_TRUE(cta::parseHttpDate("Thu, 29 Feb 2024 00:00:00 GMT", t));
+    TEST_ASSERT_EQUAL_INT64(1709164800, t);
+    const char* const bad[] = {"", "Sun, 06 Nov 1994 08:49:37 UTC", "Sun, 6 Nov 1994 08:49:37 GMT",
+                               "Sun, 06 Xyz 1994 08:49:37 GMT", "Fri, 29 Feb 2023 00:00:00 GMT",
+                               "Sun, 06 Nov 1994 24:00:00 GMT", "Sunday, 06-Nov-94 08:49:37 GMT",
+                               "Sun, 06 Nov 1994 08:49:37 GMT "};
+    for (const char* b : bad) {
+        t = 7;
+        TEST_ASSERT_FALSE_MESSAGE(cta::parseHttpDate(b, t), b);
+        TEST_ASSERT_EQUAL_INT64(7, t);
+    }
+    TEST_ASSERT_FALSE(cta::parseHttpDate(nullptr, t));
+}
+
 static void test_night_hours() {
     TEST_ASSERT_TRUE(cta::inNightHours(60, 60, 300));    // 1:00 starts night
     TEST_ASSERT_FALSE(cta::inNightHours(300, 60, 300));  // 5:00 ends it (exclusive)
@@ -249,6 +269,7 @@ int main(int, char**) {
     RUN_TEST(test_cta_seconds_between_fall_back);
     RUN_TEST(test_cta_seconds_between_boundaries);
     RUN_TEST(test_cta_seconds_between_rejects);
+    RUN_TEST(test_http_date);
     RUN_TEST(test_night_hours);
     RUN_TEST(test_config_values);
     RUN_TEST(test_ble_ids);

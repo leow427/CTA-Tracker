@@ -35,6 +35,8 @@ For the mock: `pio run -e mock -t upload`.
 - **Slow mode.** Docked or at night, arrivals poll every 4.5 min (30 s before the 5-min stale mark, so cards don't grey out while a poll is in flight); alerts every 5 min, weather every 15.
 - **Home card.** Fresh data first, then a close stop (one that may hype), then the soonest.
 - **Why Wi-Fi didn't join.** The log says `net: disconnected, reason N` (the driver's reason: 15 or 204 is a wrong password, 201 the network out of reach) and, after a failed try, whether the network is in reach and on which channel. The ESP32-S3 has 2.4 GHz only.
+- **Clock.** NTP servers are given by IP address: while SNTP's own name lookup is pending (as on a network that blocks NTP), an HTTPS request's DNS lookup tripped an lwIP assert and rebooted the board (core 3.3, 2026-11-09). If NTP gives nothing for 10 s, the clock comes from the train API's HTTP `Date` header, retried every 30 s.
+- **Slow networks.** A join gets 20 s (a campus network took about 12). The log has every disconnect reason (at most one a second) and the reset reason at boot.
 - **Wi-Fi out of reach.** Joining backs off from 15 s to 5 min, so the radio isn't scanning nonstop away from home; a tap on the dim screen (a wake) retries at once.
 - **I2C.** The power chip shares the touch controller's bus, and both drivers read `Wire`'s buffer outside its lock, so only the touch task uses the bus: it reads the AXP2101 once a second and hands the state to the loop.
 - **Before data.** The clock shows `--:--` until NTP syncs, and the weather stays hidden until Open-Meteo answers.

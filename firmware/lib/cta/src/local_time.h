@@ -19,6 +19,10 @@ bool parseCtaTime(const char* s, int64_t& secs);
 // standard time. Negative when `to` is before `from`. On failure returns false and leaves secs untouched.
 bool ctaSecondsBetween(const char* from, const char* to, int64_t& secs);
 
+// Parses an HTTP Date header (RFC 9110's IMF-fixdate, "Sun, 06 Nov 1994 08:49:37 GMT") into Unix seconds: the
+// handheld's clock when NTP is blocked. False, leaving unix untouched, for anything else.
+bool parseHttpDate(const char* s, int64_t& unix);
+
 // True when minuteOfDay (0–1439) is in [startMin, endMin), wrapping past midnight when start > end.
 // start == end means never.
 bool inNightHours(int minuteOfDay, int startMin, int endMin);
