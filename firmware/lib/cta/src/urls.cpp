@@ -108,10 +108,12 @@ bool busPatternsUrl(char* buf, size_t cap, const char* key, const char* route) {
     return Url(buf, cap).raw(kBusBase).raw("getpatterns?key=").value(key).raw("&rt=").value(route).raw("&format=json").done();
 }
 
-bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n) {
+bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n, bool disruptionsOnly) {
     if (n == 0) return fail(buf, cap);
     return Url(buf, cap)
-        .raw("https://www.transitchicago.com/api/1.0/alerts.aspx?outputType=JSON&activeonly=true&routeid=")
+        .raw("https://www.transitchicago.com/api/1.0/alerts.aspx?outputType=JSON&activeonly=true")
+        .raw(disruptionsOnly ? "&accessibility=false&planned=false" : "")
+        .raw("&routeid=")
         .list(routes, n)
         .done();
 }

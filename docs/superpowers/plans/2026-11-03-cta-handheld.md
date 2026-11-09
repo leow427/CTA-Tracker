@@ -65,6 +65,22 @@ Tests to include: `fixtures/cta/train_arrivals_station.json` (Belmont) gives 4 c
 
 **Fixture fix first:** the synthetic Belmont fixture gives its 95th-bound Red trains `stpId` 30255 and its Howard-bound one 30256, but in GTFS (`data/stops.json`) 30255 is the Howard platform and 30256 the 95th/Dan Ryan one. Swap them in the fixture, and update the stop ID order the iOS `TrainParseTests` expects to match, in the same commit; otherwise the labels from `kTrainLines` contradict each arrival's `destNm`. Ask Leo before changing the shared fixture.
 
+## Status: live prototype (2026-11-09)
+
+The screens were built first, as the mock (`firmware/handheld/mock/`, see its README). Its `live` build brings milestones 1, 2, 5, 6, and most of 8 onto real data over Wi-Fi. Verified on the board (2026-11-09): it joins Wi-Fi, syncs the clock, and polls all 10 stations, the 10 bus stops, alerts, and weather on the 6.6 schedule; a 4-min soak returned HTTP 200 on every request. A fresh handshake with the train API takes about 2.4 s (its ECDSA certificate is verified in software), so train requests reuse one kept-open connection: about 0.25 s each, all 10 stations in about 5 s. **Open risk:** internal RAM bottoms out at about 29 KB during a request (back to about 103 KB after), under the foundation plan's 40 KB floor. Fine for now; BLE (milestone 3) will need more, so free some first, for example shorter display strips (each 48-row strip buffer is 45 KB of internal RAM).
+
+- `train_cards.*` landed as planned (`parseTrainCards`, `trainDirLabel`), tested against a live Belmont response (`fixtures/cta/train_arrivals_belmont_live.json`), so the synthetic fixture's swapped platform IDs didn't need fixing yet.
+- The nearby list comes from the Mac over USB serial (`tools/send_nearby.py`: CoreLocation, then the same `nearby` JSON the app will write over BLE), kept in flash, until the app's BLE relay exists. Wi-Fi comes from `firmware/secrets.h` (`WIFI_SSID`, `WIFI_PASS`) until milestone 3.
+- Polling and parsing live in `live.*` (network task) and `live_store.*` (plain C++, also run by the preview tool); `live_model.*` fills the mock's model, and both builds end in `mock::finish()`.
+- Alerts use `alertsUrl(..., disruptionsOnly = true)`: unplanned service alerts only. **Proposed spec change** (6.3, Sad): "an active unplanned service alert on the route; elevator and planned alerts don't count."
+- Docked needs a battery too (`live_model.cpp`): a board with no battery is on USB whenever it's on, so by spec 8.4 alone it would sleep forever on the bench. **Proposed spec change** (8.4): "USB power, a battery, and the home network."
+- Fetching is `live.cpp`'s own `get()` (HTTPClient + the CA bundle), not Plan 1's `cta_net::ctaGet`, which doesn't exist yet. Fold it into `cta_net` when the dock needs the same.
+- Card caps are `cta::kMaxBusCards` and `kMaxTrainCards` (80 each, `cta_config.h`), sized for downtown as milestone 5 asks; proposed as spec values.
+- Away from home Wi-Fi, joining backs off from 15 s to 5 min and a wake retries at once (the driver's own auto-reconnect would scan nonstop). Stale data stays on screen greyed out (8.3); fresh data counts down between polls.
+- Slow mode (docked or night) polls arrivals every 270 s, not 300, so a record is refreshed before it goes stale at `kStaleSec` (300); polling right on the mark greyed every card for the length of each fetch. **Proposed spec change** (6.6): "everything about every 5 min".
+- `tools/live_test.cpp` checks `Store` and `fromLive` on a laptop.
+- Not done: BLE (milestones 3, 4, 7), saved networks in NVS, palette from `config`, the battery test (9). The project still lives under `mock/`; moving it to `firmware/handheld/` is a rename once BLE lands.
+
 ## Milestones
 
 1. **Screen, touch, power.** Port the display, touch, and AXP2101 code from the spike. The home screen shows a placeholder pet and the time. Serial logs USB present and battery % every 15 min (this is also spec §8.5's battery log). *Check (Leo):* the round screen renders, touch works, and USB plug/unplug shows up in the log.

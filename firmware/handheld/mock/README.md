@@ -1,6 +1,9 @@
-# Handheld mock
+# Handheld mock and live prototype
 
-The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) running on the Waveshare 1.75" round AMOLED. Preset nearby stops and a fixed location stand in for BLE and Wi-Fi. It's a port of `docs/ideas/2026-11-04-handheld-ui-mockup.html` to C++.
+The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) running on the Waveshare 1.75" round AMOLED, a port of `docs/ideas/2026-11-04-handheld-ui-mockup.html` to C++. Two builds share them:
+
+- **`live` (the default):** real arrivals, alerts, and weather over Wi-Fi, polled on the spec's schedule (§6.6) for a preset nearby list. The phone's BLE `nearby` message will replace the preset once the app has its BLE relay.
+- **`mock`:** simulated arrivals around a fixed location, no network. The clock starts at the build time, read as Chicago time.
 
 ## Run it
 
@@ -8,7 +11,34 @@ The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) run
 cd firmware/handheld/mock && pio run -t upload
 ```
 
-The clock starts at the build time, read as Chicago time.
+That's the live build. It needs `firmware/secrets.h` (git-ignored; template `firmware/secrets.example.h`) with the two CTA keys and a Wi-Fi network:
+
+```c
+#define WIFI_SSID "your network"
+#define WIFI_PASS "its password"
+```
+
+For the mock: `pio run -e mock -t upload`.
+
+## The live build
+
+- **Nearby list (spec §8.3).** The handheld polls the stops in the `nearby` message, kept in flash. Until the app's BLE link exists, the Mac sends it over USB serial: `python3 tools/send_nearby.py` (from the repo root) takes the Mac's location from CoreLocation, picks the 10 nearest stations and 10 bus stops (each route and direction's nearest stop, the 10 nearest of those), and writes the list to the board, which starts over with the new stops. The first run builds a small helper app, `Trackie Locate`, and macOS asks once to let it use your location. `--lat … --lon …` sends a spot instead; `--dry-run` shows the stops without sending. The location goes only to the board (and on to Open-Meteo for weather); nothing prints it or writes it to the repo. Until a list arrives, Trackie is Sleepy and says "Waiting for location".
+- **Polls (spec §6.6).** The 3 closest stations every 60 s and the other 7 every 3 min (one `ttarrivals?mapid=` each, split into one card per line and direction by `cta::parseTrainCards`); all 10 bus stops in one `getpredictions` call every 60 s; alerts every 5 min for the routes seen; weather every 15 min. That's about 7 CTA requests a minute. Every due station goes before the buses, so they share one connection.
+- **One kept-open connection.** The train API's certificate is ECDSA, which the ESP32-S3 verifies in software: a fresh TLS handshake there takes about 2.4 s. The live build keeps that connection open between train requests (closing it after 90 s idle, or before a request to another host), so a station takes about 0.25 s and all 10 load about 5 s after Wi-Fi is up (2026-11-09; it was about 25 s). The other hosts get one request a minute or less, so their connections close when done. Only one is ever open.
+- **Buses once each.** A route and direction shows once, at the nearest listed stop that serves it.
+- **Alerts.** Only unplanned service alerts count (`accessibility=false&planned=false`). Without that filter, elevator outages and planned bus-stop notes marked Red, Brown, Purple, 22, and 8 as alerted on a normal weekday, and Trackie would be Sad all day.
+- **Offline.** Until Wi-Fi and the clock are up, the bubble says "No signal" and a tap shows why ("Connecting to Wi-Fi", "Setting the clock", "No Wi-Fi set up"). Data older than 5 min greys out, as in the mock's Offline state.
+- **Docked (spec §8.4).** USB power, a battery, and the home network (`WIFI_SSID`). A board with no battery runs on USB whenever it's on, so it never counts as docked.
+- **Battery log (spec §8.5).** `power: usb …, battery …%, … mV` at boot and every 15 min.
+- **TLS.** Every request verifies the server against the ESP-IDF certificate bundle. Request URLs carry the keys and are never logged.
+- **Countdown.** Between polls, minutes count down from each record's fetch time; arrivals that have passed drop, as in the app. Once a record is stale (over 5 min) it stays as fetched, greyed out (spec §8.3).
+- **Slow mode.** Docked or at night, arrivals poll every 4.5 min (30 s before the 5-min stale mark, so cards don't grey out while a poll is in flight); alerts every 5 min, weather every 15.
+- **Home card.** Fresh data first, then a close stop (one that may hype), then the soonest.
+- **Why Wi-Fi didn't join.** The log says `net: disconnected, reason N` (the driver's reason: 15 or 204 is a wrong password, 201 the network out of reach) and, after a failed try, whether the network is in reach and on which channel. The ESP32-S3 has 2.4 GHz only.
+- **Wi-Fi out of reach.** Joining backs off from 15 s to 5 min, so the radio isn't scanning nonstop away from home; a tap on the dim screen (a wake) retries at once.
+- **I2C.** The power chip shares the touch controller's bus, and both drivers read `Wire`'s buffer outside its lock, so only the touch task uses the bus: it reads the AXP2101 once a second and hands the state to the loop.
+- **Before data.** The clock shows `--:--` until NTP syncs, and the weather stays hidden until Open-Meteo answers.
+- **Internal RAM.** Wi-Fi and each TLS connection need about 100 KB of internal RAM between them, so the live build keeps the model, the card scratch, and the parsers' buffers in PSRAM. Measured on the board (2026-11-09): about 103 KB internal free with no connection open, about 57 KB while the train connection is kept open, and a low of about 30 KB during a handshake (a TLS connection takes about 45–50 KB), under the foundation plan's 40 KB floor; BLE will need some of it back. Scratch in PSRAM cost the Stops list 0.7 ms a frame while scrolling (27.5 vs 26.8 ms; 23 fps either way).
 
 ## Using it
 
@@ -24,14 +54,19 @@ Live computes Trackie's mood from the simulated arrivals with `cta::deviceMood`,
 
 | File | What it is |
 |---|---|
-| `src/mock_data.*` | The preset stations, bus stops, and location; arrivals simulated on fixed headways; the mood, reason, and home card |
+| `src/mock_data.*` | The model the screens draw; the mock's preset stations and simulated arrivals; `finish()`, which sorts the cards and sets the mood, reason, and home card for both builds |
+| `src/live.*` | Live build: Wi-Fi, NTP, HTTPS, and the poll schedule, on a task of its own (core 0) |
+| `src/live_store.*` | Live build: what each response adds to the records (plain C++, so the preview tool runs it too) |
+| `src/live_model.*` | Live build: the records, power, and weather into the model |
+| `src/power.*` | Live build: the AXP2101 (USB, battery, charging), read-only for the rails |
 | `src/ui.*` | The screens, navigation, and gestures (plain C++) |
 | `src/gfx2d.*` | A small canvas over RGB565: pixel plates, text, pixel digits, anti-aliased shapes, scaled blits. It draws either a whole screen or one strip in the panel's layout |
 | `src/fonts.*` | Nunito glyphs; `fonts.cpp` is generated by `tools/font_build.py` |
 | `src/main.cpp` | Display, touch, and the frame loop: strips, changed-row sends, the touch task |
 | `src/touch_filter.h` | Turns raw touch reads into presses, riding out the controller's empty reads |
-| `tools/preview.cpp` | Renders the screens to PNGs on a laptop; build line at the top of the file. `--strips` renders through the device's strip path, which must match the plain render exactly |
+| `tools/preview.cpp` | Renders the screens to PNGs on a laptop; build line at the top of the file. `--strips` renders through the device's strip path, which must match the plain render exactly. `--live <dir> <unix>` renders the live screens from recorded responses (and `nearby.json` there, else the Belmont fixture) |
 | `tools/touch_test.cpp` | Checks the touch filter on a laptop, and replays a touch log recorded with `t` |
+| `tools/live_test.cpp` | Checks the live build's data path on a laptop: `live::Store` and `mock::fromLive` (the nearby list, one card per bus route and direction, countdown, stale data, alerts, offline, docked); build line at the top |
 
 ## How a frame gets to the panel
 

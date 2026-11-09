@@ -53,6 +53,9 @@ static void test_alerts_and_weather() {
     const char* routes[] = {"Red", "22"};
     TEST_ASSERT_TRUE(cta::alertsUrl(buf, sizeof(buf), routes, 2));
     TEST_ASSERT_EQUAL_STRING("https://www.transitchicago.com/api/1.0/alerts.aspx?outputType=JSON&activeonly=true&routeid=Red,22", buf);
+    TEST_ASSERT_TRUE(cta::alertsUrl(buf, sizeof(buf), routes, 2, true));
+    TEST_ASSERT_EQUAL_STRING("https://www.transitchicago.com/api/1.0/alerts.aspx?outputType=JSON&activeonly=true"
+                             "&accessibility=false&planned=false&routeid=Red,22", buf);
     TEST_ASSERT_FALSE(cta::alertsUrl(buf, sizeof(buf), routes, 0));
     TEST_ASSERT_TRUE(cta::weatherUrl(buf, sizeof(buf), 41.87812, -87.62980));
     TEST_ASSERT_EQUAL_STRING(

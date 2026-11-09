@@ -30,5 +30,9 @@ constexpr uint16_t kBleMaxPayload = 512;
 constexpr uint8_t kNearbyPerTab = 10;
 constexpr uint8_t kHypedClosestStops = 3;
 constexpr uint32_t kScreenDimSec = 15;
+// Card caps for the handheld's 10 nearest stops per tab (handheld plan, milestone 5; proposed spec values). Downtown is
+// the worst case: State & Lake alone has about 60 bus route-directions, Clark/Lake 12 train line-directions.
+constexpr int kMaxBusCards = 80;
+constexpr int kMaxTrainCards = 80;
 
 }  // namespace cta

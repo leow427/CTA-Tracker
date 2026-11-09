@@ -53,7 +53,7 @@ Swipe up for Stops. Swipe left for the Map (a stretch goal).
 A tab pill at the top, then a scrolling list of cards, nearest stop first.
 
 - **Trains:** one card per line and direction at each of the 10 nearest stations, soonest first within a station. Belmont shows six: Red, Brown, and Purple, each way.
-- **Buses:** one card per route and direction at each of the 10 nearest stops, soonest first within a stop. A stop served by the 22 and the 36 shows both.
+- **Buses:** one card per route and direction, at the nearest of the 10 listed stops that serves it (spec 8.3: each route and direction's nearest stop, the 10 nearest of those), soonest first within a stop. A stop served by the 22 and the 36 shows both.
 - **On a round screen,** cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
 - **Stale cards** grey out when their data is more than 5 min old.
 
@@ -106,7 +106,7 @@ It needs BLE additions first (stop coordinates and train positions); see Plan 3 
 | Umbrella or scarf from the weather | `firmware/lib/cta/src/alerts_weather.{h,cpp}` (`accessoryFor`) | done |
 | Line colors | `firmware/lib/cta/src/line_colors.{h,cpp}` (mirrored in the app's `Config.swift`) | done; card shade math still to port |
 | Bus cards (one record per stop, route, direction) | `firmware/lib/cta/src/bus_parse.{h,cpp}` | done |
-| Train cards (one record per station, line, direction) | `parseTrainCards`, Plan 3 "Shared additions" | to build |
+| Train cards (one record per station, line, direction) | `firmware/lib/cta/src/train_cards.{h,cpp}` (`parseTrainCards`, `trainDirLabel`) | done |
 | Screen dim timing and other values | `firmware/lib/cta/src/cta_config.h` (`kScreenDimSec`) | done |
 | Screens, card drawing, pixel digits, fonts | Plan 3 milestones 6 and 8 (`ui_kit`, `ui_home`, `ui_stops`, `ui_detail`) | to build |
 | The look, interactive | `docs/ideas/2026-11-04-handheld-ui-mockup.html` | updated 2026-11-07 |

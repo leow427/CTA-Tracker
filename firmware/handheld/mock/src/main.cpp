@@ -1,4 +1,6 @@
-// The handheld mock on the device: display (CO5300 over QSPI), touch (CST9217), and the frame loop.
+// The handheld on the device: display (CO5300 over QSPI), touch (CST9217), and the frame loop. The live build
+// (HANDHELD_LIVE, env:live) feeds the screens real CTA data from the network task (live.*) and reads the power chip
+// (power.*); the mock build simulates arrivals (mock_data.*).
 //
 // Frames are drawn in strips of screen rows into internal RAM (fast, unlike PSRAM), already laid out the way the
 // panel wants them: the panel is mounted a quarter turn off, so a strip of screen rows is a strip of panel columns,
@@ -15,6 +17,12 @@
 #include "mock_data.h"
 #include "touch_filter.h"
 #include "ui.h"
+#ifdef HANDHELD_LIVE
+#include "live.h"
+#include "live_model.h"
+#include "power.h"
+#include "cta_config.h"
+#endif
 
 namespace {
 
@@ -30,9 +38,16 @@ TouchDrvCST92xx touch;
 bool touchOk = false;
 
 uint16_t* scratch;
-mock::Model model;
+// On the heap, so in PSRAM (blocks over 4 KB go there, and PSRAM is up before constructors run): its 46 KB of
+// cards would crowd internal RAM, which the live build needs for Wi-Fi and TLS.
+mock::Model& model = *new mock::Model();
 ui::App app;
 uint32_t startUnix = 0, startMs = 0;
+#ifdef HANDHELD_LIVE
+live::Snapshot* snap;   // the newest from the network task (PSRAM); the model's pips point into it
+uint32_t snapVersion = 0;
+power::State pw;
+#endif
 
 // The build time, read as Chicago local time, is the mock's clock.
 uint32_t buildUnix() {
@@ -144,11 +159,29 @@ QueueHandle_t touchEvents;   // touchf::Event
 
 // Reads the touch panel every 8 ms; touchf::Filter turns the reads into presses (and rides out the controller's
 // empty reads between reports).
+#ifdef HANDHELD_LIVE
+// The power chip shares the touch controller's I2C bus, and the drivers read Wire's buffer outside its lock, so
+// only this task touches the bus: it reads the AXP2101 once a second and hands the state over under pwLock.
+portMUX_TYPE pwLock = portMUX_INITIALIZER_UNLOCKED;
+power::State pwShared;
+#endif
+
 void touchTask(void*) {
     touchf::Filter filter;
     TickType_t wake = xTaskGetTickCount();
+#ifdef HANDHELD_LIVE
+    uint32_t tick = 0;
+#endif
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(8));
+#ifdef HANDHELD_LIVE
+        if (++tick % 125 == 0) {
+            const power::State p = power::read();
+            portENTER_CRITICAL(&pwLock);
+            pwShared = p;
+            portEXIT_CRITICAL(&pwLock);
+        }
+#endif
         int16_t x[2], y[2];
         const uint8_t n = touch.getPoint(x, y, 2);
         touchf::Event ev[2];
@@ -224,14 +257,24 @@ void profile(uint32_t ms) {
 }
 
 // In screen coordinates: "d x y" (down), "m x y" (move), "u x y" (up), "c" (debug cycle), "a" (auto-scroll 6 s),
-// "p" (profile), "s" (frame stats now), "t" (touch log on/off: every sample, and what each release did).
+// "p" (profile), "s" (frame stats now), "t" (touch log on/off: every sample, and what each release did). Live build:
+// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app over BLE.
 void pollSerial(uint32_t ms) {
-    static char line[32];
+    static char line[640];
     static int n = 0;
     while (Serial.available()) {
         const char ch = static_cast<char>(Serial.read());
-        if (ch != '\n' && n < 31) { line[n++] = ch; continue; }
+        if (ch != '\n' && n < static_cast<int>(sizeof(line)) - 1) { line[n++] = ch; continue; }
+        const int len = n;
         line[n] = 0; n = 0;
+#ifdef HANDHELD_LIVE
+        if (line[0] == 'N' && line[1] == ' ') {
+            Serial.println(live::setNearby(line + 2, len - 2) ? "nearby: ok" : "nearby: rejected");
+            continue;
+        }
+#else
+        (void)len;
+#endif
         float x = 0, y = 0;
         sscanf(line + 1, "%f %f", &x, &y);
         if (line[0] == 'd') ui::pointerDown(app, model, x, y, ms);
@@ -249,6 +292,7 @@ void pollSerial(uint32_t ms) {
 }  // namespace
 
 void setup() {
+    Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
     Serial.begin(115200);
     Wire.begin(kSda, kScl);
     if (!gfx->begin(80000000)) Serial.println("display: begin failed");
@@ -258,7 +302,13 @@ void setup() {
         stripFree[k] = xSemaphoreCreateBinary();
         xSemaphoreGive(stripFree[k]);
     }
+#ifdef HANDHELD_LIVE
+    // PSRAM in the live build: Wi-Fi and a TLS connection need about 100 KB of internal RAM, and these 69 KB don't
+    // draw measurably faster inside it (see the README's speed notes).
+    scratch = static_cast<uint16_t*>(heap_caps_malloc(ui::kScratchPixels * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#else
     scratch = static_cast<uint16_t*>(heap_caps_malloc(ui::kScratchPixels * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+#endif
     if (!stripBuf[0] || !stripBuf[1] || !scratch) Serial.println("memory: allocation failed");
     constexpr int kCards = 16;
     if (uint16_t* cache = static_cast<uint16_t*>(ps_malloc(kCards * ui::kScratchPixels * 2))) ui::setCardCache(cache, kCards);
@@ -268,7 +318,16 @@ void setup() {
                   getCpuFrequencyMhz(), heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
     startUnix = buildUnix();
     startMs = millis();
+#ifdef HANDHELD_LIVE
+    snap = static_cast<live::Snapshot*>(ps_malloc(sizeof(live::Snapshot)));
+    live::clear(*snap);
+    Serial.printf("power: %s\n", power::begin() ? "AXP2101 ok" : "AXP2101 not found");
+    pw = pwShared = power::read();   // before the touch task starts; after that only it reads the bus
+    mock::fromLive(model, *snap, pw, startUnix, false);
+    live::start();
+#else
     mock::update(model, startUnix, startUnix);
+#endif
     ui::init(app, millis());
     jobs = xQueueCreate(32, sizeof(Job));
     touchEvents = xQueueCreate(64, sizeof(touchf::Event));
@@ -286,7 +345,28 @@ void loop() {
     const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
     pollSerial(ms);
     if (ms - lastData >= 1000 || lastData == 0) {
+#ifdef HANDHELD_LIVE
+        // The clock: NTP once synced, the build time until then.
+        const uint32_t ntp = live::unixNow();
+        const uint32_t now = ntp ? ntp : startUnix + (ms - startMs) / 1000;
+        if (!touchOk) pwShared = power::read();   // no touch task, so nothing else is on the bus
+        portENTER_CRITICAL(&pwLock);
+        pw = pwShared;
+        portEXIT_CRITICAL(&pwLock);
+        live::read(*snap, snapVersion);
+        mock::fromLive(model, *snap, pw, now, ntp != 0);
+        const int lm = mock::localMinutes(now);
+        live::setSlow(model.docked || (lm >= cta::kNightStartMin && lm < cta::kNightEndMin));
+        // The battery log (spec 8.5): every 15 min, and once at boot.
+        static uint32_t lastLog = 0;
+        if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {
+            lastLog = ms;
+            Serial.printf("power: usb %d, battery %s %d%% %u mV%s; docked %d\n", pw.usb, pw.battery ? "yes" : "no",
+                          pw.percent, pw.battMv, pw.charging ? ", charging" : "", model.docked);
+        }
+#else
         mock::update(model, startUnix + (ms - startMs) / 1000, startUnix);
+#endif
         lastData = ms;
     }
     if (autoScrollUntil) {
@@ -300,6 +380,11 @@ void loop() {
         }
     }
     ui::tick(app, model, ms);
+#ifdef HANDHELD_LIVE
+    static bool wasDim = false;   // a tap on the dim screen is a wake (spec 8.2)
+    if (wasDim && !app.dim) live::wake();
+    wasDim = app.dim;
+#endif
     if (profileReq) { profileReq = false; profile(ms); }
     // Full speed while something moves; otherwise only when Trackie bobs or the live mark blinks (every 500 ms),
     // and a few frames a second while dim (spec 8: the animation drops when dimmed). Between frames, wait on touch.
@@ -325,8 +410,14 @@ void loop() {
         const uint32_t f = frames ? frames : 1;
         Serial.printf("fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); ",
                       frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W);
-        Serial.printf("scenario %s, internal free %u\n", mock::scenarioName(model.scenario),
-                      heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        Serial.printf("scenario %s, mood %d, %d trains, %d buses, internal free %u (min %u)", mock::scenarioName(model.scenario),
+                      static_cast<int>(model.mood), model.nTrains, model.nBuses, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+#ifdef HANDHELD_LIVE
+        Serial.printf(", wifi %d, CTA requests %u%s%s", snap->wifiUp, static_cast<unsigned>(snap->requests),
+                      snap->status[0] ? ", " : "", snap->status);
+#endif
+        Serial.println();
         frames = sumDraw = sumFrame = 0;
         sentPx = 0;
         sendUs = 0;

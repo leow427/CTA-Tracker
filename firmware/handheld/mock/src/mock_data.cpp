@@ -108,7 +108,9 @@ void sortCards(Card* cs, int n) {
             Card& a = cs[j - 1];
             Card& b = cs[j];
             const bool sameStop = a.station == b.station;
-            const bool swap = sameStop ? b.rec.arrivals[0].min < a.rec.arrivals[0].min : b.distKm < a.distKm - 1e-4f;
+            // Different stops at the same distance keep their list order (station is nearest first).
+            const bool swap = sameStop ? b.rec.arrivals[0].min < a.rec.arrivals[0].min
+                                       : b.distKm < a.distKm - 1e-4f || (fabsf(b.distKm - a.distKm) <= 1e-4f && b.station < a.station);
             if (!swap) break;
             Card t = a; a = b; b = t;
         }
@@ -255,9 +257,6 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
         snprintf(c.heading, sizeof(c.heading), "%s to %s", bs.compass, bs.dest);
         if (sc == Scenario::Worried && strcmp(bs.rt, "22") == 0) delay(c, 4);
     }
-    sortCards(m.trains, m.nTrains);
-    sortCards(m.buses, m.nBuses);
-
     // The 3 closest stops of either kind may hype (spec 10).
     float closest[3] = {1e9f, 1e9f, 1e9f};
     auto consider = [&](float d) {
@@ -268,17 +267,56 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
     };
     for (int i = 0; i < m.nTrains; ++i) consider(m.trains[i].distKm);
     for (int i = 0; i < m.nBuses; ++i) consider(m.buses[i].distKm);
-    static cta::StopRecord recs[2 * kMaxCards];
+    for (int i = 0; i < m.nTrains; ++i) m.trains[i].close = m.trains[i].distKm <= closest[2] + 1e-4f;
+    for (int i = 0; i < m.nBuses; ++i) m.buses[i].close = m.buses[i].distKm <= closest[2] + 1e-4f;
+    m.powerDocked = false;
+    m.battery = 64;
+    m.charging = true;
+    finish(m);
+}
+
+Weather weatherFor(int wmo) {
+    if ((wmo >= 51 && wmo <= 67) || (wmo >= 80 && wmo <= 82) || (wmo >= 95 && wmo <= 99)) return Weather::Rain;
+    if ((wmo >= 71 && wmo <= 77) || (wmo >= 85 && wmo <= 86)) return Weather::Snow;
+    return Weather::Clear;
+}
+
+WeatherView weatherView(const Model& m) {
+    WeatherView v{};
+    const char* temp;
+    weatherInfo(m.weather, v.icon, temp, v.rgb, v.wmo, v.tempC);
+    snprintf(v.temp, sizeof(v.temp), "%s", temp);
+    if (m.weatherForced) return v;
+    if (!m.hasWeather) {
+        if (m.live) { v.icon = nullptr; v.temp[0] = 0; v.wmo = 0; v.tempC = 10; }   // nothing yet; no accessory
+        return v;
+    }
+    v.wmo = m.wmo;
+    v.tempC = m.tempC;
+    snprintf(v.temp, sizeof(v.temp), "%d\xC2\xB0", static_cast<int>(lroundf(m.tempC * 9 / 5 + 32)));
+    if (m.weather == Weather::Clear && m.wmo >= 2) { v.icon = "cloud"; v.rgb = 0xc9d4ea; }   // cloudy or foggy
+    return v;
+}
+
+void finish(Model& m) {
+    const uint32_t now = m.now;
+    const Scenario sc = m.scenario;
+    sortCards(m.trains, m.nTrains);
+    sortCards(m.buses, m.nBuses);
+
+    // On the heap, so the device puts these 16 KB in PSRAM (internal RAM is for Wi-Fi and TLS).
+    static cta::StopRecord* const recs = new cta::StopRecord[2 * kMaxCards];
     static bool eligible[2 * kMaxCards];
     static const Card* owners[2 * kMaxCards];
     int n = 0;
-    for (int i = 0; i < m.nTrains; ++i) { recs[n] = m.trains[i].rec; owners[n] = &m.trains[i]; eligible[n++] = m.trains[i].distKm <= closest[2] + 1e-4f; }
+    for (int i = 0; i < m.nTrains; ++i) { recs[n] = m.trains[i].rec; owners[n] = &m.trains[i]; eligible[n++] = m.trains[i].close; }
     const int firstBus = n;
-    for (int i = 0; i < m.nBuses; ++i) { recs[n] = m.buses[i].rec; owners[n] = &m.buses[i]; eligible[n++] = m.buses[i].distKm <= closest[2] + 1e-4f; }
+    for (int i = 0; i < m.nBuses; ++i) { recs[n] = m.buses[i].rec; owners[n] = &m.buses[i]; eligible[n++] = m.buses[i].close; }
 
     const int lm = localMinutes(now);
     const bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
-    m.docked = sc == Scenario::Docked;
+    const bool offline = sc == Scenario::Offline || m.offline;
+    m.docked = sc == Scenario::Docked || (sc == Scenario::Live && m.powerDocked);
     switch (sc) {
         case Scenario::Live: m.mood = cta::deviceMood(recs, eligible, n, now, night, true); break;
         case Scenario::Happy: m.mood = cta::Mood::Happy; break;
@@ -292,28 +330,54 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
     // Trackie's reason names the stop behind the mood, and that stop is the home screen's card.
     m.reason[0] = 0;
     m.glance = nullptr;
+    // The home card: fresh before stale, then a close stop, then the soonest.
     const Card* soonest = nullptr;
     int soonestIdx = -1;
-    for (int i = 0; i < n; ++i)
-        if (eligible[i] && (!soonest || recs[i].arrivals[0].min < soonest->rec.arrivals[0].min)) { soonest = owners[i]; soonestIdx = i; }
+    static bool fresh[2 * kMaxCards];
+    for (int i = 0; i < n; ++i) fresh[i] = !cta::isStale(recs[i], now);
+    for (int i = 0; i < n; ++i) {
+        if (!recs[i].count) continue;
+        bool better = !soonest;
+        if (!better && fresh[i] != fresh[soonestIdx]) better = fresh[i];
+        else if (!better && eligible[i] != eligible[soonestIdx]) better = eligible[i];
+        else if (!better) better = recs[i].arrivals[0].min < soonest->rec.arrivals[0].min;
+        if (better) { soonest = owners[i]; soonestIdx = i; }
+    }
     const bool soonestBus = soonestIdx >= firstBus;
-    if (m.docked) { m.glance = soonest; m.glanceIsBus = soonestBus; snprintf(m.reason, sizeof(m.reason), "Charging, 64%%"); return; }
-    if (offline) { m.glance = soonest; m.glanceIsBus = soonestBus; snprintf(m.reason, sizeof(m.reason), "Data is 7 min old"); return; }
+    if (m.docked) {
+        m.glance = soonest; m.glanceIsBus = soonestBus;
+        if (m.battery < 0) snprintf(m.reason, sizeof(m.reason), "On USB power");
+        else snprintf(m.reason, sizeof(m.reason), m.charging ? "Charging, %d%%" : "Charged, %d%%", m.battery);
+        return;
+    }
+    if (offline) {
+        m.glance = soonest; m.glanceIsBus = soonestBus;
+        const uint32_t ts = m.live ? m.fetchedAt : soonest ? soonest->rec.ts : 0;
+        if (m.status[0] && sc == Scenario::Live) snprintf(m.reason, sizeof(m.reason), "%s", m.status);
+        else if (ts && now > ts) snprintf(m.reason, sizeof(m.reason), "Data is %d min old", static_cast<int>((now - ts) / 60));
+        else snprintf(m.reason, sizeof(m.reason), "No data yet");
+        return;
+    }
     switch (m.mood) {
         case cta::Mood::Hyped:
             for (int i = 0; i < n; ++i)
-                if (eligible[i] && recs[i].arrivals[0].live && recs[i].arrivals[0].min <= cta::kHypedMaxMin) {
+                if (eligible[i] && fresh[i] && recs[i].count && recs[i].arrivals[0].live && recs[i].arrivals[0].min <= cta::kHypedMaxMin) {
                     say(m, owners[i], i >= firstBus, recs[i].arrivals[0].min <= 1 ? "%s is due!" : "%s in %d min!", recs[i].arrivals[0].min);
                     return;
                 }
             break;
         case cta::Mood::Sad:
             for (int i = 0; i < n; ++i)
-                if (recs[i].alert) { say(m, owners[i], i >= firstBus, i >= firstBus ? "%s alert" : "%s Line alert", 0); return; }
+                if (recs[i].alert && fresh[i]) { say(m, owners[i], i >= firstBus, i >= firstBus ? "%s alert" : "%s Line alert", 0); return; }
             break;
         case cta::Mood::Worried:
             for (int i = 0; i < n; ++i)
-                if (recs[i].arrivals[0].delayed) { say(m, owners[i], i >= firstBus, "%s is %d min late", owners[i]->delayMin); return; }
+                if (fresh[i] && recs[i].count && recs[i].arrivals[0].delayed) {
+                    // CTA flags a delay without saying how long; only the mock knows the minutes.
+                    if (owners[i]->delayMin > 0) say(m, owners[i], i >= firstBus, "%s is %d min late", owners[i]->delayMin);
+                    else say(m, owners[i], i >= firstBus, "%s is running late", 0);
+                    return;
+                }
             break;
         case cta::Mood::Sleepy:
             m.glance = soonest; m.glanceIsBus = soonestBus;

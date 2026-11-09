@@ -95,13 +95,13 @@ void chevron(Canvas& cv, float x0, float y0, float x1, float y1, float x2, float
 }
 
 // ---------- Trackie, via the shared pet renderer ----------
-void drawPet(Canvas& cv, cta::Mood mood, bool docked, int x, int y, int s, mock::Weather w, bool extra) {
+// wx: the weather for his umbrella or scarf; nullptr for none.
+void drawPet(Canvas& cv, cta::Mood mood, bool docked, int x, int y, int s, const mock::WeatherView* wx, bool extra) {
     const pet::PetState st = pet::petStateFor(mood, docked);
     auto put = [&](const pet::Sprite& sp) { cv.sprite(sp.idx, sp.w, sp.h, sp.dx, sp.dy, x, y, pet::kDefaultPalette565, s); };
     put(pet::kPet[static_cast<int>(st)]);
-    const char* ic; const char* temp; uint32_t rgb; int wmo; float tempC;
-    mock::weatherInfo(w, ic, temp, rgb, wmo, tempC);
-    if (const pet::Sprite* ov = pet::overlayFor(st, cta::accessoryFor(wmo, tempC))) put(*ov);
+    if (wx)
+        if (const pet::Sprite* ov = pet::overlayFor(st, cta::accessoryFor(wx->wmo, wx->tempC))) put(*ov);
     if (extra && pet::kPetExtra[static_cast<int>(st)]) put(*pet::kPetExtra[static_cast<int>(st)]);
 }
 
@@ -194,10 +194,13 @@ const char* moodWord(const Model& m) {
         default: return "Sleepy\xE2\x80\xA6";
     }
 }
-bool anyStale(const Model& m) { return m.scenario == Scenario::Offline; }
-int staleMin(const Model& m) {
+bool anyStale(const Model& m) { return m.scenario == Scenario::Offline || m.offline; }
+// The offline line under the status row: how old the data is, or what the network is doing.
+void staleText(const Model& m, char* out, size_t cap) {
     const Card* c = m.nTrains ? &m.trains[0] : m.nBuses ? &m.buses[0] : nullptr;
-    return c ? static_cast<int>((m.now - c->rec.ts) / 60) : 0;
+    const uint32_t ts = m.live ? m.fetchedAt : c ? c->rec.ts : 0;   // live: the newest fetch
+    if (ts && m.now >= ts) snprintf(out, cap, "Updated %d min ago", static_cast<int>((m.now - ts) / 60));
+    else snprintf(out, cap, "%s", m.status[0] ? m.status : "No data yet");
 }
 const char* bubbleText(const App& a, const Model& m, uint32_t ms) {
     if (a.view.screen == Screen::First) return "Hi! I\xE2\x80\x99m Trackie";
@@ -208,13 +211,15 @@ const char* bubbleText(const App& a, const Model& m, uint32_t ms) {
 
 void drawStatusRow(Canvas& cv, const Model& m, int y, bool dim) {
     char tm[8];
-    mock::clockText(m.now, 0, tm, sizeof(tm));
+    if (m.clockKnown) mock::clockText(m.now, 0, tm, sizeof(tm));
+    else snprintf(tm, sizeof(tm), "--:--");
     const int tw = Canvas::pixelWidth(tm, 4);
     cv.pixelText(tm, C, y - 14, 4, dim ? col::mist : col::white, Align::Center);
-    const char* ic; const char* temp; uint32_t rgb; int wmo; float tempC;
-    mock::weatherInfo(m.weather, ic, temp, rgb, wmo, tempC);
-    icon(cv, ic, C + tw / 2.f + 24, y, 3, dim ? col::dimInk : rgb);
-    cv.text(F(800, 18), temp, C + tw / 2.f + 38, y + 1, dim ? col::dimInk : col::mist, Align::Left, Base::Middle);
+    const mock::WeatherView wx = mock::weatherView(m);
+    if (wx.icon) {
+        icon(cv, wx.icon, C + tw / 2.f + 24, y, 3, dim ? col::dimInk : wx.rgb);
+        cv.text(F(800, 18), wx.temp, C + tw / 2.f + 38, y + 1, dim ? col::dimInk : col::mist, Align::Left, Base::Middle);
+    }
     const bool stale = anyStale(m);
     icon(cv, stale ? "off" : "wifi", C - tw / 2.f - 24, y, 3, stale ? col::amber : col::dimInk);
 }
@@ -243,7 +248,7 @@ void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, c
     const bool docked = m.docked, first = v.screen == Screen::First, stale = anyStale(m);
     drawStatusRow(cv, m, 68, aod || docked);
     const bool up = (ms / 500) % 2 == 0;
-    if (aod) { drawPet(cv, m.mood, docked, C - 64, 146 + ((ms / 1000) % 2 ? 0 : -4), 4, mock::Weather::Clear, false); return; }
+    if (aod) { drawPet(cv, m.mood, docked, C - 64, 146 + ((ms / 1000) % 2 ? 0 : -4), 4, nullptr, false); return; }
     if (!docked && m.weather != mock::Weather::Clear) {   // rain or snow behind Trackie
         const bool rain = m.weather == mock::Weather::Rain;
         for (int i = 0; i < 16; ++i) {
@@ -260,13 +265,17 @@ void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, c
     const float total = tile + gap + bubbleWidth(text);
     const int tx = static_cast<int>(lroundf(C - total / 2)), ty = 108;
     gPetTile = {tx, ty, tile, tile};
-    drawPet(cv, m.mood, docked, tx + 12, ty + 12 + (up ? -4 : 0) - hop * 4, 4, m.weather, true);
+    const mock::WeatherView wx = mock::weatherView(m);
+    drawPet(cv, m.mood, docked, tx + 12, ty + 12 + (up ? -4 : 0) - hop * 4, 4, &wx, true);
     bubble(cv, text, tx + tile + gap, ty + tile / 2.f);
     gHomeCard = {0, 0, 0, 0};
     if (docked) {
         cv.arc(C, C, 226, 0, 6.2832f, 5, 0x123d2a);
-        cv.arc(C, C, 226, -1.5708f, -1.5708f + 6.2832f * 0.64f, 5, col::signal);
-        cv.text(F(900, 24), "Charging \xC2\xB7 64%", C, 296, col::signal, Align::Center);
+        char charge[32];
+        if (m.battery < 0) snprintf(charge, sizeof(charge), "On USB power");
+        else snprintf(charge, sizeof(charge), m.charging ? "Charging \xC2\xB7 %d%%" : "Charged \xC2\xB7 %d%%", m.battery);
+        if (m.battery >= 0) cv.arc(C, C, 226, -1.5708f, -1.5708f + 6.2832f * m.battery / 100.f, 5, col::signal);
+        cv.text(F(900, 24), charge, C, 296, col::signal, Align::Center);
         cv.text(F(800, 16), "Resting on the dock", C, 330, col::mist, Align::Center);
         return;
     }
@@ -283,8 +292,8 @@ void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, c
     if (v.screen != Screen::Home) return;
     chevron(cv, 436, C - 12, 446, C, 436, C + 12, col::mist);   // swipe left: the map
     if (stale) {
-        char s[32];
-        snprintf(s, sizeof(s), "Updated %d min ago", staleMin(m));
+        char s[40];
+        staleText(m, s, sizeof(s));
         cv.text(F(800, 14), s, C, 406, col::amber, Align::Center);
         return;
     }
@@ -308,7 +317,7 @@ void drawTabs(Canvas& cv, Tab tab) {
 // Rendered cards, reused while a card's content and width stay the same (re-rendering every card every frame is
 // too slow on the ESP32). A card renders into scratch (internal RAM on the device, where per-pixel work is fast)
 // and is copied into the cache. Without cache memory, each card renders into scratch every time.
-struct CacheEntry { char key[96]; int half; uint32_t used; };
+struct CacheEntry { char key[128]; int half; uint32_t used; };
 uint16_t* gCacheMem = nullptr;
 int gCacheN = 0;
 CacheEntry gCache[16];
@@ -316,9 +325,10 @@ uint32_t gCacheClock = 0;
 
 // While the list moves, any cached width of the same card will do (anyHalf); it settles to the exact one.
 const uint16_t* cardImage(const Card& c, Tab tab, int half, bool anyHalf, const CardView& v, uint32_t ms, uint16_t* scratch) {
-    char key[96];
-    snprintf(key, sizeof(key), "%d|%u|%s|%s|%d|%s|%d%d%d", static_cast<int>(tab), c.station, c.rec.route, c.rec.dir,
-             v.min, v.sched ? v.clock : "", v.delayed, v.alert, v.stale);
+    char key[128];
+    snprintf(key, sizeof(key), "%d|%u|%s|%s|%d|%s|%d%d%d|%s|%s%s%s", static_cast<int>(tab), c.station, c.rec.route,
+             c.rec.dir, v.min, v.sched ? v.clock : "", v.delayed, v.alert, v.stale, c.heading,
+             c.nPips > 0 ? c.pips[0] : "", c.nPips > 1 ? c.pips[1] : "", c.nPips > 2 ? c.pips[2] : "");
     int slot = -1;
     if (gCacheN) {
         int lru = 0;
@@ -343,13 +353,17 @@ const uint16_t* cardImage(const Card& c, Tab tab, int half, bool anyHalf, const 
 void drawStops(Canvas& cv, const App& a, const Model& m, uint32_t ms, Tab tab, uint16_t* scratch) {
     drawTabs(cv, tab);
     if (anyStale(m)) {
-        char s[32];
-        snprintf(s, sizeof(s), "Updated %d min ago", staleMin(m));
+        char s[40];
+        staleText(m, s, sizeof(s));
         cv.text(F(800, 14), s, C, 88, col::amber, Align::Center);
     }
     const bool trains = tab == Tab::Trains;
     const Card* items = trains ? m.trains : m.buses;
     const int n = trains ? m.nTrains : m.nBuses;
+    if (n == 0 && !anyStale(m)) {   // offline, the line above says why
+        const char* msg = !m.loaded ? "Loading\xE2\x80\xA6" : trains ? "No trains due nearby" : "No buses due nearby";
+        cv.text(F(900, 20), msg, C, FOCUS - 12, col::mist, Align::Center);
+    }
     const float scroll = a.scroll[static_cast<int>(tab)];
     const bool moving = a.drag.down || fabsf(a.scroll[static_cast<int>(tab)] - a.scrollTarget[static_cast<int>(tab)]) > 0.5f || a.trans.on;
     const float savedAlpha = cv.alpha;
@@ -389,7 +403,7 @@ const Card* findCard(const Model& m, const View& v, bool& bus) {
     const int n = bus ? m.nBuses : m.nTrains;
     for (int i = 0; i < n; ++i)
         if (cs[i].station == v.station && strcmp(cs[i].rec.route, v.route) == 0 && strcmp(cs[i].rec.dir, v.dir) == 0) return &cs[i];
-    return n ? &cs[0] : nullptr;
+    return nullptr;   // gone (its last arrival passed, or the line stopped showing up): tick() goes back
 }
 
 void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) {
@@ -421,7 +435,7 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
         const int x = x0 + i * (tw + gap);
         const bool lead = i == 0;
         const float cx = x + tw / 2.f;
-        const bool sched = hero->sched, live = !sched;
+        const bool sched = !hero->rec.arrivals[i].live, live = !sched;   // per tile: CTA mixes the two
         const float saved = cv.alpha;
         if (stale) cv.alpha *= 0.6f;
         PlateStyle ps;
@@ -449,7 +463,7 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
     int y = 316;
     char fresh[40];
     if (stale) snprintf(fresh, sizeof(fresh), "Updated %d min ago", static_cast<int>((m.now - hero->rec.ts) / 60));
-    else snprintf(fresh, sizeof(fresh), "Live \xC2\xB7 updated %d s ago", static_cast<int>(m.now - m.fetchedAt));
+    else snprintf(fresh, sizeof(fresh), "Live \xC2\xB7 updated %d s ago", static_cast<int>(m.now - hero->rec.ts));
     const float fw = Canvas::measure(F(800, 13), fresh) + (stale ? 24 : 46);
     PlateStyle sp = smallPlate();
     sp.edge = 4;
@@ -461,7 +475,8 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
         cv.plate(C - 150, y, 300, 40, sp);
         cv.ink(kAlert, 16, C - 136, y + 12, 1, col::white);
         char msg[48];
-        snprintf(msg, sizeof(msg), "%s Line: delays near %s", mock::lineName(hero->rec.route), hero->rec.name);
+        if (bus) snprintf(msg, sizeof(msg), "Service alert on the %s", hero->rec.route);
+        else snprintf(msg, sizeof(msg), "Service alert on the %s Line", mock::lineName(hero->rec.route));
         cv.text(F(800, 14), Canvas::fit(F(800, 14), msg, 240, buf, sizeof(buf)), C - 112, y + 21, col::white, Align::Left, Base::Middle);
         y += 56;
     }
@@ -503,7 +518,7 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
 
 void drawPair(Canvas& cv, uint32_t ms) {
     const bool up = (ms / 500) % 2 == 0;
-    drawPet(cv, cta::Mood::Happy, false, C - 48, 52 + (up ? -3 : 0), 3, mock::Weather::Clear, true);
+    drawPet(cv, cta::Mood::Happy, false, C - 48, 52 + (up ? -3 : 0), 3, nullptr, true);
     cv.pixelText("482 913", C, 196, 7, col::white, Align::Center);
     cv.text(F(800, 18), "Type this code on your iPhone", C, 266, col::mist, Align::Center);
     cv.text(F(900, 15), "Trackie-3F2A", C, 298, col::headlight, Align::Center);
@@ -511,7 +526,8 @@ void drawPair(Canvas& cv, uint32_t ms) {
 
 void drawMapSoon(Canvas& cv, const Model& m, uint32_t ms) {
     const bool up = (ms / 500) % 2 == 0;
-    drawPet(cv, m.mood, m.docked, C - 64, 120 + (up ? -4 : 0), 4, m.weather, true);
+    const mock::WeatherView wx = mock::weatherView(m);
+    drawPet(cv, m.mood, m.docked, C - 64, 120 + (up ? -4 : 0), 4, &wx, true);
     cv.text(F(900, 20), "The map comes next", C, 300, col::white, Align::Center);
     cv.text(F(800, 15), "Swipe right for Home", C, 330, col::mist, Align::Center);
     chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);
@@ -647,7 +663,14 @@ void cycleScenario(App& a, Model& m, uint32_t ms) {
 }
 
 void cycleWeather(App& a, Model& m, uint32_t ms) {
+    if (m.live && m.weatherForced && m.weather == mock::Weather::Snow) {   // live: the cycle ends back on real weather
+        m.weatherForced = false;
+        m.weather = m.hasWeather ? mock::weatherFor(m.wmo) : mock::Weather::Clear;
+        toast(a, "Weather: live", ms);
+        return;
+    }
     m.weather = static_cast<mock::Weather>((static_cast<int>(m.weather) + 1) % static_cast<int>(mock::Weather::Count));
+    m.weatherForced = true;   // live weather stops overriding it until the cycle comes back around
     static const char* const kNames[] = {"Weather: clear", "Weather: rain", "Weather: snow"};
     toast(a, kNames[static_cast<int>(m.weather)], ms);
 }
@@ -670,6 +693,12 @@ void tick(App& a, Model& m, uint32_t ms) {
     }
     if (a.poked && ms - a.pokeT0 > 2600) a.poked = false;
     if (a.trans.on && ms - a.trans.t0 >= 220) a.trans.on = false;
+    // The open detail's card is gone: back to the list, rather than showing some other stop.
+    bool bus;
+    if (a.view.screen == Screen::Detail && !a.trans.on && !findCard(m, a.view, bus)) {
+        back(a, ms);
+        toast(a, "No more arrivals there", ms);
+    }
     // the debug gesture: hold Trackie
     if (a.drag.down && !a.drag.moved && !a.drag.isLong && !a.drag.wasDim && ms - a.drag.t0 > 650) {
         if (a.view.screen == Screen::Home && inRect(a.drag.x0, a.drag.y0, gPetTile)) { a.drag.isLong = true; cycleScenario(a, m, ms); }

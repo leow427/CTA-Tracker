@@ -146,7 +146,7 @@ Each stop gets a mood from its next arrival:
 | Stop mood | Condition |
 |---|---|
 | Sleepy | No data, or data older than 5 min, or within night hours |
-| Sad | Active alert on the route, or no predictions outside night hours |
+| Sad | Active unplanned service alert on the route, or no predictions outside night hours. Planned work and elevator outages don't count: Customer Alerts is asked with `planned=false&accessibility=false`, since otherwise most routes carry some notice all day (Leo, 2026-11-09). |
 | Worried | Next arrival flagged delayed by CTA |
 | Happy | Live prediction, not delayed |
 
@@ -183,7 +183,7 @@ The CTA's published line colors are used for train cards, LEDs, and badges: Red,
 | Vehicle positions | every 30 s | not used | the selected line only, every 30 s while its stop detail is open |
 | Alerts | every 5 min | every 5 min | every 5 min |
 | Weather | every 15 min | every 15 min | every 15 min, for the pet's accessories |
-| Night hours or docked | everything every 5 min | everything every 5 min | no change |
+| Night hours or docked | everything every 5 min | arrivals every 4.5 min, so a record is refreshed just before it goes stale at 5 min (Leo, 2026-11-09); the rest every 5 min | no change |
 
 In the background the app polls nothing, except the handheld relay (9.5) and the widgets' own timelines (9.4).
 
@@ -235,7 +235,7 @@ The look follows the iPhone app's pixel style (the app design specs), on black. 
 - **Background:** black on every screen, for the AMOLED's battery.
 - **Cards:** every stop is a card in its line's color: a darker shade of the line as the fill and a lighter shade for its text, with the app's `LineColors.card` and `cardText` math. Buses share the bus color. Cards have stepped pixel corners and a hard bottom edge, and minutes use the app's 5×7 pixel digits. Cards away from the list's focus shrink, fade, and narrow to stay inside the circle.
 - **Home:** the time and weather icon at the top, Trackie (the app's 32×32 pet sprite, drawn at 4×, straight on black with no tile behind him) with a speech bubble, and one card for the most urgent stop, so "should I hurry?" needs no swipe. The bubble says a mood word ("Go now!", "All on time", "Running late", "Uh oh…", "Sleepy…", "Zzz…"); tapping Trackie switches it to the reason ("Red in 2 min!", "22 is 4 min late", "Red Line alert") for a few seconds. Swipe up for stops.
-- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per route and direction at each of the 10 nearest stops (section 6.2), soonest first within a stop. Every card shows the line or route, where it ends (the soonest arrival's destination: "95th/Dan Ryan", "Harrison"), the direction it goes (a bus's direction, "Southbound"; a train's platform direction, "toward Loop"), the stop name, and the next arrival in minutes. Swipe down to go back to Home (Leo, 2026-11-07).
+- **Stops:** a Trains | Buses tab pill at the top, then a scrolling list of cards, nearest stop first. **Trains:** one card per line and direction at each of the 10 nearest stations (section 6.2), soonest first within a station; Belmont shows six. **Buses:** one card per route and direction, at the nearest of the 10 listed stops that serves it (section 8.3), soonest first within a stop. Every card shows the line or route, where it ends (the soonest arrival's destination: "95th/Dan Ryan", "Harrison"), the direction it goes (a bus's direction, "Southbound"; a train's platform direction, "toward Loop"), the stop name, and the next arrival in minutes. Swipe down to go back to Home (Leo, 2026-11-07).
 - **Stop detail:** tap a card to see the next 3–4 arrivals for each line or route and direction at that stop, each with where it ends, the tapped one first, with the same badges as the dock. Swipe right to go back.
 - **Dim (always-on):** black with Trackie alone, shifted a few pixels every 10 s against burn-in.
 
@@ -246,18 +246,20 @@ The screen is always on, dimmed. After 15 s with no touch it drops to low bright
 ### 8.3 Location and data
 
 1. On every wake, the handheld sends a `request` to the app over BLE with whether it has Wi-Fi.
-2. The app takes one location fix and writes `nearby`: the location, the 10 nearest train station IDs, the 10 nearest bus stop IDs, and `close`, the 3 nearest stops of either kind. The handheld can't rank stations against bus stops itself because it has no stop coordinates.
+2. The app takes one location fix and writes `nearby`: the location, the 10 nearest train station IDs, 10 bus stop IDs, and `close`, the 3 nearest stops of either kind. The bus stops are each route and direction's nearest stop, then the 10 nearest of those; the 10 nearest stops outright are often one corner's few routes, both ways, on every side of the street. The handheld shows one card per route and direction, at the nearest listed stop that serves it (Leo, 2026-11-09). The handheld can't rank stations against bus stops itself because it has no stop coordinates.
 3. **On Wi-Fi:** the handheld polls those stops itself (section 6.6).
 4. **Off Wi-Fi:** the app also fetches arrivals and writes one `snapshot` per card (one per train line and direction at a station, one per bus route and direction at a stop) every 60 s while connected.
 5. **Neither:** the last data stays on screen greyed out, and the pet turns Sleepy once data is more than 5 min old.
 
 The handheld keeps its last nearby list in flash. A brand-new handheld shows "Open the CTA app" until it receives its first list.
 
+Until the app's BLE link exists, a laptop stands in for it: `tools/send_nearby.py` takes the Mac's location from CoreLocation and writes the same `nearby` JSON to the handheld over USB serial. That prototype says "Waiting for location" until its first list (Leo, 2026-11-09).
+
 The handheld saves up to 3 Wi-Fi networks, all set from the app.
 
 ### 8.4 Docked
 
-Docked means the AXP2101 reports USB power **and** the handheld is on its first saved network (home). While docked, the pet is Asleep, the screen dims further, and polling slows to every 5 min.
+Docked means the AXP2101 reports USB power **and** a battery **and** the handheld is on its first saved network (home). A board with no battery runs on USB whenever it's on at all, so it never counts as docked (Leo, 2026-11-09). While docked, the pet is Asleep, the screen dims further, and polling slows (section 6.6).
 
 ### 8.5 Battery
 

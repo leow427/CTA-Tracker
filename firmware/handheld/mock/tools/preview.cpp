@@ -1,10 +1,15 @@
-// Renders the mock's screens to PNGs on a laptop, from the same ui/mock code the device runs.
+// Renders the handheld's screens to PNGs on a laptop, from the same ui/mock/live code the device runs.
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -O2 -Isrc -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/preview.cpp \
-//       src/gfx2d.cpp src/fonts.cpp src/ui.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp \
-//       -lz -o /tmp/mock_preview && /tmp/mock_preview <out dir> [--strips]
+//       src/gfx2d.cpp src/fonts.cpp src/ui.cpp src/mock_data.cpp src/live_store.cpp src/live_model.cpp \
+//       ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp -lz -o /tmp/mock_preview
+//   /tmp/mock_preview <out dir> [--strips]               the mock's scenarios
+//   /tmp/mock_preview <out dir> --live <responses> <unix>   live screens from recorded responses
 // --strips draws each frame the way the device does (48-row strips in the panel's rotated, byte-swapped layout)
 // and turns it back, so the PNGs should match the plain ones exactly.
+// --live reads nearby.json (the `nearby` message; else fixtures/cta/nearby_belmont.json), then trains_<station
+// id>.json for each of its stations, buses.json, alerts.json, and weather.json (any may be missing) from
+// <responses>, as fetched at Unix time <unix>, through live::Store and mock::fromLive.
 #include <stdio.h>
 #include <string.h>
 #include <zlib.h>
@@ -12,6 +17,9 @@
 #include <string>
 #include <vector>
 
+#include "live_model.h"
+#include "live_store.h"
+#include "nearby_msg.h"
 #include "ui.h"
 
 namespace {
@@ -73,9 +81,83 @@ void drawStrips(uint16_t* fb, ui::App& a, const mock::Model& m, uint32_t ms, uin
     }
 }
 
+std::string slurp(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return std::string();
+    std::string s;
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) s.append(buf, n);
+    fclose(f);
+    return s;
+}
+
+// The live screens from recorded responses.
+int liveShots(const std::string& out, const std::string& dir, uint32_t now) {
+    static live::Store store;
+    static live::Snapshot snap;
+    if (!store.init()) return 1;
+    std::string body = slurp(dir + "/nearby.json");
+    if (body.empty()) body = slurp("../../../fixtures/cta/nearby_belmont.json");
+    cta::Nearby nb;
+    if (!cta::parseNearby(body.data(), body.size(), nb)) { printf("no usable nearby list\n"); return 1; }
+    store.setNearby(nb);
+    for (int st = 0; st < nb.nTrains; ++st) {
+        body = slurp(dir + "/trains_" + nb.trains[st] + ".json");
+        if (!body.empty()) printf("trains %s: %d cards\n", nb.trains[st], store.applyTrains(st, body.data(), body.size(), now));
+    }
+    body = slurp(dir + "/buses.json");
+    if (!body.empty()) printf("buses: %d cards\n", store.applyBuses(body.data(), body.size(), now));
+    body = slurp(dir + "/alerts.json");
+    if (!body.empty()) printf("alerts: %d routes alerted\n", store.applyAlerts(body.data(), body.size()));
+    body = slurp(dir + "/weather.json");
+    if (!body.empty()) printf("weather: %s\n", store.applyWeather(body.data(), body.size()) ? "ok" : "failed");
+    live::clear(snap);
+    store.fill(snap);
+    snap.wifiUp = true;
+    power::State pw;   // as on the bench: USB, no battery
+    pw.ok = pw.usb = true;
+
+    static uint16_t fb[ui::W * ui::W];
+    static uint16_t scratch[ui::kScratchPixels];
+    ui::Canvas cv(fb, ui::W, ui::W);
+    struct Shot { const char* name; ui::Screen screen; ui::Tab tab; float scroll; int detailIdx; uint32_t later; };
+    const Shot shots[] = {
+        {"live_home", ui::Screen::Home, ui::Tab::Trains, 0, -1, 0},
+        {"live_trains", ui::Screen::Stops, ui::Tab::Trains, 0, -1, 0},
+        {"live_trains_scrolled", ui::Screen::Stops, ui::Tab::Trains, 112 * 6, -1, 0},
+        {"live_buses", ui::Screen::Stops, ui::Tab::Buses, 0, -1, 0},
+        {"live_detail_train", ui::Screen::Detail, ui::Tab::Trains, 0, 0, 0},
+        {"live_detail_bus", ui::Screen::Detail, ui::Tab::Buses, 0, 0, 0},
+        {"live_home_stale", ui::Screen::Home, ui::Tab::Trains, 0, -1, 7 * 60},
+    };
+    for (const Shot& s : shots) {
+        static mock::Model m;
+        m = mock::Model();
+        mock::fromLive(m, snap, pw, now + s.later, true);
+        ui::App a;
+        ui::init(a, 1000);
+        a.view.screen = s.screen;
+        a.view.tab = s.tab;
+        a.scroll[static_cast<int>(s.tab)] = a.scrollTarget[static_cast<int>(s.tab)] = s.scroll;
+        if (s.detailIdx >= 0) {
+            const mock::Card& c = s.tab == ui::Tab::Trains ? m.trains[s.detailIdx] : m.buses[s.detailIdx];
+            a.view.station = c.station;
+            snprintf(a.view.route, sizeof(a.view.route), "%s", c.rec.route);
+            snprintf(a.view.dir, sizeof(a.view.dir), "%s", c.rec.dir);
+        }
+        for (int pass = 0; pass < 2; ++pass) ui::draw(cv, a, m, 1000, scratch);
+        writePng(out + "/" + s.name + ".png", fb, ui::brightness(a, m));
+        printf("%s: mood %d, reason \"%s\", %d trains, %d buses, offline %d\n", s.name, static_cast<int>(m.mood),
+               m.reason, m.nTrains, m.nBuses, m.offline);
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 4 && strcmp(argv[2], "--live") == 0) return liveShots(argv[1], argv[3], static_cast<uint32_t>(strtoul(argv[4], nullptr, 10)));
     const std::string out = argc > 1 ? argv[1] : ".";
     const bool strips = argc > 2 && strcmp(argv[2], "--strips") == 0;
     static uint16_t fb[ui::W * ui::W];

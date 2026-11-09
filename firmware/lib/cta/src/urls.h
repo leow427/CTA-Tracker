@@ -14,8 +14,9 @@ bool busPredictionsUrl(char* buf, size_t cap, const char* key, const char* const
 // 1–10 routes per call.
 bool busVehiclesUrl(char* buf, size_t cap, const char* key, const char* const* routes, size_t n);
 bool busPatternsUrl(char* buf, size_t cap, const char* key, const char* route);
-// At least one route.
-bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n);
+// At least one route. disruptionsOnly adds accessibility=false&planned=false, leaving unplanned service alerts:
+// without it, elevator outages and planned bus-stop notes mark most routes as alerted on any given day.
+bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n, bool disruptionsOnly = false);
 // latitude and longitude to 4 decimals (about 11 m); false unless finite and within ±90 / ±180.
 bool weatherUrl(char* buf, size_t cap, double lat, double lon);
 
