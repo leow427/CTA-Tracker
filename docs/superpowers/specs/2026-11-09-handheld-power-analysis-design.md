@@ -24,7 +24,7 @@ Once a second the firmware prints one CSV line starting with `P,` over USB seria
 |---|---|
 | Time | ms since boot, stress phase |
 | Power | USB voltage, system voltage, power-chip temperature, ESP32 temperature; battery voltage and % if a battery is ever attached |
-| CPU | clock MHz, busy % on core 0, busy % on core 1 |
+| CPU | clock MHz at the sample, busy % on core 0, busy % on core 1; ms spent at each clock (80, 160, 240 MHz) and busy core-ms at each, since the last sample |
 | Screen | dim or awake, brightness (0–255), frames this second, pixels sent this second, lit fraction of the last frame |
 | Wi-Fi | state (off, joining, connected), RSSI, transmit power, requests started, requests finished, ms spent in requests, bytes received |
 | BLE | state and connection interval (empty until BLE exists) |
@@ -36,8 +36,9 @@ Once a second the firmware prints one CSV line starting with `P,` over USB seria
 
 Notes:
 
-- **CPU busy %** comes from each core's idle task run time (`vTaskGetInfo` on `xTaskGetIdleTaskHandleForCore`). FreeRTOS run-time stats are on in Arduino core 3.3.11. The counter is 32-bit µs and wraps every 71 min, so deltas use unsigned math.
-- **Lit fraction** is measured on a sample of pixels (every 4th in each direction) of one frame a second, weighted by brightness per channel, since black AMOLED pixels draw almost nothing.
+- **CPU busy %** is 100% minus the share of the second each core's idle task ran (`ulTaskGetIdleRunTimeCounterForCore`, against `esp_timer`). FreeRTOS run-time stats are on in Arduino core 3.3.11. The counter is 32-bit µs and wraps every 71 min, so deltas use unsigned math.
+- **Time at each clock:** the clock can change several times a second (80 MHz on the dim screen, 240 MHz while drawing, touching, or in a request; `cpu_clock.h`), so the clock module adds up the ms spent at each clock and the busy core-ms at each (both cores together), and the model costs each at its own clock. A once-a-second clock snapshot alone would misreport it.
+- **Lit fraction** is measured on one frame a second, from every 16th pixel of each strip as it is sent to the panel (about 1 pixel in 16 of the screen). Each pixel counts red, green, and blue in proportion to their levels (each scaled to about 0–62), and the sum is divided by its maximum, so all black is 0 and all white is 1. Black AMOLED pixels draw almost nothing, so this tracks what the panel draws better than a pixel count would. A second with no new frame carries the last frame's value, since the screen still shows it.
 - **Never logged:** Wi-Fi names, passwords, API keys, location, stop IDs. The logs are committed to the public repo.
 - **Events** go on their own lines starting with `E,`: wake, dim, phase start, request start and end (with the endpoint kind: train, bus, alerts, weather), Wi-Fi up and down.
 - **Light sleep and USB serial don't mix** (the USB link drops while asleep). The logger buffers lines in a PSRAM ring of at least 10 minutes and sends them when the link is back, so a light-sleep optimization loses no data.
@@ -74,11 +75,14 @@ The model runs on the laptop, in `tools/power_model.py`, with its numbers in `to
 
 Estimated current each second is a sum of parts:
 
-- **CPU:** a base current for the clock (80, 160, or 240 MHz) and how busy each core is, from the ESP32-S3 datasheet's current table; light sleep at its own rate.
-- **Screen:** panel current from brightness × lit fraction, plus the cost of sending pixels (per million pixels sent). The panel numbers are the weakest estimates, since no CO5300 panel power data was found; they're marked as estimates.
-- **Wi-Fi:** connected-idle current (modem sleep) plus active time during requests at a transmit current that rises as RSSI falls.
+- **CPU:** for each clock (80, 160, 240 MHz), the time at that clock × its idle current plus the busy core-time at that clock × its current per busy core, averaged over the second. Figures are approximate readings of the ESP32-S3 datasheet's modem-sleep table (CPU running, RF off). Older runs without the per-clock columns use the clock snapshot and the two cores' busy %. A light-sleep rate is in the JSON but unused, since the firmware doesn't light-sleep.
+- **Screen:** a constant driver current, plus full-white-at-full-brightness current × lit fraction × brightness/255 (linear, no gamma), plus a cost per million pixels sent each second. The panel numbers are the weakest estimates, since no CO5300 panel power data was found; they're marked as estimates.
+- **Wi-Fi:** off is zero and joining is a flat current. Connected, the second is split between idle and active by the ms spent in requests: idle at the current for the power-save mode in use, active at a request current raised by a fixed share for each dB the RSSI is below −60 dBm.
 - **BLE:** advertising and connected currents (zero until BLE exists).
+- **Memory:** PSRAM and flash standby as one constant.
 - **Fixed:** touch controller, power chip, and other board parts as one constant.
+
+The parts are summed on the 3.3 V rail and multiplied by `rail_to_battery` to give current from a 3.7 V cell through the power chip's buck at about 90%.
 
 Outputs per run: estimated mA over time split by part, the average for each phase, and mAh for the whole run.
 
