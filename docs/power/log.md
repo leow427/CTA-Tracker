@@ -202,3 +202,29 @@ Round 2 runs against the earlier reference, for the record only (`reports/r2.md`
 2. **Requests got cheaper and faster** in every phase, from resumed TLS (trains resume about half the time; buses never, as their session doesn't fit its slot) and from the CPU idling at 80 MHz through DNS and TCP waits.
 3. **Dim idle moved only −1.8 mA,** inside noise. It's now mostly the CPU idling at 80 MHz (about 22 of 42 mA in the model). Going further would need light sleep, which would cut the USB link this analysis measures through.
 4. **Real data varies with the hour.** From here on, every round runs interleaved with its reference at the same time of night.
+
+## Round 3: DMA panel sends and hashing on the sender (2026-11-10): fails the gate as a whole
+
+- **Change:** worker 3, reviewed in two rounds by fresh Opus xhigh reviewers. Brief: `briefs/round-3.md`. On main as `5f225f4`, `37e84c9`, `d42369f`, `34e357f`.
+  - `5f225f4` sends the panel's pixels by queued DMA transactions of up to 16 KB, so the sender sleeps instead of spinning on core 0.
+  - `37e84c9` moves the row hashing from the drawing core to the sender, so core 1 only draws.
+  - The other two commits are laptop tests: the DMA wire matches the library's byte for byte, and the strip buffers stay safe.
+- **On the board:** clean boot, no "DMA sends refused" or "begin failed" line, every request succeeded, no resets. The panel's picture was not checked by eye overnight.
+- **Runs:** `runs/2026-11-10-r3-1.csv` (3:01 AM), `-2.csv` (3:39 AM), interleaved with round 2's `r2-4` (3:20 AM); compared with `r2-3` and `r2-4`, the round 2 runs nearest in time. Report: `reports/r3.html`, table: `reports/r3.md`.
+- **Cards while scrolling:** r2-3 had 6 train cards and r2-4 had 9; r3-1 had 6 and r3-2 had 9–11. Paired that way, the data is comparable.
+
+| Phase | Round 2 mA | Round 3 mA | Change | FPS moving | Tap→screen ms (max) | Request ms | Core 0 busy % |
+|---|---|---|---|---|---|---|---|
+| 1 Dim idle | 42.0 | 42.8 | +0.8 | – | – | 731 → 744 | 12 → 13 |
+| 2 Awake, still | 48.5 | 46.2 | −2.3 | – | – | 705 → 319 | 13 → 11 |
+| 3 Scroll | 86.7 | 88.7 | +2.0 | **90.1 → 128.3** | 15 → 12 (27 → 26) | **926 → 1542** | **36 → 56** |
+| 4 Screen churn | 57.1 | 53.6 | −3.5 | 40.9 → 47.2 | 21 → 17 (39 → 28) | 694 → 795 | 20 → 18 |
+| 5 Network burst | 73.5 | 69.2 | −4.3 | – | – | 786 → 665 | 29 → 28 |
+| 6 Everything | 100.3 | 111.0 | **+10.7** | 76.2 → 93.2 | 19 → 16 (42 → 41) | **817 → 1123** | **43 → 58** |
+| 7 Cool-down | 42.0 | 43.2 | +1.2 | – | – | 775 → 805 | 12 → 14 |
+
+**Result: fails as a whole.** Everything (phase 6) rose 10.7 mA, beyond twice its noise (3.8), and requests while scrolling got 35–65% slower. The responsiveness gain is real and large: frames come 40% faster while moving, and taps land sooner in every awake phase.
+
+**Why:** core 0 got busier, not idler (scroll 36 → 56%, everything 43 → 58%). The frame rate rose 40%, and every frame's row hashing now runs in the sender on core 0, at a higher priority (2) than the network task (1). The network task gets less CPU, so each request holds the radio longer. In the model, Wi-Fi went from about 32 to 37–42 mA in phase 6. The DMA itself freed core 0; the hashing move gave that time back, and more.
+
+**Next:** test the DMA change alone (`5f225f4`, the hashing still on core 1), interleaved with round 2, and keep whichever part passes.
