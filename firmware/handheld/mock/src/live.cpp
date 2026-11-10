@@ -30,6 +30,10 @@
 #ifndef WIFI_PASS
 #define WIFI_PASS ""
 #endif
+// WPA2-Enterprise (eduroam): the account's username; WIFI_PASS is then its password. Unset: a WPA2-Personal network.
+#ifndef WIFI_EAP_USER
+#define WIFI_EAP_USER ""
+#endif
 
 // The ESP-IDF certificate bundle (Mozilla's roots) linked into the framework: TLS is always verified (spec 11).
 extern const uint8_t kCaBundleStart[] asm("_binary_x509_crt_bundle_start");
@@ -600,7 +604,8 @@ void netTask(void*) {
                 if (lastBegin != 0) retryMs = retryMs * 2 > kWifiRetryMaxMs ? kWifiRetryMaxMs : retryMs * 2;
                 Serial.printf("net: connecting to %s\n", WIFI_SSID);
                 setJoining(true);
-                WiFi.begin(WIFI_SSID, WIFI_PASS);
+                if (WIFI_EAP_USER[0]) WiFi.begin(WIFI_SSID, WPA2_AUTH_PEAP, WIFI_EAP_USER, WIFI_EAP_USER, WIFI_PASS);
+                else WiFi.begin(WIFI_SSID, WIFI_PASS);
                 lastBegin = millis();
             }
             setStatus(joining ? "Connecting to Wi-Fi" : "No Wi-Fi");
