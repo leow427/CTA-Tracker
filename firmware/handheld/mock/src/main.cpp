@@ -5,7 +5,8 @@
 // Frames are drawn in strips of screen rows into internal RAM (fast, unlike PSRAM), already laid out the way the
 // panel wants them: the panel is mounted a quarter turn off, so a strip of screen rows is a strip of panel columns,
 // rotated 90 degrees right and byte-swapped. Each panel row of a strip is hashed, and only the rows that changed
-// since the last frame are sent, from a task on core 0 while core 1 draws the next strip. Touch is sampled on its
+// since the last frame are sent, from a task on core 0 while core 1 draws the next strip (by DMA, panel_bus.*: the
+// sender sleeps while the panel takes them). Touch is sampled on its
 // own task every 8 ms, so gestures get real timings; the touch panel reads a half turn from the display, so a
 // touch at (tx, ty) is screen point (W-1-ty, tx).
 #include <Arduino.h>
@@ -16,6 +17,7 @@
 #include "TouchDrvCSTXXX.hpp"
 #include "cpu_clock.h"
 #include "mock_data.h"
+#include "panel_bus.h"
 #include "row_hash.h"
 #include "touch_filter.h"
 #include "ui.h"
@@ -37,9 +39,13 @@ constexpr int kLcdCs = 12, kLcdSclk = 38, kLcdD0 = 4, kLcdD1 = 5, kLcdD2 = 6, kL
 constexpr int kSda = 15, kScl = 14, kTpInt = 11, kTpRst = 40;
 constexpr int W = ui::W;
 constexpr uint8_t kFullBrightness = 220;
+constexpr int32_t kPanelHz = 80000000;
+constexpr int kPanelColOffset = 6;
 
-Arduino_DataBus* bus = new Arduino_ESP32QSPI(kLcdCs, kLcdSclk, kLcdD0, kLcdD1, kLcdD2, kLcdD3);
-Arduino_CO5300* gfx = new Arduino_CO5300(bus, kLcdRst, 0, W, W, 6, 0, 0, 0);
+// The library's bus in shared mode, so it doesn't keep the SPI bus to itself: the pixels go through panel_bus.*'s
+// own device on it.
+Arduino_DataBus* bus = new Arduino_ESP32QSPI(kLcdCs, kLcdSclk, kLcdD0, kLcdD1, kLcdD2, kLcdD3, true);
+Arduino_CO5300* gfx = new Arduino_CO5300(bus, kLcdRst, 0, W, W, kPanelColOffset, 0, 0, 0);
 TouchDrvCST92xx touch;
 bool touchOk = false;
 
@@ -95,6 +101,21 @@ volatile uint32_t sentPx = 0, sendUs = 0;
 // frame is all on the panel.
 volatile uint32_t framesQueued = 0, framesSent = 0;
 
+// The panel is set up on core 0, from a short-lived task of its own (the library's set-up wants more stack than the
+// sender needs), so the SPI driver's interrupt is on core 0 with the sender (panel_bus.h); setup() waits for it.
+// After that only the sender touches the bus.
+SemaphoreHandle_t panelReady;
+bool panelOk = false;    // the library set the panel up
+bool panelDma = false;   // pixels go through panel_bus.* (if its device was refused, through the library as before)
+
+void panelInit(void*) {
+    panelOk = gfx->begin(kPanelHz);
+    gfx->fillScreen(0);
+    panelDma = panel::begin(kLcdCs, kPanelHz, kPanelColOffset, 0);
+    xSemaphoreGive(panelReady);
+    vTaskDelete(nullptr);
+}
+
 void sendTask(void*) {
     uint8_t brightnessNow = 0;
     Job j;
@@ -102,7 +123,12 @@ void sendTask(void*) {
         xQueueReceive(jobs, &j, portMAX_DELAY);
         if (j.px) {
             const uint32_t t = micros();
-            gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
+            if (panelDma) {   // the same bytes as the library's call below; this task sleeps while they go out
+                panel::start(j.x, j.y, j.w, j.h, j.px);
+                panel::finish();
+            } else {
+                gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
+            }
             sendUs += micros() - t;
             sentPx += j.w * j.h;
 #ifdef POWER_LOG
@@ -360,8 +386,12 @@ void setup() {
     cpuclk::begin();   // before the network task, which holds full speed through each request
     fullSpeed(true);   // awake from boot
     Wire.begin(kSda, kScl);
-    if (!gfx->begin(80000000)) Serial.println("display: begin failed");
-    gfx->fillScreen(0);
+    panelReady = xSemaphoreCreateBinary();
+    xTaskCreatePinnedToCore(panelInit, "panel", 8192, nullptr, 2, nullptr, 0);
+    xSemaphoreTake(panelReady, portMAX_DELAY);
+    vSemaphoreDelete(panelReady);
+    if (!panelOk) Serial.println("display: begin failed");
+    if (!panelDma) Serial.println("display: DMA sends refused, sending through the library");
     for (int k = 0; k < 2; ++k) {
         stripBuf[k] = static_cast<uint16_t*>(heap_caps_malloc(W * kStripRows * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
         stripFree[k] = xSemaphoreCreateBinary();
@@ -403,8 +433,9 @@ void setup() {
     ui::init(app, millis());
     jobs = xQueueCreate(32, sizeof(Job));
     touchEvents = xQueueCreate(64, sizeof(touchf::Event));
-    // Core 0 sends (the bus driver busy-waits) and samples touch; core 1 (this loop) draws. The sender can keep
-    // core 0 busy for long stretches while the list moves, so the watchdog stops checking the idle tasks.
+    // Core 0 sends (by DMA, the sender asleep while the panel takes each run; through the library, as a fallback, the
+    // bus driver busy-waits) and samples touch; core 1 (this loop) draws. The fallback can keep core 0 busy for long
+    // stretches while the list moves, so the watchdog stops checking the idle tasks.
     const esp_task_wdt_config_t wdt = {.timeout_ms = 5000, .idle_core_mask = 0, .trigger_panic = false};
     esp_task_wdt_reconfigure(&wdt);
     xTaskCreatePinnedToCore(sendTask, "send", 4096, nullptr, 2, nullptr, 0);
