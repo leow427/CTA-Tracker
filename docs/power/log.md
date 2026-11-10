@@ -171,3 +171,34 @@ Leo's call: from round 2 on, the stress test scrolls back and forth between the 
 - **Not yet comparable with the reference.** At 1:30 AM there were 6–8 train cards and 2 bus cards; the reference (10:56–11:35 PM) had 12 and 4. Fewer cards make scrolling and churn cheaper and faster, so these runs flatter round 2. The reference and round 2 are being rerun interleaved (reference, round 2, reference) so both see the same late-night data; the verdict follows below.
 
 Round 2 runs against the earlier reference, for the record only (`reports/r2.md`): every phase lower (dim idle 43.3 → 41.0, awake still 59.3 → 48.6, burst 84.5 → 73.5, everything 122.4 → 104.6), fps moving 62.6 → 85.9 in scroll, slowest frame 76 → 48 ms, tap→screen 20 → 15 ms, request ms down in every phase (burst 1005 → 777). Lowest free internal RAM 21.3 → 20.4 KB (inside the 2 KB allowance). Projected 46.9 h.
+
+## Round 2: verdict against an interleaved night reference: passes (2026-11-10)
+
+- **Runs:** reference `runs/2026-11-10-r1v2n-1.csv` (2:02 AM) and `-2.csv` (2:39 AM): round 1's firmware (`d5adfc8`, built from a separate checkout), flashed before each. Round 2: `r2-1`, `r2-2` (1:24 and 1:42 AM) and `r2-3` (2:20 AM, flashed, between the two reference runs). No resets. Every round 2 request succeeded; the reference missed 1 of 170 in the burst. Report: `reports/r2.html`, table: `reports/r2.md`.
+- **Cards on screen while scrolling:** reference 6 trains and 2 buses (briefly 0 buses); r2-3 6 and 2; r2-1 9 and 2; r2-2 6–8 and 2. Late at night the trains thin out, which is why the reference was rerun.
+
+| Phase | Reference mA | Round 2 mA | Change | FPS moving | Slowest frame ms | Tap→screen ms (max) | Request ms |
+|---|---|---|---|---|---|---|---|
+| 1 Dim idle | 43.6 | 41.8 | −1.8 | – | – | – | 951 → 695 |
+| 2 Awake, still | 58.3 | 48.9 | **−9.4 (−16%)** | – | – | – | 885 → 755 |
+| 3 Scroll | 81.5 | 86.0 | +4.5, see below | 92.2 → 90.3 | 36 → 48 | 14 → 14 (27 → 30) | 1159 → 997 |
+| 4 Screen churn | 64.8 | 56.4 | **−8.4 (−13%)** | 41.9 → 40.5 | 63 → 47 | 23 → 21 (141 → 43) | 810 → 571 |
+| 5 Network burst | 86.2 | 75.0 | **−11.2 (−13%)** | – | – | – | 1023 → 819 |
+| 6 Everything | 117.1 | 103.0 | **−14.1 (−12%)** | 72.0 → 76.8 | 52 → 41 | 19 → 18 (46 → 40) | 1323 → 897 |
+| 7 Cool-down | 43.3 | 40.5 | −2.8 | – | – | – | 824 → 565 |
+
+**Projected battery life: 43.9 → 46.2 h** (45.6 → 43.3 mA). Lowest free internal RAM 21.3 → 20.4 KB (inside the 2 KB allowance).
+
+**Scrolling, explained.** The whole rise is the screen term, which follows pixels sent. r2-1 and r2-2 had more train cards on screen (8–9 against 6), so they drew more. Run by run, scroll is: reference 81.1 and 83.5; r2-1 87.2, r2-2 89.1, r2-3 **83.8**. r2-3 had the same cards as the reference and was flashed between the two reference runs; it sits inside the reference's range while drawing faster (95 against 88 fps, so more pixels a second). Scrolling is therefore unchanged in power, not higher.
+
+**Result: passes.** Power is down well beyond noise in awake still, churn, burst and everything, and up nowhere once the card count is matched.
+- **Responsiveness:** better or equal everywhere. The worst tap in churn fell from 141 to 43 ms, and the slowest frame in churn and everything is lower. Scrolling's slowest frame rose from 36 to 48 ms, still well under the 76–86 ms of earlier rounds, and with more cards in two runs. Round 3's run will recheck it.
+- **Requests:** 14–34% faster in every phase.
+- **Load after boot:** about 10 s sooner.
+
+**Findings**
+
+1. **The still awake screen is the big win** (−9.4 mA): between half-second frames the CPU now waits at 80 MHz.
+2. **Requests got cheaper and faster** in every phase, from resumed TLS (trains resume about half the time; buses never, as their session doesn't fit its slot) and from the CPU idling at 80 MHz through DNS and TCP waits.
+3. **Dim idle moved only −1.8 mA,** inside noise. It's now mostly the CPU idling at 80 MHz (about 22 of 42 mA in the model). Going further would need light sleep, which would cut the USB link this analysis measures through.
+4. **Real data varies with the hour.** From here on, every round runs interleaved with its reference at the same time of night.
