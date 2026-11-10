@@ -1,6 +1,6 @@
 """Run one power analysis stress test on the handheld and record it (power analysis spec, section 5).
 
-Flashes env:power, sends the fixed nearby list, starts the stress test (serial "S"), and saves every power-log line
+Flashes env:power, sends the nearby list (fixed test coordinates, or this Mac's location with --here), starts the stress test (serial "S"), and saves every power-log line
 (`H,`, `P,`, `E,`) to docs/power/runs/<date>-<change>-<n>.csv until the test says `E,...,done`. Other serial output
 (network logs, which name the Wi-Fi network and stops) is never saved.
 
@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW = os.path.join(ROOT, "firmware", "handheld", "mock")
 RUNS = os.path.join(ROOT, "docs", "power", "runs")
 PIO_PYTHON = os.path.expanduser("~/.platformio/penv/bin/python")
-STRESS_VERSION = "stress-v1"
+STRESS_VERSION = "stress-v2"   # must match stress::kVersion in the firmware
 TIMEOUT_S = 35 * 60   # warm-up (at most 3 min) + 19 min of phases, with room
 
 
@@ -62,6 +62,9 @@ def main():
     ap.add_argument("--port")
     ap.add_argument("--lat", type=float, default=41.94)
     ap.add_argument("--lon", type=float, default=-87.65)
+    ap.add_argument("--here", action="store_true",
+                    help="the nearby list for where this Mac is (CoreLocation), not the fixed test coordinates; "
+                         "the coordinates are never printed or saved")
     ap.add_argument("--no-flash", action="store_true", help="the board already runs this firmware")
     ap.add_argument("--firmware", help="with --no-flash: the commit the board is running (default: HEAD)")
     args = ap.parse_args()
@@ -73,9 +76,7 @@ def main():
             os.execv(PIO_PYTHON, [PIO_PYTHON] + sys.argv)
         sys.exit("Needs pyserial: PlatformIO's Python has it.")
 
-    hour = datetime.datetime.now().hour
-    if 1 <= hour < 5:
-        sys.exit("Night hours (1-5 AM): the handheld polls slower now, so this run wouldn't compare. Try after 5 AM.")
+    # stress-v2 keeps daytime polling and moods during a run, so night hours (1-5 AM) no longer matter.
 
     port = args.port or find_port()
     if not args.no_flash:
@@ -88,9 +89,11 @@ def main():
             sys.exit(f"{port} didn't come back after flashing.")
         time.sleep(4)   # boot
 
-    print("Sending the fixed nearby list...", file=sys.stderr)
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "send_nearby.py"), "--lat", str(args.lat),
-                        "--lon", str(args.lon), "--port", port], capture_output=True, text=True)
+    where = [] if args.here else ["--lat", str(args.lat), "--lon", str(args.lon)]
+    print("Sending the nearby list for " + ("this Mac's location" if args.here else "the fixed test coordinates")
+          + "...", file=sys.stderr)
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "send_nearby.py")] + where + ["--port", port],
+                       capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit("send_nearby.py failed:\n" + r.stderr[-2000:])
 
@@ -107,7 +110,8 @@ def main():
         f"# firmware: {commit}",
         f"# stress: {STRESS_VERSION}",
         f"# date: {datetime.datetime.now().isoformat(timespec='seconds')}",
-        "# nearby: the fixed test coordinates (power_run.py defaults)",
+        "# nearby: " + ("this Mac's real location (coordinates not recorded)" if args.here
+                        else "the fixed test coordinates (power_run.py defaults)"),
         "# lines: H = column names, P = one sample a second, E = events; see the spec, section 2",
     ]
 

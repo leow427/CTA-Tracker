@@ -59,6 +59,13 @@ One serial command, `S`, starts it. The firmware runs every input itself on exac
 
 - **Network burst is test-only.** It's a mode of the network task that only the stress test turns on. It sends at most 1 request every 2 s and at most 180 per run, so several runs a day stay well under the CTA keys' daily limits.
 - **Same conditions every run:** the nearby list is sent from fixed coordinates (`send_nearby.py --lat 41.94 --lon -87.65` unless Leo picks others), the same Wi-Fi network, and the board in the same spot. RSSI is logged to catch drift. Runs stay out of night hours (1–5 AM), when polling slows down.
+
+**stress-v2** (from round 2, 2026-11-09, Leo's call): same phases and timing, with three differences.
+- While scrolling (phase 3, and phase 6's scroll windows), the test taps the other tab every 5 s, so it goes back and forth between Trains and Buses.
+- Runs use real data for where Leo is: `power_run.py --here` sends the nearby list for the Mac's location (CoreLocation). The coordinates are never printed or saved.
+- During a run, the test build keeps daytime polling and moods at any hour, so runs can go overnight. Night hours still work as before outside a run and in every non-test build.
+
+stress-v1 and stress-v2 runs are never compared. Round 1's firmware is rerun under stress-v2 as the reference for rounds 2 and 3, so the chain is baseline → round 1 (stress-v1), then round 1 → round 2 → round 3 (stress-v2).
 - **Scoring:** the first 10 s of each phase is dropped. Each phase gets the mean and spread of every logged and modeled value.
 
 ## 4. The power model

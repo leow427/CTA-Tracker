@@ -1,5 +1,5 @@
 #pragma once
-// The power analysis stress test, stress-v1 (docs/superpowers/specs/2026-11-09-handheld-power-analysis-design.md,
+// The power analysis stress test, stress-v2 (docs/superpowers/specs/2026-11-09-handheld-power-analysis-design.md,
 // section 3). POWER_LOG builds only. Serial "S" starts it; it then drives every input itself on exact timing, from
 // the frame loop, and marks each phase with an `E,phase,...` line and the end with `E,done`.
 #include <stdint.h>
@@ -11,7 +11,7 @@ namespace stress {
 
 #ifdef POWER_LOG
 
-constexpr const char* kVersion = "stress-v1";
+constexpr const char* kVersion = "stress-v2";   // v2: scrolling switches between Trains and Buses; daytime behaviour at any hour
 
 void start(uint32_t ms);
 void stop(uint32_t ms);   // serial "X": abandon a run

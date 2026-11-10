@@ -30,6 +30,7 @@ constexpr Phase kPhases[] = {
 };
 constexpr int kNPhases = sizeof(kPhases) / sizeof(kPhases[0]);
 constexpr uint32_t kStillTapMs = 10000, kChurnStepMs = 1500, kMixScrollMs = 10000;
+constexpr uint32_t kTabSwitchMs = 5000;   // stress-v2: while scrolling, tap the other tab this often
 
 bool on = false;
 bool startReset = false;   // reset the screens on the next tick (start() has no App)
@@ -38,6 +39,7 @@ uint32_t phaseT0 = 0, nextAct = 0;
 int churnStep = 0;
 bool mixScrolling = true;   // phase 6: scrolling, or one churn loop
 uint32_t mixT0 = 0;
+uint32_t nextTab = 0;   // scrolling: when to switch to the other tab
 
 // Synthetic touches. Stamps run up to `ms`, never past it: a later lastInput would read as a huge idle time.
 void tapAt(ui::App& a, mock::Model& m, float x, float y, uint32_t ms) {
@@ -65,9 +67,25 @@ void wakeUp(ui::App& a, mock::Model& m, uint32_t ms) {
     tapAt(a, m, 233, 30, ms);   // a tap on the dim screen only wakes it
 }
 
+void endScroll(ui::App& a);
+
 void scrollStep(ui::App& a, mock::Model& m, uint32_t ms) {
-    if (a.view.screen == Screen::Home && !a.trans.on) { plog::tap(); tapAt(a, m, 233, 440, ms); return; }
+    if (a.view.screen == Screen::Home && !a.trans.on) {
+        plog::tap();
+        tapAt(a, m, 233, 440, ms);
+        nextTab = ms + kTabSwitchMs;
+        return;
+    }
     if (a.view.screen != Screen::Stops || a.trans.on) return;
+    if (ms >= nextTab) {   // back and forth between Trains and Buses, as a rider checking both does
+        nextTab = ms + kTabSwitchMs;
+        endScroll(a);
+        const int t = static_cast<int>(a.view.tab);
+        a.scroll[t] = a.scrollTarget[t];   // at rest: a press on a moving list only stops it
+        plog::tap();
+        tapAt(a, m, a.view.tab == Tab::Trains ? 350 : 116, 50, ms);
+        return;
+    }
     const int t = static_cast<int>(a.view.tab);
     a.scrollTarget[t] = 560 + 400 * sinf(ms / 700.f);   // as the serial "a" auto-scroll
     a.lastInput = ms;
@@ -130,6 +148,7 @@ void enter(int i, ui::App& a, mock::Model& m, uint32_t ms) {
     churnStep = 0;
     mixScrolling = true;
     mixT0 = ms;
+    nextTab = ms + kTabSwitchMs;
     const uint8_t id = kPhases[i].id;
     plog::event("phase,%u", static_cast<unsigned>(id));
     live::setBurst(id == 5 || id == 6);

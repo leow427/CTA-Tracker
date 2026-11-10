@@ -424,7 +424,11 @@ void loop() {
         live::read(*snap, snapVersion);
         mock::fromLive(model, *snap, pw, now, ntp != 0);
         const int lm = mock::localMinutes(now);
-        live::setSlow(model.docked || (lm >= cta::kNightStartMin && lm < cta::kNightEndMin));
+        bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+#ifdef POWER_LOG
+        if (stress::running()) night = false;   // stress-v2: daytime polling during a run, whatever the hour
+#endif
+        live::setSlow(model.docked || night);
         // The battery log (spec 8.5): every 15 min, and once at boot.
         static uint32_t lastLog = 0;
         if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {

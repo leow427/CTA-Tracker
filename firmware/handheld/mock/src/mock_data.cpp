@@ -6,6 +6,9 @@
 
 #include "cta_config.h"
 #include "mood.h"
+#ifdef POWER_LOG
+#include "stress.h"
+#endif
 
 namespace mock {
 
@@ -314,7 +317,10 @@ void finish(Model& m) {
     for (int i = 0; i < m.nBuses; ++i) { recs[n] = m.buses[i].rec; owners[n] = &m.buses[i]; eligible[n++] = m.buses[i].close; }
 
     const int lm = localMinutes(now);
-    const bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+    bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+#ifdef POWER_LOG
+    if (stress::running()) night = false;   // stress-v2: every run measures daytime behaviour, whatever the hour
+#endif
     const bool offline = sc == Scenario::Offline || m.offline;
     m.docked = sc == Scenario::Docked || (sc == Scenario::Live && m.powerDocked);
     switch (sc) {
