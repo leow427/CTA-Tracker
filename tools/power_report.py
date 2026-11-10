@@ -178,7 +178,8 @@ def markdown(group, ref, model):
         lines.append(
             f"| {ph} {names[str(ph)]} | {s['ma']:.1f} | {fmt(s['noise'], '.1f')} | {vs} | "
             f"{s['busy0']:.0f} / {s['busy1']:.0f} | {s['frames']:.1f} | {fmt(s['fps'], '.1f')} | {fmt(s['slow'])} | "
-            f"{fmt(s['tap'])} (max {fmt(s['tap_max'])}) | {fmt(s['req_ms'])} ({s['req_ok']}/{s['req_n']}) | "
+            f"{fmt(s['tap']) + ' (max ' + fmt(s['tap_max']) + ')' if s['tap'] is not None else '–'} | "
+            f"{fmt(s['req_ms']) + ' (' + str(s['req_ok']) + '/' + str(s['req_n']) + ')' if s['req_n'] else '–'} | "
             f"{s['int_min'] / 1024:.0f} |")
     p = group["projection"]
     if p:
@@ -253,7 +254,8 @@ def area_chart(run, model, cid):
         x1 = X((nxt - t0) / 1000) if nxt else W - R
         if ph % 2:
             out.append(f'<rect x="{x0:.1f}" y="{T}" width="{x1 - x0:.1f}" height="{H - T - B}" fill="var(--band)"/>')
-        out.append(f'<text x="{x0 + 4:.1f}" y="{T + 12}">{ph} {html.escape(names[str(ph)])}</text>')
+        label = f"{ph} {names[str(ph)]}" if x1 - x0 > 90 else str(ph)
+        out.append(f'<text x="{x0 + 4:.1f}" y="{T + 12}">{html.escape(label)}</text>')
     for i in range(0, 5):
         v = ymax * i / 4
         out.append(f'<line x1="{L}" x2="{W - R}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" stroke="var(--grid)"/>'
