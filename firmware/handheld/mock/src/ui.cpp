@@ -651,6 +651,8 @@ bool animating(const App& a, const Model& m, uint32_t ms) {
     return a.view.screen == Screen::Home && !m.docked && m.weather != mock::Weather::Clear;
 }
 
+bool alwaysOn(const App& a) { return isAod(a, a.view) && !a.trans.on; }
+
 void cycleScenario(App& a, Model& m, uint32_t ms) {
     m.scenario = static_cast<Scenario>((static_cast<int>(m.scenario) + 1) % static_cast<int>(Scenario::Count));
     View v = a.view;

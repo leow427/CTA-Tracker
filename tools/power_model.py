@@ -33,12 +33,31 @@ def nearest_key(table, mhz):
     return table[str(best)]
 
 
-def estimate(model, row):
-    """Milliamps per part for one sample (a dict of the P line's columns)."""
+CLOCKS = ["80", "160", "240"]   # MHz, as in power_model.json's cpu tables
+
+
+def cpu_ma(model, row):
+    """The CPU's milliamps for one sample.
+
+    Since model-v2 the firmware can change the clock within a second (the dim screen runs at 80 MHz, requests and
+    anything the user can see at 240), so a sample logs the ms spent at each clock (clk_ms_*) and the busy core-ms at
+    each (clk_busy_*, both cores together), and each part is costed at its own clock. Older runs have no such
+    columns and ran one clock all second, read from the cpu_mhz snapshot.
+    """
     cpu_m = model["cpu"]
+    t = {f: num(row, "clk_ms_" + f) for f in CLOCKS}
+    span = sum(t.values())
+    if span > 0:
+        return sum(t[f] * cpu_m["idle_ma"][f] + num(row, "clk_busy_" + f) * cpu_m["per_busy_core_ma"][f]
+                   for f in CLOCKS) / span
     mhz = num(row, "cpu_mhz", 240)
     busy = (num(row, "busy0") + num(row, "busy1")) / 100.0   # busy cores, 0-2
-    cpu = nearest_key(cpu_m["idle_ma"], mhz) + busy * nearest_key(cpu_m["per_busy_core_ma"], mhz)
+    return nearest_key(cpu_m["idle_ma"], mhz) + busy * nearest_key(cpu_m["per_busy_core_ma"], mhz)
+
+
+def estimate(model, row):
+    """Milliamps per part for one sample (a dict of the P line's columns)."""
+    cpu = cpu_ma(model, row)
 
     scr = model["screen"]
     lit = num(row, "lit", -1)

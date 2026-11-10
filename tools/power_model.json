@@ -1,5 +1,5 @@
 {
-  "version": "model-v1",
+  "version": "model-v2",
   "notes": "Estimated current for the handheld (ESP32-S3-Touch-AMOLED-1.75) from the power log's raw columns. Every figure is an estimate: the board has no current sensor and the analysis runs with no battery (power analysis spec, sections 1 and 4). Values marked 'datasheet' are approximate readings of the ESP32-S3 datasheet's current tables; values marked 'estimate' are typical figures for this class of part, to be refined if a real measurement ever becomes possible. Currents are on the 3.3 V rail.",
 
   "cpu": {

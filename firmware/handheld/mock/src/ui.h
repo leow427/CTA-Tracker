@@ -65,6 +65,8 @@ void draw(Canvas& cv, App& a, const mock::Model& m, uint32_t ms, uint16_t* scrat
 float brightness(const App& a, const mock::Model& m);
 // True while anything moves faster than the 2 Hz bob: a transition, a drag or scroll settling, a hop, rain or snow.
 bool animating(const App& a, const mock::Model& m, uint32_t ms);
+// True on the dim always-on screen (Home or First dimmed: the status row and Trackie alone), not mid-transition.
+bool alwaysOn(const App& a);
 
 // Touch, in screen coordinates, with each sample's own time (velocity comes from those times, not frame times).
 void pointerDown(App& a, mock::Model& m, float x, float y, uint32_t ms);

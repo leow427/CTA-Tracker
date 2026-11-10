@@ -14,6 +14,7 @@
 #include "Arduino_GFX_Library.h"
 #include "esp_task_wdt.h"
 #include "TouchDrvCSTXXX.hpp"
+#include "cpu_clock.h"
 #include "mock_data.h"
 #include "touch_filter.h"
 #include "ui.h"
@@ -195,6 +196,10 @@ power::State pwShared;
 void touchTask(void*) {
     touchf::Filter filter;
     TickType_t wake = xTaskGetTickCount();
+    // A press holds full speed (cpu_clock.h) from the read that finds it until it ends, so whatever the loop is
+    // drawing at 80 MHz finishes at full speed, and a tap on the dim screen, which wakes it on release at least 40 ms
+    // later, is drawn exactly as fast as before.
+    bool pressed = false;
 #ifdef HANDHELD_LIVE
     uint32_t tick = 0;
 #endif
@@ -212,7 +217,12 @@ void touchTask(void*) {
         const uint8_t n = touch.getPoint(x, y, 2);
         touchf::Event ev[2];
         const int k = filter.feed(millis(), n, static_cast<int16_t>(W - 1 - y[0]), x[0], ev);
-        for (int i = 0; i < k; ++i) xQueueSend(touchEvents, &ev[i], 0);
+        for (int i = 0; i < k; ++i) {
+            const touchf::Kind kind = ev[i].kind;
+            if (kind == touchf::Kind::Down && !pressed) { pressed = true; cpuclk::hold(); }
+            if ((kind == touchf::Kind::Up || kind == touchf::Kind::Cancel) && pressed) { pressed = false; cpuclk::release(); }
+            xQueueSend(touchEvents, &ev[i], 0);
+        }
     }
 }
 
@@ -237,6 +247,20 @@ void handleTouch() {
             case touchf::Kind::Cycle: ui::cycleScenario(app, model, e.ms); app.lastInput = e.ms; break;
         }
     }
+}
+
+// ---------- the CPU clock ----------
+
+// The loop's hold on full speed (cpu_clock.h). It lets go only once the dim always-on screen is on the panel, with no
+// finger down; that screen changes a little twice a second. A tap there wakes it on release, by which time the press
+// has taken the hold back (here, and in the touch task), so the wake is drawn exactly as fast as before.
+bool fastHeld = false;
+
+void fullSpeed(bool on) {
+    if (on == fastHeld) return;
+    fastHeld = on;
+    if (on) cpuclk::hold();
+    else cpuclk::release();
 }
 
 // ---------- serial test input ----------
@@ -330,6 +354,8 @@ void setup() {
 #endif
     Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
     Serial.begin(115200);
+    cpuclk::begin();   // before the network task, which holds full speed through each request
+    fullSpeed(true);   // awake from boot
     Wire.begin(kSda, kScl);
     if (!gfx->begin(80000000)) Serial.println("display: begin failed");
     gfx->fillScreen(0);
@@ -382,6 +408,7 @@ void setup() {
 
 void loop() {
     static uint32_t lastData = 0, lastFrame = 0, frames = 0, statT = 0, sumDraw = 0, sumFrame = 0;
+    if (uxQueueMessagesWaiting(touchEvents)) fullSpeed(true);   // a touch: full speed before anything answers it
     handleTouch();
     const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
     pollSerial(ms);
@@ -429,6 +456,13 @@ void loop() {
     if (wasDim && !app.dim) live::wake();
     wasDim = app.dim;
 #endif
+    // Every input of this frame is in: full speed for anything but the dim always-on screen left alone, once it's on
+    // the panel. The frame that dims to it is drawn at full speed too, so the full-brightness moment before the
+    // dimmed brightness applies (at the end of the frame) lasts as long as before. The profile runs at full speed so
+    // its times compare with the README's (and its cycle counts convert at 240 MHz).
+    static bool aodDrawn = false;   // the last frame drawn was the always-on screen
+    const bool aod = ui::alwaysOn(app);
+    fullSpeed(!aod || !aodDrawn || app.drag.down || autoScrollUntil != 0 || profileReq);
     if (profileReq) { profileReq = false; profile(ms); }
 #ifdef POWER_LOG
     if (plog::due(ms)) {
@@ -473,6 +507,7 @@ void loop() {
     const uint32_t t0 = micros();
     sumDraw += drawFrame(ms);
     sumFrame += micros() - t0;
+    aodDrawn = aod;
     ++frames;
 #ifdef POWER_LOG
     plog::frame(moving, ms);

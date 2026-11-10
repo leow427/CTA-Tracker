@@ -13,15 +13,20 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cpu_clock.h"
+
 namespace plog {
 
 namespace {
 
-// The columns of a `P,` line, in order. tools/power_report.py reads them by name from the `H,` line.
+// The columns of a `P,` line, in order. tools/power_report.py reads them by name from the `H,` line, so new ones go
+// at the end. cpu_mhz is the clock at the sample; clk_ms_* are the ms at each clock (80, 160, 240 MHz) since the last
+// sample and clk_busy_* the busy core-ms at each (both cores), since the clock changes within a second (cpu_clock.h).
 constexpr const char* kColumns =
     "ms,phase,usb_mv,sys_mv,pmu_c,cpu_c,batt,batt_pct,batt_mv,cpu_mhz,busy0,busy1,dim,bright,frames,px_sent,lit,"
     "wifi_mode,wifi_status,rssi,tx_qdbm,wifi_ps,req_started,req_done,req_ms,req_bytes,ble,ble_interval,touches,"
-    "move_fps,slow_frame_ms,tap_ms,data_age,int_free,int_min,psram_free,trains,buses,log_us";
+    "move_fps,slow_frame_ms,tap_ms,data_age,int_free,int_min,psram_free,trains,buses,log_us,"
+    "clk_ms_80,clk_ms_160,clk_ms_240,clk_busy_80,clk_busy_160,clk_busy_240";
 
 // ---------- the ring: whole lines, PSRAM, at least 10 minutes of samples ----------
 
@@ -87,6 +92,8 @@ void begin() {
     if (!ring) Serial.println("power log: no memory for the ring");
     lastSampleUs = esp_timer_get_time();
     for (int c = 0; c < 2; ++c) lastIdle[c] = ulTaskGetIdleRunTimeCounterForCore(c);
+    cpuclk::Stats clk;
+    cpuclk::take(clk);   // the first sample's clock times start now too
     temperatureRead();   // installs the sensor now, not mid-run
     event("boot,reset_reason=%d", static_cast<int>(esp_reset_reason()));
     header();
@@ -122,6 +129,8 @@ void sample(uint32_t ms, const Inputs& in) {
         float b = wallUs > 0 ? 100.f * (1.f - static_cast<float>(d) / static_cast<float>(wallUs)) : 0;
         busy[c] = b < 0 ? 0 : b > 100 ? 100 : b;
     }
+    cpuclk::Stats clk;
+    cpuclk::take(clk);
 
     // Core 0's counters.
     portENTER_CRITICAL(&lock);
@@ -157,7 +166,8 @@ void sample(uint32_t ms, const Inputs& in) {
     char line[512];
     const int n = snprintf(
         line, sizeof(line),
-        "P,%u,%u,%u,%u,%.1f,%.1f,%d,%d,%u,%u,%.1f,%.1f,%d,%u,%u,%u,%s,%d,%d,%d,%d,%d,%u,%u,%u,%u,,,%u,%s,%s,%s,%s,%u,%u,%u,%d,%d,%u\n",
+        "P,%u,%u,%u,%u,%.1f,%.1f,%d,%d,%u,%u,%.1f,%.1f,%d,%u,%u,%u,%s,%d,%d,%d,%d,%d,%u,%u,%u,%u,,,%u,%s,%s,%s,%s,%u,%u,%u,%d,%d,%u,"
+        "%u,%u,%u,%u,%u,%u\n",
         static_cast<unsigned>(ms), in.phase, in.usbMv, in.sysMv, in.pmuTempC, temperatureRead(), in.battery, in.battPct,
         in.battMv, static_cast<unsigned>(getCpuFrequencyMhz()), busy[0], busy[1], in.dim, in.brightness,
         static_cast<unsigned>(frames), static_cast<unsigned>(px), litS, static_cast<int>(mode), status, rssi, txq, ps,
@@ -166,7 +176,9 @@ void sample(uint32_t ms, const Inputs& in) {
         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
         static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), in.trainCards, in.busCards,
-        static_cast<unsigned>(lastLogUs));
+        static_cast<unsigned>(lastLogUs), static_cast<unsigned>(clk.ms[0]), static_cast<unsigned>(clk.ms[1]),
+        static_cast<unsigned>(clk.ms[2]), static_cast<unsigned>(clk.busyMs[0]), static_cast<unsigned>(clk.busyMs[1]),
+        static_cast<unsigned>(clk.busyMs[2]));
     append(line, static_cast<size_t>(n));
     if (dropped) { event("dropped,%u", static_cast<unsigned>(dropped)); dropped = 0; }
 

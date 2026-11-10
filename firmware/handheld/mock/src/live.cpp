@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "cpu_clock.h"
 #include "cta_config.h"
 #include "local_time.h"
 #include "live_store.h"
@@ -137,6 +138,7 @@ int getOnce(const char* url, String& body, bool keep) {
 // guest networks do. Good to about a second, which is plenty for minute countdowns; NTP corrects it if it ever
 // gets through. Uses the train API, whose connection the first poll then reuses.
 bool clockFromHttp() {
+    const cpuclk::Fast fast;   // a TLS handshake: full speed, as every request
     static const char* keys[] = {"Date"};
     closeConn();
     snprintf(conn->host, sizeof(conn->host), "lapi.transitchicago.com");
@@ -184,7 +186,10 @@ bool dueArrivals(uint32_t polled, uint32_t sec, uint32_t now) { return polled ==
 // After a failure, try again in kRetrySec rather than a whole interval.
 uint32_t retryStamp(uint32_t now, uint32_t sec) { return now - everyArrivals(sec) + kRetrySec; }
 
+// Every poll, request and parse, runs at full speed (cpu_clock.h): a fresh TLS handshake verifies the train API's
+// ECDSA certificate in software, about 2.4 s at 240 MHz and roughly three times that at 80, with the radio on.
 void pollStation(int st, uint32_t now) {
+    const cpuclk::Fast fast;
     static char url[256];
     const uint32_t sec = st < kClosePolled ? cta::kHandheldClosePollSec : cta::kHandheldFarPollSec;
     const char* id = store.nearby().trains[st];
@@ -200,6 +205,7 @@ void pollStation(int st, uint32_t now) {
 }
 
 void pollBuses(uint32_t now) {
+    const cpuclk::Fast fast;
     static char url[512];
     busPolled = now;
     const cta::Nearby& nb = store.nearby();
@@ -217,6 +223,7 @@ void pollBuses(uint32_t now) {
 }
 
 void pollAlerts(uint32_t now) {
+    const cpuclk::Fast fast;
     static char url[768];   // 48 routes at up to 7 bytes and a comma, plus the base
     alertsPolled = now;
     const char* routes[Store::kMaxRoutes];
@@ -231,6 +238,7 @@ void pollAlerts(uint32_t now) {
 }
 
 void pollWeather(uint32_t now) {
+    const cpuclk::Fast fast;
     static char url[160];
     weatherPolled = now;
     if (!cta::weatherUrl(url, sizeof(url), store.nearby().lat, store.nearby().lon)) return;
@@ -280,6 +288,7 @@ void burstOne(uint32_t now) {
 // After a failed join: is the network in reach, and on what? The ESP32-S3 has 2.4 GHz only, and the most common
 // failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Logs only our SSID.
 void reportScan() {
+    const cpuclk::Fast fast;
     const int n = WiFi.scanNetworks();
     for (int i = 0; i < n; ++i)
         if (WiFi.SSID(i) == WIFI_SSID) {
@@ -332,6 +341,13 @@ void netTask(void*) {
     configTzTime(cta::kTz, "216.239.35.0", "216.239.35.4", "162.159.200.1");
     uint32_t lastBegin = 0, retryMs = kWifiRetryMinMs;
     bool wasUp = false, joining = false, scanned = false;
+    // A join holds full speed until it ends either way, as requests do: the WPA handshake's key derivation is CPU work.
+    auto setJoining = [&joining](bool j) {
+        if (j == joining) return;
+        joining = j;
+        if (j) cpuclk::hold();
+        else cpuclk::release();
+    };
     for (;;) {
         if (nearbyPending) {   // a new list: start over with its stops
             static cta::Nearby n;
@@ -354,7 +370,7 @@ void netTask(void*) {
             if (wasUp) { Serial.println("net: Wi-Fi lost"); lastBegin = 0; retryMs = kWifiRetryMinMs; }
             wasUp = false;
             if (joining && millis() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
-                joining = false;
+                setJoining(false);
                 const int why = WiFi.status();
                 WiFi.disconnect();
                 Serial.printf("net: no %s (status %d); next try in %u s\n", WIFI_SSID, why, static_cast<unsigned>(retryMs / 1000));
@@ -366,16 +382,16 @@ void netTask(void*) {
             if (!joining && (lastBegin == 0 || millis() - lastBegin > retryMs)) {
                 if (lastBegin != 0) retryMs = retryMs * 2 > kWifiRetryMaxMs ? kWifiRetryMaxMs : retryMs * 2;
                 Serial.printf("net: connecting to %s\n", WIFI_SSID);
+                setJoining(true);
                 WiFi.begin(WIFI_SSID, WIFI_PASS);
                 lastBegin = millis();
-                joining = true;
             }
             setStatus(joining ? "Connecting to Wi-Fi" : "No Wi-Fi");
             publish();
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        joining = false;
+        setJoining(false);
         retryMs = kWifiRetryMinMs;
         if (!wasUp) {
             wasUp = true;
