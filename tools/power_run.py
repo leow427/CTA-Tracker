@@ -63,6 +63,7 @@ def main():
     ap.add_argument("--lat", type=float, default=41.94)
     ap.add_argument("--lon", type=float, default=-87.65)
     ap.add_argument("--no-flash", action="store_true", help="the board already runs this firmware")
+    ap.add_argument("--firmware", help="with --no-flash: the commit the board is running (default: HEAD)")
     args = ap.parse_args()
 
     try:
@@ -93,9 +94,12 @@ def main():
     if r.returncode != 0:
         sys.exit("send_nearby.py failed:\n" + r.stderr[-2000:])
 
-    commit = git("rev-parse", "--short", "HEAD")
-    if git("status", "--porcelain", "--", "firmware"):
-        commit += "-dirty"
+    if args.firmware:
+        commit = args.firmware
+    else:
+        commit = git("rev-parse", "--short", "HEAD")
+        if git("status", "--porcelain", "--", "firmware"):
+            commit += "-dirty"
     path = out_path(args.change)
     header = [
         f"# change: {args.change}",
