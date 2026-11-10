@@ -72,3 +72,29 @@ Stopped by hand at about 8:22 PM, roughly 13 minutes in (Leo's call). Run 3 was 
 2. **Dim idle is about 52 mA, and the CPU is about 34 of it** while 2–9% busy, confirming run 1's main finding. That's round 1's target.
 3. **Scrolling is the most expensive state the user drives** (108 mA): the drawing core is pegged at 100%.
 4. The model's numbers are unchanged by the round 1 worker's model-v2 code for these runs: re-scored, they match model-v1 exactly (they have no per-clock columns).
+
+## Round 1: 80 MHz CPU on the dim always-on screen (2026-11-09)
+
+- **Change:** commit `1c39d26` (worker 1, reviewed by one fresh Opus reviewer at xhigh: no Blockers or Should fixes). Full speed (240 MHz) becomes a hold any task can take; with no hold the CPU drops to 80 MHz. The frame loop holds it except once the dim always-on screen is drawn and no finger is down; the touch task holds it through every press; the network task holds it through every poll, the HTTP clock fallback, Wi-Fi joins, and scans. The power log gained six columns (`clk_ms_80/160/240`, `clk_busy_80/160/240`) and the model costs each part of a second at its own clock (model-v2; the baseline re-scores identically).
+- **Why:** in dim idle (about 90% of a day) the CPU was about 34 of 52 mA while 2–9% busy, because it ran at 240 MHz all the time. Expected: dim idle 52.6 → about 44 mA, burst 85.6 → about 80, cool-down 51.3 → about 42; projection 36.9 → about 43 h.
+- **Run:** `runs/2026-11-09-r1-1.csv` (1,201 samples, no resets). Report: `reports/r1.html`, table: `reports/r1.md`.
+
+**Result: inconclusive. The network failed during the run, so its numbers can't be compared with the baseline.**
+
+| Phase | Baseline mA | Round 1 mA | Why |
+|---|---|---|---|
+| 1 Dim idle | 52.6 | 88.0 | a train station's requests failed every 22 s until 4.6 min after boot (13 failures); each holds the radio and 240 MHz |
+| 2 Awake, still | 57.7 | 57.3 | clean; always 240 MHz by design |
+| 3 Scroll | 107.9 | 109.6 | clean; within noise (4.4) |
+| 4 Screen churn | 65.5 | 135.4 | Wi-Fi dropped at 10:34 into the run (status 6, then 0) |
+| 5 Network burst | 85.6 | 125.8 | no Wi-Fi: no requests at all; the model charges a lost connection as continuous joining (90 mA) |
+| 6 Everything | 123.1 | 160.3 | no Wi-Fi |
+| 7 Cool-down | 51.3 | 125.3 | no Wi-Fi |
+
+**Findings**
+
+1. **The clock change works on the board.** The CPU spent 72 s of dim idle, 139 s of the network burst phase, and 99 s of cool-down at 80 MHz, and switched back to 240 for requests and joins. The USB link kept streaming through every switch, and there were no resets.
+2. **Nothing the user sees got worse where the run was clean:** scrolling 37.6 fps moving (baseline 37.3), slowest scroll frame 64 ms (86), tap→screen 23 ms average in churn (23), phase 6 49.5 fps (47.2). Phase 6's tap→screen (37 ms avg, max 86, against 30 and 76) and slowest frame (96 against 84) are slightly worse, but that phase had no Wi-Fi, so the network task was rejoining instead of polling; not comparable.
+3. **Lowest free internal RAM rose from 21 to 25 KB,** probably because there were fewer TLS connections in the second half (no Wi-Fi). Not credited to the change.
+4. **Failed requests right after boot are a pre-existing problem.** Baseline run 1 (also freshly flashed) shows the same pattern: one station's requests failing every 22 s for about 4.5 minutes. The runs that weren't reflashed (baseline 2 and 3) don't. That wastes radio time and keeps the CPU at 240 MHz, and it outlasts the warm-up's 3-minute limit, so it spoils phase 1. Worth fixing as its own round.
+5. **The Wi-Fi drop happened at 240 MHz** (phase 4 is awake, so no clock switches were near it), and the board kept failing to rejoin for over 10 minutes. The same network refused the plain live build earlier tonight (disconnect reason 2), so the network is the likely cause, not round 1; being checked before a rerun.
