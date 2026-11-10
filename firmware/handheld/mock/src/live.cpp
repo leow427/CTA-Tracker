@@ -5,6 +5,7 @@
 #include <NetworkClientSecure.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -268,6 +269,14 @@ void netTask(void*) {
     conn->http.setTimeout(12000);
     conn->http.setConnectTimeout(8000);
     WiFi.mode(WIFI_STA);
+#ifdef WIFI_MAC
+    {
+        // A replacement MAC from secrets.h, for a router that has blocked the board's own (one did, 2026-11-09,
+        // after a reboot loop: it ignored every join from the factory MAC and admitted a new one at once).
+        uint8_t mac[6] = WIFI_MAC;
+        Serial.printf("net: using the MAC from secrets.h%s\n", esp_wifi_set_mac(WIFI_IF_STA, mac) == ESP_OK ? "" : " (refused)");
+    }
+#endif
     // Why a join or a connection ended, in the driver's words (wifi_err_reason_t: 15 and 204 are a wrong password,
     // 201 the network out of reach, 8 left on purpose). Logged once per distinct reason in a row.
     WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
