@@ -129,3 +129,25 @@ Stopped by hand at about 8:22 PM, roughly 13 minutes in (Leo's call). Run 3 was 
 ## From round 2: stress-v2 and real data (2026-11-09)
 
 Leo's call: from round 2 on, the stress test scrolls back and forth between the Trains and Buses tabs, and runs use real data for where Leo is (`power_run.py --here`, the Mac's location; never recorded). Runs can now go overnight: during a run the test build keeps daytime polling and moods. Details are in the spec, section 3 (stress-v2). stress-v1 and stress-v2 runs are never compared, so round 1's firmware is rerun under stress-v2 (change `r1v2`) as the reference for rounds 2 and 3. Round 2's worker brief, which puts performance (responsiveness, load times) alongside power: `briefs/round-2.md`.
+
+## Reference for rounds 2 and 3: round 1 under stress-v2 (2026-11-09)
+
+- **Runs:** `runs/2026-11-09-r1v2-1.csv` (freshly flashed, firmware `d5adfc8` = round 1 plus stress-v2) and `-2.csv` (not reflashed). 1,025 samples each, no resets, every request succeeded (173 of 173 in the burst). Real location (12 train cards, 4 bus cards), second Wi-Fi network at about −30 dBm. Report: `reports/r1v2.html`, table: `reports/r1v2.md`; run 1 alone: `reports/r1v2-after-run-1.*`.
+
+| Phase | Est. mA | Noise | CPU busy c0/c1 % | FPS moving | Slowest frame ms | Tap→screen ms | Request ms (ok/all) |
+|---|---|---|---|---|---|---|---|
+| 1 Dim idle | 43.3 | 0.0 | 13 / 6 | – | – | – | 841 (30/30) |
+| 2 Awake, still | 59.3 | 1.5 | 10 / 4 | – | – | – | 978 (16/16) |
+| 3 Scroll (Trains ↔ Buses) | 93.6 | 1.4 | 44 / 99 | 62.6 | 76 | 20 (max 30) | 1252 (22/22) |
+| 4 Screen churn | 65.6 | 0.1 | 18 / 23 | 38.7 | 61 | 23 (max 49) | 804 (19/19) |
+| 5 Network burst | 84.5 | 0.8 | 38 / 5 | – | – | – | 1005 (173/173) |
+| 6 Everything | 122.4 | 1.2 | 60 / 70 | 51.0 | 76 | 28 (max 73) | 1367 (147/147) |
+| 7 Cool-down | 43.4 | 0.4 | 13 / 6 | – | – | – | 1245 (18/18) |
+
+**Projected battery life: 43.8 h** at 45.7 mA. Lowest free internal RAM 21 KB.
+
+**Findings**
+
+1. **The dim phases match round 1 under stress-v1** (43.3 against 43.6), as they should: stress-v2 changes only the scrolling and the stops.
+2. **Scrolling is cheaper and faster under stress-v2** (93.6 mA, 62.6 fps against 104.4 and 38.0). Half the time it's on the Buses tab, which has 4 cards here, so the list hardly moves and many frames change few rows. That's why v1 and v2 numbers are never compared.
+3. **Two runs agree very closely** (noise 0.0–1.5 mA). Since two runs can understate noise, rounds 2 and 3 are judged against at least the baseline's typical noise of 1.5 mA per phase: a change has to move a phase by more than 3 mA to count.
