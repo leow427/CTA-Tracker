@@ -15,6 +15,9 @@
 #include "live_store.h"
 #include "secrets.h"
 #include "urls.h"
+#ifdef POWER_LOG
+#include "power_log.h"
+#endif
 
 #ifndef WIFI_SSID
 #define WIFI_SSID ""
@@ -89,7 +92,22 @@ void closeConn() {
 
 // GETs url into body. Returns the HTTP status, or a negative HTTPClient error. Never logs the URL (it has keys).
 // keep: leave the connection open for the next request to the same host.
-int get(const char* url, String& body, bool keep = false) {
+int getOnce(const char* url, String& body, bool keep);
+// kind, for the power log: t trains, b buses, a alerts, w weather.
+int get(const char* url, String& body, char kind, bool keep = false) {
+#ifdef POWER_LOG
+    plog::reqStart(kind);
+    const uint32_t t0 = millis();
+    const int code = getOnce(url, body, keep);
+    plog::reqEnd(kind, code, code == 200 ? body.length() : 0, millis() - t0);
+    return code;
+#else
+    (void)kind;
+    return getOnce(url, body, keep);
+#endif
+}
+
+int getOnce(const char* url, String& body, bool keep) {
     char host[sizeof(conn->host)];
     hostOf(url, host, sizeof(host));
     if (strcmp(host, conn->host) != 0) {
@@ -174,7 +192,7 @@ void pollStation(int st, uint32_t now) {
     if (!cta::trainArrivalsUrl(url, sizeof(url), CTA_TRAIN_KEY, id)) return;
     String body;
     const uint32_t t0 = millis();
-    const int code = get(url, body, true);
+    const int code = get(url, body, 't', true);
     ++requests;
     const int n = code == 200 ? store.applyTrains(st, body.c_str(), body.length(), now) : -1;
     Serial.printf("net: trains %s: HTTP %d, %d cards, %u ms\n", id, code, n, static_cast<unsigned>(millis() - t0));
@@ -190,7 +208,7 @@ void pollBuses(uint32_t now) {
     if (!cta::busPredictionsUrl(url, sizeof(url), CTA_BUS_KEY, ids, nb.nBuses)) return;
     String body;
     const uint32_t t0 = millis();
-    const int code = get(url, body);
+    const int code = get(url, body, 'b');
     ++requests;
     const int n = code == 200 ? store.applyBuses(body.c_str(), body.length(), now) : -1;
     Serial.printf("net: buses, %d stops: HTTP %d, %d cards, %u ms\n", nb.nBuses, code, n,
@@ -206,7 +224,7 @@ void pollAlerts(uint32_t now) {
     // Unplanned disruptions only: elevator outages and planned bus-stop notes would mark nearly every route.
     if (!cta::alertsUrl(url, sizeof(url), routes, nRoutes, true)) return;
     String body;
-    const int code = get(url, body);
+    const int code = get(url, body, 'a');
     const int n = code == 200 ? store.applyAlerts(body.c_str(), body.length()) : -1;
     Serial.printf("net: alerts, %d routes: HTTP %d, %d alerted\n", nRoutes, code, n);
     if (n < 0) alertsPolled = retryStamp(now, cta::kAlertsPollSec);
@@ -217,7 +235,7 @@ void pollWeather(uint32_t now) {
     weatherPolled = now;
     if (!cta::weatherUrl(url, sizeof(url), store.nearby().lat, store.nearby().lon)) return;
     String body;
-    const int code = get(url, body);
+    const int code = get(url, body, 'w');
     const bool ok = code == 200 && store.applyWeather(body.c_str(), body.length());
     Serial.printf("net: weather: HTTP %d, %s\n", code, ok ? "ok" : "failed");
     if (!ok) weatherPolled = retryStamp(now, cta::kWeatherPollSec);
@@ -238,6 +256,26 @@ bool pollOne(uint32_t now) {
     if (due(alertsPolled, cta::kAlertsPollSec, now) && store.routes(any, 1)) { pollAlerts(now); return true; }
     return false;
 }
+
+#ifdef POWER_LOG
+// The stress test's network burst (power analysis spec, section 3): test only. Fetches the next item in rotation
+// (each station, the buses, the alerts, the weather) every 2 s, regardless of when it's due, at most 180 per run.
+volatile bool burst = false;
+volatile bool burstReset = false;
+constexpr uint32_t kBurstGapMs = 2000, kBurstMax = 180;
+uint32_t burstCount = 0, burstLast = 0;
+int burstNext = 0;
+
+void burstOne(uint32_t now) {
+    const cta::Nearby& nb = store.nearby();
+    const int n = nb.nTrains + 3;
+    const int k = burstNext++ % n;
+    if (k < nb.nTrains) pollStation(k, now);
+    else if (k == nb.nTrains) { if (nb.nBuses) pollBuses(now); }
+    else if (k == nb.nTrains + 1) { const char* any[1]; if (store.routes(any, 1)) pollAlerts(now); }
+    else pollWeather(now);
+}
+#endif
 
 // After a failed join: is the network in reach, and on what? The ESP32-S3 has 2.4 GHz only, and the most common
 // failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Logs only our SSID.
@@ -364,6 +402,20 @@ void netTask(void*) {
             continue;
         }
         if (status[0]) { setStatus(""); publish(); }
+#ifdef POWER_LOG
+        if (burstReset) { burstReset = false; burstCount = 0; burstNext = 0; }
+        if (burst && burstCount < kBurstMax) {
+            if (millis() - burstLast >= kBurstGapMs) {
+                burstLast = millis();
+                ++burstCount;
+                burstOne(static_cast<uint32_t>(time(nullptr)));
+                publish();
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            continue;
+        }
+#endif
         if (pollOne(static_cast<uint32_t>(time(nullptr)))) {
             publish();
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -416,6 +468,11 @@ bool setNearby(const char* json, size_t len) {
 }
 
 void wake() { woke = true; }
+
+#ifdef POWER_LOG
+void setBurst(bool on) { burst = on; }
+void resetBurstCount() { burstReset = true; }
+#endif
 
 bool read(Snapshot& out, uint32_t& version) {
     if (!published || version == pubVersion) return false;

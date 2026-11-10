@@ -23,6 +23,10 @@
 #include "power.h"
 #include "cta_config.h"
 #endif
+#ifdef POWER_LOG
+#include "power_log.h"
+#include "stress.h"
+#endif
 
 namespace {
 
@@ -96,9 +100,17 @@ void sendTask(void*) {
             gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
             sendUs += micros() - t;
             sentPx += j.w * j.h;
-        } else if (wantBrightness != brightnessNow) {
-            brightnessNow = wantBrightness;
-            gfx->setBrightness(brightnessNow);
+#ifdef POWER_LOG
+            plog::sent(j.w * j.h);
+#endif
+        } else {
+            if (wantBrightness != brightnessNow) {
+                brightnessNow = wantBrightness;
+                gfx->setBrightness(brightnessNow);
+            }
+#ifdef POWER_LOG
+            plog::frameDone(static_cast<uint16_t>(j.x));   // an end-of-frame job carries the frame's number in x
+#endif
         }
         if (j.release >= 0) xSemaphoreGive(stripFree[j.release]);
     }
@@ -114,6 +126,11 @@ inline uint32_t hashRow(const uint16_t* p, int n) {   // FNV-1a over 32-bit word
 // Draws the frame strip by strip and queues the changed rows. Returns the microseconds spent drawing.
 uint32_t drawFrame(uint32_t ms) {
     uint32_t busy = 0;
+#ifdef POWER_LOG
+    static uint16_t frameSeq = 0;
+    ++frameSeq;
+    const bool lit = plog::litWanted();
+#endif
     for (int s = 0; s < kStrips; ++s) {
         const int k = s & 1, y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
         xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
@@ -121,6 +138,9 @@ uint32_t drawFrame(uint32_t ms) {
         uint16_t* buf = stripBuf[k];
         ui::Canvas cv = ui::Canvas::panelBand(buf, W, y0, rows);
         ui::draw(cv, app, model, ms, scratch);
+#ifdef POWER_LOG
+        if (lit) plog::litStrip(buf, W * rows);
+#endif
         // Panel window: columns [W - y0 - rows, W - y0), and the panel rows (screen columns) that changed, in runs.
         const int px = W - y0 - rows;
         int runStart = -1, runEnd = -1;
@@ -148,7 +168,13 @@ uint32_t drawFrame(uint32_t ms) {
     }
     sendAll = false;
     wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
+#ifdef POWER_LOG
+    if (lit) plog::litDone();
+    plog::frameQueued(frameSeq);
+    const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
+#else
     const Job end{nullptr, 0, 0, 0, 0, -1};
+#endif
     xQueueSend(jobs, &end, portMAX_DELAY);
     return busy;
 }
@@ -195,6 +221,9 @@ bool touchLog = false;   // serial "t": print every touch sample and what each r
 void handleTouch() {
     touchf::Event e;
     while (xQueueReceive(touchEvents, &e, 0) == pdTRUE) {
+#ifdef POWER_LOG
+        plog::touch();
+#endif
         if (touchLog) Serial.printf("T %c %d %d %u\n", "dmucy"[static_cast<int>(e.kind)], e.x, e.y, static_cast<unsigned>(e.ms));
         switch (e.kind) {
             case touchf::Kind::Down: ui::pointerDown(app, model, e.x, e.y, e.ms); break;
@@ -284,6 +313,10 @@ void pollSerial(uint32_t ms) {
         else if (line[0] == 'a') autoScrollUntil = ms + 6000;   // scroll the list by itself, for timing
         else if (line[0] == 'p') profileReq = true;
         else if (line[0] == 's') statsReq = true;
+#ifdef POWER_LOG
+        else if (line[0] == 'S') { stress::start(ms); continue; }   // the power analysis stress test
+        else if (line[0] == 'X') { stress::stop(ms); continue; }
+#endif
         else if (line[0] == 't') { touchLog = !touchLog; Serial.printf("touch log %s\n", touchLog ? "on" : "off"); }   // print the frame stats now and start a new window
         app.lastInput = ms;
     }
@@ -292,6 +325,9 @@ void pollSerial(uint32_t ms) {
 }  // namespace
 
 void setup() {
+#ifdef POWER_LOG
+    Serial.setTxBufferSize(4096);   // the power log writes whole lines only, so a line must fit
+#endif
     Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
     Serial.begin(115200);
     Wire.begin(kSda, kScl);
@@ -327,6 +363,9 @@ void setup() {
     pw = pwShared = power::read();   // before the touch task starts; after that only it reads the bus
     mock::fromLive(model, *snap, pw, startUnix, false);
     live::start();
+#ifdef POWER_LOG
+    plog::begin();
+#endif
 #else
     mock::update(model, startUnix, startUnix);
 #endif
@@ -381,6 +420,9 @@ void loop() {
             autoScrollUntil = 0;
         }
     }
+#ifdef POWER_LOG
+    stress::tick(app, model, ms, snap->loaded);
+#endif
     ui::tick(app, model, ms);
 #ifdef HANDHELD_LIVE
     static bool wasDim = false;   // a tap on the dim screen is a wake (spec 8.2)
@@ -388,6 +430,31 @@ void loop() {
     wasDim = app.dim;
 #endif
     if (profileReq) { profileReq = false; profile(ms); }
+#ifdef POWER_LOG
+    if (plog::due(ms)) {
+        plog::Inputs in;
+        in.phase = stress::phase();
+        in.dim = app.dim;
+        in.brightness = wantBrightness;
+        in.usbMv = pw.vbusMv;
+        in.sysMv = pw.sysMv;
+        in.pmuTempC = pw.tempC;
+        in.battery = pw.battery;
+        in.battPct = pw.percent;
+        in.battMv = pw.battMv;
+        in.trainCards = model.nTrains;
+        in.busCards = model.nBuses;
+        uint32_t oldest = 0;
+        for (int i = 0; i < snap->nTrains; ++i)
+            if (snap->trains[i].rec.ts && (!oldest || snap->trains[i].rec.ts < oldest)) oldest = snap->trains[i].rec.ts;
+        for (int i = 0; i < snap->nBuses; ++i)
+            if (snap->buses[i].rec.ts && (!oldest || snap->buses[i].rec.ts < oldest)) oldest = snap->buses[i].rec.ts;
+        const uint32_t now = live::unixNow();
+        in.dataAgeSec = oldest && now >= oldest ? static_cast<int>(now - oldest) : -1;
+        plog::sample(ms, in);
+    }
+    plog::flush();
+#endif
     // Full speed while something moves; otherwise only when Trackie bobs or the live mark blinks (every 500 ms),
     // and a few frames a second while dim (spec 8: the animation drops when dimmed). Between frames, wait on touch.
     static uint32_t lastHalf = UINT32_MAX;
@@ -407,6 +474,9 @@ void loop() {
     sumDraw += drawFrame(ms);
     sumFrame += micros() - t0;
     ++frames;
+#ifdef POWER_LOG
+    plog::frame(moving, ms);
+#endif
     if (ms - statT > 10000 || statsReq) {
         statsReq = false;
         const uint32_t f = frames ? frames : 1;

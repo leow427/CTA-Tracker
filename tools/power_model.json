@@ -1,0 +1,62 @@
+{
+  "version": "model-v1",
+  "notes": "Estimated current for the handheld (ESP32-S3-Touch-AMOLED-1.75) from the power log's raw columns. Every figure is an estimate: the board has no current sensor and the analysis runs with no battery (power analysis spec, sections 1 and 4). Values marked 'datasheet' are approximate readings of the ESP32-S3 datasheet's current tables; values marked 'estimate' are typical figures for this class of part, to be refined if a real measurement ever becomes possible. Currents are on the 3.3 V rail.",
+
+  "cpu": {
+    "source": "datasheet: ESP32-S3 modem-sleep current (CPU running, RF off), approximate",
+    "idle_ma": {"80": 22.0, "160": 27.0, "240": 32.0},
+    "per_busy_core_ma": {"80": 9.0, "160": 12.0, "240": 16.0},
+    "light_sleep_ma": 0.25
+  },
+
+  "psram_flash": {
+    "source": "estimate: octal PSRAM and flash standby plus refresh",
+    "ma": 2.0
+  },
+
+  "screen": {
+    "source": "estimate: no CO5300 or panel power data found; typical 1.4-2 inch smartwatch AMOLED figures",
+    "driver_on_ma": 4.0,
+    "full_white_full_brightness_ma": 60.0,
+    "send_ma_per_mpx_per_s": 5.0
+  },
+
+  "wifi": {
+    "source": "datasheet (RF currents) and estimate (duty cycles)",
+    "off_ma": 0.0,
+    "joining_ma": 90.0,
+    "connected_idle_ma_by_ps": {"0": 60.0, "1": 3.0, "2": 1.5},
+    "request_active_ma": 80.0,
+    "request_rssi_ref_dbm": -60,
+    "request_extra_per_db_below_ref": 0.02
+  },
+
+  "ble": {
+    "source": "estimate; zero until BLE exists",
+    "advertising_ma": 0.0,
+    "connected_ma": 0.0
+  },
+
+  "fixed": {
+    "source": "estimate: touch controller scanning (~3 mA), power chip, IMU standby, regulators, pull-ups",
+    "ma": 5.0
+  },
+
+  "battery": {
+    "capacity_mah": 2000,
+    "rail_to_battery": 0.99,
+    "source": "estimate: 3.3 V rail through the AXP2101 buck at about 90% from a 3.7 V cell"
+  },
+
+  "typical_day": {
+    "source": "fixed weights for projected battery life, power analysis spec section 4: share of time off the dock in each stress phase's state",
+    "hours_off_dock": 16,
+    "phase_weights": {"1": 0.90, "2": 0.07, "3": 0.02, "4": 0.01}
+  },
+
+  "scoring": {
+    "drop_first_s": 10,
+    "phase_names": {"0": "Warm-up", "1": "Dim idle", "2": "Awake, still", "3": "Scroll", "4": "Screen churn",
+                    "5": "Network burst", "6": "Everything", "7": "Cool-down"}
+  }
+}

@@ -12,6 +12,9 @@ struct State {
     int percent = -1;       // fuel gauge, -1 with no battery
     bool charging = false;
     uint16_t battMv = 0;
+    uint16_t vbusMv = 0;    // USB voltage
+    uint16_t sysMv = 0;     // system rail
+    float tempC = 0;        // the chip's own temperature
 };
 
 // Call after Wire.begin(). False if the chip doesn't answer.

@@ -51,6 +51,12 @@ void setSlow(bool slow);
 bool setNearby(const char* json, size_t len);
 // A wake (spec 8.2): with no Wi-Fi, try to join now instead of waiting out the backoff.
 void wake();
+#ifdef POWER_LOG
+// The stress test's network burst (test only): fetch the next stop, the alerts, or the weather every 2 s,
+// at most 180 per run; resetBurstCount() starts a run's count over.
+void setBurst(bool on);
+void resetBurstCount();
+#endif
 // Copies the newest snapshot into out if it changed since `version`, and updates `version`. False if unchanged.
 bool read(Snapshot& out, uint32_t& version);
 // Unix time once NTP has synced, else 0.
