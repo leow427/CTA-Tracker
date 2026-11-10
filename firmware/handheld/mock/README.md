@@ -74,7 +74,7 @@ Live computes Trackie's mood from the simulated arrivals with `cta::deviceMood`,
 | `tools/preview.cpp` | Renders the screens to PNGs on a laptop; build line at the top of the file. `--strips` renders through the device's strip path, which must match the plain render exactly. `--live <dir> <unix>` renders the live screens from recorded responses (and `nearby.json` there, else the Belmont fixture) |
 | `tools/touch_test.cpp` | Checks the touch filter on a laptop, and replays a touch log recorded with `t` |
 | `tools/live_test.cpp` | Checks the live build's data path on a laptop: `live::Store` and `mock::fromLive` (the nearby list, one card per bus route and direction, countdown, stale data, alerts, offline, docked); build line at the top |
-| `tools/frame_test.cpp` | Checks on a laptop that the frame shortcuts change no pixel: frames at rest with the card cache match rendering every card fresh, a tab switch's first frame renders no card once both tabs are cached, always-on frames with the same key match, and the row hash catches any one-word change; build line at the top |
+| `tools/frame_test.cpp` | Checks on a laptop that the frame shortcuts change no pixel: frames at rest with the card cache match rendering every card fresh, a tab switch's first frame renders no card once both tabs are cached, always-on frames with the same key match, a list at rest redrawn only where its live marks blink matches the whole frame, and the row hash catches any one-word change; build line at the top |
 
 ## How a frame gets to the panel
 
@@ -98,7 +98,7 @@ Measured on the device (240 MHz), drawing time per frame:
 |---|---|---|
 | Home, idle | 9 ms; redraws twice a second for the bob and blink | 2 fps by design |
 | Stops, scrolling | 25 ms | 39 fps |
-| Stops, at rest (smooth card scaling) | 37–50 ms; redraws twice a second for the live mark | 2 fps by design |
+| Stops, at rest (smooth card scaling) | 37–62 ms for the first frame, then 2–3 ms: only the live marks are redrawn as they blink | 2 fps by design |
 | Detail, scrolling | 20 ms | 42 fps |
 | Transitions (both screens drawn) | 27–32 ms | 18–20 fps |
 
@@ -116,6 +116,7 @@ What made the difference:
 - **Who holds full speed.** The loop, while a frame is due or still being sent, while anything moves (a scroll, a transition, Trackie's hop), with a finger down, and while it takes in new data; so every frame is drawn and sent at full speed, and the clock drops between the half-second frames of a still Home, list, or detail. On the dim always-on screen it lets go once that screen is drawn (the frame that dims to it is drawn at full speed, as in round 1). The touch task holds it through every press: a tap is read at full speed and everything that answers it is drawn at full speed. The network task holds it from each TLS handshake (or each request on a kept-open connection) to the end of the poll, and through every Wi-Fi join and scan; the DNS lookup and TCP connection before a handshake only wait on the network. A full handshake to the train API takes about 2.4 s at 240 MHz and roughly three times that at 80. The clock drops when the last hold is released.
 - **Why switching is safe here.** On the ESP32-S3, 80, 160, and 240 MHz are dividers of the same PLL, which stays on: the APB bus (and so the panel's QSPI) stays at 80 MHz, the FreeRTOS tick and `millis()`/`micros()` run from the system timer on the crystal, I2C runs from the crystal, and USB serial from the PLL.
 - **Dim screen frames.** The always-on screen changes once a second at most (Trackie's bob), plus the clock and the burn-in shift. A frame that would draw it exactly as the panel already shows it is skipped: `ui::AodKey` holds everything that screen draws (and its brightness), and `tools/frame_test.cpp` checks that frames with the same key are the same pixels.
+- **The list at rest.** Twice a second only the live marks blink, so the frame redraws and sends just their 16-pixel squares (`ui::restKey` holds everything else the list draws; a frame with a new key is drawn whole).
 - **Waking.** A tap that wakes the dim screen is drawn at once, not at the next half-second frame.
 - **Requests.** Resumed TLS sessions (above) take most of the radio and CPU time out of reopening a connection, and a request whose DNS lookup gets no answer fails without the 8 s connect to 0.0.0.0 and pauses polling (above). Poll intervals are unchanged, and no poll goes later than before.
 

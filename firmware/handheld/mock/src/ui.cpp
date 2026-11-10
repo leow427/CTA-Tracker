@@ -385,13 +385,36 @@ uint32_t keyHash(const char* s) {   // FNV-1a
 }
 uint32_t gCardRenders = 0;   // cards rendered, cached or not (cardRenders())
 
+// Everything a rendered card shows (its cache key).
+void cardKey(const Card& c, Tab tab, const CardView& v, char* key, size_t cap) {
+    snprintf(key, cap, "%d|%u|%s|%s|%d|%s|%d%d%d|%s|%s%s%s", static_cast<int>(tab), c.station, c.rec.route,
+             c.rec.dir, v.min, v.sched ? v.clock : "", v.delayed, v.alert, v.stale, c.heading,
+             c.nPips > 0 ? c.pips[0] : "", c.nPips > 1 ? c.pips[1] : "", c.nPips > 2 ? c.pips[2] : "");
+}
+
+// Where card i of a list scrolled to `scroll` sits: its centre, scale, fade, the width it's drawn at, and its live
+// mark's top left (before the canvas translation). False when it's off the screen.
+struct CardSlot { float cy, scale, al, bcy; int half, markX, markY; };
+bool cardSlot(int i, float scroll, CardSlot& s) {
+    s.cy = FOCUS + i * ROW - scroll;
+    if (s.cy < -60 || s.cy > 540) return false;
+    const float k = fminf(fabsf(s.cy - FOCUS) / ROW, 3);
+    s.scale = 1 - 0.08f * fminf(k, 2);
+    s.al = fmaxf(0.2f, 1 - 0.4f * fminf(k, 1) - 0.2f * fmaxf(0, k - 1));
+    const float chord = fminf(chordHalf(s.cy - CARD_H / 2.f * s.scale), chordHalf(s.cy + (CARD_H / 2.f + 5) * s.scale));
+    s.half = 4 * static_cast<int>(lroundf(fmaxf(130, fminf(170, (chord - 12) / s.scale)) / 4));
+    s.bcy = s.cy + 3 * s.scale;
+    const float gx = (170 + s.half - 14 - 16) - 170.f, gy = 16 - (CARD_H + 6) / 2.f;
+    s.markX = static_cast<int>(lroundf(C + gx * s.scale));
+    s.markY = static_cast<int>(lroundf(s.bcy + gy * s.scale));
+    return true;
+}
+
 // While the list moves (or slides in a transition), any cached width of the same card will do (anyHalf), the exact
 // one first; it settles to the exact one.
 const uint16_t* cardImage(const Card& c, Tab tab, int half, bool anyHalf, const CardView& v, uint32_t ms, uint16_t* scratch) {
     char key[128];
-    snprintf(key, sizeof(key), "%d|%u|%s|%s|%d|%s|%d%d%d|%s|%s%s%s", static_cast<int>(tab), c.station, c.rec.route,
-             c.rec.dir, v.min, v.sched ? v.clock : "", v.delayed, v.alert, v.stale, c.heading,
-             c.nPips > 0 ? c.pips[0] : "", c.nPips > 1 ? c.pips[1] : "", c.nPips > 2 ? c.pips[2] : "");
+    cardKey(c, tab, v, key, sizeof(key));
     int slot = -1;
     const uint32_t h = keyHash(key);
     if (gCacheN) {
@@ -437,25 +460,17 @@ void drawStops(Canvas& cv, const App& a, const Model& m, uint32_t ms, Tab tab, u
     const float savedAlpha = cv.alpha;
     cv.clip(0, listTop(m), W, W);
     for (int i = 0; i < n; ++i) {
-        const float cy = FOCUS + i * ROW - scroll;
-        if (cy < -60 || cy > 540) continue;
-        const float k = fminf(fabsf(cy - FOCUS) / ROW, 3);
-        const float scale = 1 - 0.08f * fminf(k, 2), al = fmaxf(0.2f, 1 - 0.4f * fminf(k, 1) - 0.2f * fmaxf(0, k - 1));
-        if (cv.hidden(C - 170 * scale, cy - CARD_H / 2.f * scale, 340 * scale, (CARD_H + 6) * scale)) continue;   // not in this band
-        const float chord = fminf(chordHalf(cy - CARD_H / 2.f * scale), chordHalf(cy + (CARD_H / 2.f + 5) * scale));
-        const int half = 4 * static_cast<int>(lroundf(fmaxf(130, fminf(170, (chord - 12) / scale)) / 4));
+        CardSlot sl;
+        if (!cardSlot(i, scroll, sl)) continue;
+        const float scale = sl.scale;
+        if (cv.hidden(C - 170 * scale, sl.cy - CARD_H / 2.f * scale, 340 * scale, (CARD_H + 6) * scale)) continue;   // not in this band
         const CardView v = viewOf(items[i], !trains, m);
-        const uint16_t* img;
-        img = cardImage(items[i], tab, half, moving, v, ms, scratch);
-        const float bcy = cy + 3 * scale;
+        const uint16_t* img = cardImage(items[i], tab, sl.half, moving, v, ms, scratch);
         // The list's background is black and cards never overlap, so fading a card needn't read under it.
-        if (moving) cv.blitNearest(img, 340, CARD_H + 6, kKey, C, bcy, scale, al, true);
-        else cv.blitScaled(img, 340, CARD_H + 6, kKey, C, bcy, scale, al, true);
-        if (!v.sched && !v.stale) {   // the blinking live mark, drawn over the cached card
-            const Theme& t = th(v.route, v.bus);
-            const float gx = (170 + half - 14 - 16) - 170.f, gy = 16 - (CARD_H + 6) / 2.f;
-            liveGlyph(cv, static_cast<int>(lroundf(C + gx * scale)), static_cast<int>(lroundf(bcy + gy * scale)), t.text, true, ms);
-        }
+        if (moving) cv.blitNearest(img, 340, CARD_H + 6, kKey, C, sl.bcy, scale, sl.al, true);
+        else cv.blitScaled(img, 340, CARD_H + 6, kKey, C, sl.bcy, scale, sl.al, true);
+        if (!v.sched && !v.stale)   // the blinking live mark, drawn over the cached card
+            liveGlyph(cv, sl.markX, sl.markY, th(v.route, v.bus).text, true, ms);
     }
     cv.resetClip();
     cv.alpha = savedAlpha;
@@ -748,6 +763,53 @@ bool animating(const App& a, const Model& m, uint32_t ms) {
 }
 
 bool alwaysOn(const App& a) { return isAod(a, a.view) && !a.trans.on; }
+
+uint32_t restKey(const App& a, const Model& m, uint32_t ms, Mark* marks, int maxMarks, int& nMarks) {
+    nMarks = 0;
+    if (a.view.screen != Screen::Stops || a.trans.on || animating(a, m, ms)) return 0;
+    if (a.toast[0] && ms - a.toastT0 < 1800 && !a.dim) return 0;   // draw()'s toast (animating() covers it too)
+    uint32_t h = 2166136261u;
+    auto mix = [&h](const void* p, size_t n) {
+        for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(p)[i]) * 16777619u;
+    };
+    auto mixStr = [&mix](const char* str) { mix(str, strlen(str) + 1); };
+    // draw(): the burn-in shift while dim.
+    int ox = 0, oy = 0;
+    if (a.dim) aodShift(ms, ox, oy);
+    mix(&ox, sizeof(ox));
+    mix(&oy, sizeof(oy));
+    // drawStops: the tabs, the stale line, the empty-list message, the cards and their marks, the scroll bar.
+    const Tab tab = a.view.tab;
+    const bool trains = tab == Tab::Trains, stale = anyStale(m);
+    const Card* items = trains ? m.trains : m.buses;
+    const int n = trains ? m.nTrains : m.nBuses;
+    const float scroll = a.scroll[static_cast<int>(tab)];
+    mix(&tab, sizeof(tab));
+    mix(&stale, sizeof(stale));
+    if (stale) {
+        char t[40];
+        staleText(m, t, sizeof(t));
+        mixStr(t);
+    }
+    mix(&m.loaded, sizeof(m.loaded));
+    mix(&n, sizeof(n));
+    mix(&scroll, sizeof(scroll));
+    for (int i = 0; i < n; ++i) {
+        CardSlot sl;
+        if (!cardSlot(i, scroll, sl)) continue;
+        const CardView v = viewOf(items[i], !trains, m);
+        char key[128];
+        cardKey(items[i], tab, v, key, sizeof(key));
+        mixStr(key);
+        mix(&sl.half, sizeof(sl.half));
+        const bool live = !v.sched && !v.stale;
+        mix(&live, sizeof(live));
+        if (!live) continue;
+        if (nMarks == maxMarks) { nMarks = 0; return 0; }
+        marks[nMarks++] = {static_cast<int16_t>(sl.markX + ox), static_cast<int16_t>(sl.markY + oy), 16, 16};
+    }
+    return h | 1;
+}
 
 AodKey aodKey(const App& a, const Model& m, uint32_t ms) {
     AodKey k;

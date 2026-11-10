@@ -5,6 +5,8 @@
 //     renders none while it slides (the 16 entries before didn't hold both tabs, so slides rendered cards);
 //   - the dim always-on screen: two frames with the same ui::AodKey are the same pixels at the same brightness, so
 //     skipping the second (main.cpp) shows nothing different;
+//   - the Stops list at rest: redrawing only the live marks' windows when ui::restKey is unchanged leaves the panel
+//     exactly as a whole frame would, and equal keys draw the same pixels outside the marks;
 //   - the row hash (row_hash.h): a row that changes in any one word always hashes differently.
 // Frames are drawn through the device's strip path (48-row strips in the panel's layout).
 // Build and run (from firmware/handheld/mock):
@@ -16,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -231,6 +234,151 @@ void testAodKey() {
            clashes);
 }
 
+// ---------- the list at rest: only the live marks redrawn ----------
+
+// What the panel shows, in screen coordinates: a whole frame through the strips, or just the marks' windows (the
+// device's path, main.cpp: each window even-aligned, drawn through Canvas::panelWindow).
+struct Panel {
+    uint16_t px[ui::W * ui::W];
+    void full(ui::App& a, const mock::Model& m, uint32_t ms) {
+        constexpr int kRows = 48;
+        static uint16_t strip[ui::W * kRows];
+        for (int y0 = 0; y0 < ui::W; y0 += kRows) {
+            const int rows = y0 + kRows <= ui::W ? kRows : ui::W - y0;
+            ui::Canvas cv = ui::Canvas::panelBand(strip, ui::W, y0, rows);
+            ui::draw(cv, a, m, ms, scratch);
+            for (int x = 0; x < ui::W; ++x)
+                for (int y = y0; y < y0 + rows; ++y) px[y * ui::W + x] = strip[x * rows + (y0 + rows - 1 - y)];
+        }
+    }
+    int marks(ui::App& a, const mock::Model& m, uint32_t ms, const ui::Mark* mk, int n) {
+        int drawn = 0;
+        for (int i = 0; i < n; ++i) {
+            const int x0 = std::max(0, mk[i].x & ~1), x1 = std::min(ui::W, (mk[i].x + mk[i].w + 1) & ~1);
+            const int y0 = std::max(0, mk[i].y & ~1), y1 = std::min(ui::W, (mk[i].y + mk[i].h + 1) & ~1);
+            if (x0 >= x1 || y0 >= y1) continue;
+            const int rows = y1 - y0;
+            static uint16_t win[64 * 64];
+            ui::Canvas cv = ui::Canvas::panelWindow(win, ui::W, x0, x1, y0, rows);
+            ui::draw(cv, a, m, ms, scratch);
+            for (int x = x0; x < x1; ++x)
+                for (int y = y0; y < y1; ++y) px[y * ui::W + x] = win[(x - x0) * rows + (y0 + rows - 1 - y)];
+            drawn += (x1 - x0) * rows;
+        }
+        return drawn;
+    }
+};
+
+void testRestMarks() {
+    constexpr int kCards = 32;
+    void* mem = malloc(ui::cardCacheBytes(kCards));
+    ui::setCardCache(mem, kCards);
+    static Panel panel, truth;
+    static mock::Model m;
+    m = mock::Model();
+    m.scenario = mock::Scenario::Live;
+    mock::update(m, kStart, kStart);
+    ui::App a;
+    ui::init(a, 1000);
+    a.view.screen = ui::Screen::Stops;
+    uint32_t shown = 0, lastData = 1000;
+    int frames = 0, markFrames = 0, wrong = 0, keyed = 0;
+    size_t markPx = 0;
+    // 6 minutes: rests at several scroll positions on both tabs, minutes ticking over, a spell offline (the stale
+    // line), and long rests that dim the list (the burn-in shift) and then send it Home.
+    for (uint32_t ms = 1000; ms < 361000; ms += 125) {
+        if (ms - lastData >= 1000) {
+            lastData = ms;
+            m.scenario = ms > 200000 && ms < 230000 ? mock::Scenario::Offline : mock::Scenario::Live;
+            mock::update(m, kStart + (ms - 1000) / 1000, kStart);
+        }
+        const uint32_t phase = (ms - 1000) % 60000;
+        if (phase == 0) {   // a new minute: tap the other tab if on Stops, or open Stops from Home
+            if (a.dim) { ui::pointerDown(a, m, 233, 30, ms - 40); ui::pointerUp(a, m, 233, 30, ms); }
+            else if (a.view.screen == ui::Screen::Home) { ui::pointerDown(a, m, 233, 440, ms - 40); ui::pointerUp(a, m, 233, 440, ms); }
+            else if (a.view.screen == ui::Screen::Stops) {
+                const float x = a.view.tab == ui::Tab::Trains ? 350 : 116;
+                ui::pointerDown(a, m, x, 50, ms - 40);
+                ui::pointerUp(a, m, x, 50, ms);
+            }
+        } else if (phase == 1000 && a.view.screen == ui::Screen::Stops && !a.dim) {   // come to rest a few cards down
+            const int t = static_cast<int>(a.view.tab);
+            a.scrollTarget[t] = ui::kRow * static_cast<float>((ms / 60000) % 4);
+            a.lastInput = ms;
+        }
+        if (phase == 500 && a.view.screen != ui::Screen::Stops && !a.dim) {   // the first tap only woke it
+            ui::pointerDown(a, m, 233, 440, ms - 40);
+            ui::pointerUp(a, m, 233, 440, ms);
+        }
+        ui::tick(a, m, ms);
+        ui::Mark mk[8];
+        int nm = 0;
+        const uint32_t key = ui::restKey(a, m, ms, mk, 8, nm);
+        if (key) ++keyed;
+        if (key && key == shown) { markPx += panel.marks(a, m, ms, mk, nm); ++markFrames; }
+        else panel.full(a, m, ms);
+        shown = key;
+        truth.full(a, m, ms);
+        ++frames;
+        if (memcmp(panel.px, truth.px, sizeof(panel.px)) != 0) {
+            if (++wrong <= 3) printf("FAIL: frame at %u ms differs after redrawing only the marks\n", ms);
+            memcpy(panel.px, truth.px, sizeof(panel.px));
+        }
+        CHECK(ui::restKey(a, m, ms, mk, 8, nm) == key);
+    }
+    CHECK(wrong == 0);
+    CHECK(markFrames > frames / 4);
+
+    // Equal keys, the same frame outside the marks (and inside them too at the same blink phase), over separate
+    // states at rest: each tab and scroll position, awake and dim (its burn-in shift), minutes ticking, and offline.
+    std::map<uint32_t, uint64_t> outside;
+    std::map<std::pair<uint32_t, int>, uint64_t> whole;
+    int samples = 0, clashes = 0, repeats = 0;
+    for (int off = 0; off < 2; ++off)
+        for (int t = 0; t < 2; ++t)
+            for (int j = 0; j < 5; ++j)
+                for (int dim = 0; dim < 2; ++dim)
+                    for (uint32_t ms = 20000; ms < 140000; ms += 2500) {
+                        m = mock::Model();
+                        m.scenario = off ? mock::Scenario::Offline : mock::Scenario::Live;
+                        mock::update(m, kStart + ms / 1000, kStart);
+                        ui::App b;
+                        ui::init(b, dim ? ms - 16000 : ms);
+                        b.view.screen = ui::Screen::Stops;
+                        b.view.tab = t ? ui::Tab::Buses : ui::Tab::Trains;
+                        b.scroll[t] = b.scrollTarget[t] = ui::kRow * static_cast<float>(j);
+                        ui::tick(b, m, ms);
+                        ui::Mark mk[8];
+                        int nm = 0;
+                        const uint32_t key = ui::restKey(b, m, ms, mk, 8, nm);
+                        CHECK(key != 0);
+                        CHECK(b.dim == (dim != 0));
+                        truth.full(b, m, ms);
+                        uint64_t hw = 1469598103934665603ull;
+                        for (uint16_t v : truth.px) hw = (hw ^ v) * 1099511628211ull;
+                        for (int i = 0; i < nm; ++i) {   // blank the marks' windows, as the device draws them
+                            const int x0 = std::max(0, mk[i].x & ~1), x1 = std::min(ui::W, (mk[i].x + mk[i].w + 1) & ~1);
+                            const int y0 = std::max(0, mk[i].y & ~1), y1 = std::min(ui::W, (mk[i].y + mk[i].h + 1) & ~1);
+                            for (int y = y0; y < y1; ++y)
+                                for (int x = x0; x < x1; ++x) truth.px[y * ui::W + x] = 0;
+                        }
+                        uint64_t ho = 1469598103934665603ull;
+                        for (uint16_t v : truth.px) ho = (ho ^ v) * 1099511628211ull;
+                        ++samples;
+                        auto o = outside.emplace(key, ho);
+                        if (!o.second) { ++repeats; if (o.first->second != ho && ++clashes <= 3) printf("FAIL: same rest key, different frame at %u ms\n", ms); }
+                        auto w = whole.emplace(std::make_pair(key, static_cast<int>((ms / 500) % 2)), hw);
+                        if (!w.second && w.first->second != hw && ++clashes <= 3) printf("FAIL: same rest key and blink, different frame\n");
+                    }
+    CHECK(clashes == 0);
+    CHECK(repeats > samples / 4);
+    printf("rest key: %d states, %zu distinct keys, %d repeats, %d clashes\n", samples, outside.size(), repeats, clashes);
+    printf("list at rest: %d frames, %d keyed, %d drew only the marks (%zu px each on average), %d differ\n", frames,
+           keyed, markFrames, markFrames ? markPx / markFrames : 0, wrong);
+    ui::setCardCache(nullptr, 0);
+    free(mem);
+}
+
 // ---------- the row hash ----------
 
 uint32_t rnd() {
@@ -269,6 +417,7 @@ int main() {
     testRowHash();
     testAodKey();
     testCardCache();
+    testRestMarks();
     if (failures) {
         printf("%d failures\n", failures);
         return 1;

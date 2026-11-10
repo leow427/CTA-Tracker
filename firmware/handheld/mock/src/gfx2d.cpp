@@ -160,6 +160,15 @@ Canvas Canvas::panelBand(uint16_t* px, int screenW, int y0, int rows) {
     return c;
 }
 
+Canvas Canvas::panelWindow(uint16_t* px, int screenW, int x0, int x1, int y0, int rows) {
+    Canvas c = panelBand(px, screenW, y0, rows);
+    c.org_ -= x0 * rows;
+    c.bx0_ = x0;
+    c.bx1_ = x1;
+    c.resetClip();
+    return c;
+}
+
 void Canvas::resetClip() { cx0_ = bx0_; cy0_ = by0_; cx1_ = bx1_; cy1_ = by1_; }
 
 void Canvas::clip(int x, int y, int w, int h) {

@@ -81,6 +81,9 @@ constexpr int kMergeGap = 8;                                       // unchanged 
 uint16_t* stripBuf[2];            // DMA-capable internal RAM; the bus sends straight from it
 SemaphoreHandle_t stripFree[2];
 uint32_t rowHash[kStrips][W];     // per strip, per panel row (= screen column): what the panel shows
+// Per strip, the panel rows [lo, hi) that drawMarks() has redrawn since the strip was last drawn whole: their hashes
+// no longer describe the panel, so the next whole frame sends them.
+int16_t redrawnLo[kStrips], redrawnHi[kStrips];
 bool sendAll = true;
 
 struct Job {
@@ -122,13 +125,29 @@ void sendTask(void*) {
     }
 }
 
+#ifdef POWER_LOG
+uint16_t frameSeq = 0;
+#endif
+
+// The end of a frame: the brightness to apply once it's all on the panel.
+void queueEnd() {
+    wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
+#ifdef POWER_LOG
+    plog::frameQueued(frameSeq);
+    const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
+#else
+    const Job end{nullptr, 0, 0, 0, 0, -1};
+#endif
+    framesQueued = framesQueued + 1;
+    xQueueSend(jobs, &end, portMAX_DELAY);
+}
+
 static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_hash.h's unrolled cases");
 
 // Draws the frame strip by strip and queues the changed rows. Returns the microseconds spent drawing.
 uint32_t drawFrame(uint32_t ms) {
     uint32_t busy = 0;
 #ifdef POWER_LOG
-    static uint16_t frameSeq = 0;
     ++frameSeq;
     const bool lit = plog::litWanted();
 #endif
@@ -154,9 +173,11 @@ uint32_t drawFrame(uint32_t ms) {
                        static_cast<int16_t>(r1 - r0 + 1), -1};
             runStart = -1;
         };
+        const int lo = redrawnLo[s], hi = redrawnHi[s];
+        redrawnLo[s] = redrawnHi[s] = 0;
         for (int x = 0; x < W; ++x) {
             const uint32_t h = hashRow(buf + x * rows, rows);
-            if (h == rowHash[s][x] && !sendAll) continue;
+            if (h == rowHash[s][x] && !sendAll && (x < lo || x >= hi)) continue;
             rowHash[s][x] = h;
             if (runStart >= 0 && x - runEnd > kMergeGap) flush();
             if (runStart < 0) runStart = x;
@@ -168,16 +189,40 @@ uint32_t drawFrame(uint32_t ms) {
         else xSemaphoreGive(stripFree[k]);   // nothing changed in this strip
     }
     sendAll = false;
-    wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
 #ifdef POWER_LOG
     if (lit) plog::litDone();
-    plog::frameQueued(frameSeq);
-    const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
-#else
-    const Job end{nullptr, 0, 0, 0, 0, -1};
 #endif
-    framesQueued = framesQueued + 1;
-    xQueueSend(jobs, &end, portMAX_DELAY);
+    queueEnd();
+    return busy;
+}
+
+// The Stops list at rest, when only its live marks blink (ui::restKey): draws and queues just the marks' windows
+// (even-aligned, as the CO5300 wants); the panel already shows the rest of this frame. tools/frame_test.cpp checks
+// that this leaves the panel exactly as a whole frame would. Returns the microseconds spent drawing.
+uint32_t drawMarks(uint32_t ms, const ui::Mark* mk, int n) {
+    uint32_t busy = 0;
+#ifdef POWER_LOG
+    ++frameSeq;
+#endif
+    for (int i = 0; i < n; ++i) {
+        const int x0 = max(0, mk[i].x & ~1), x1 = min(W, (mk[i].x + mk[i].w + 1) & ~1);
+        const int y0 = max(0, mk[i].y & ~1), y1 = min(W, (mk[i].y + mk[i].h + 1) & ~1);
+        if (x0 >= x1 || y0 >= y1) continue;
+        const int k = i & 1, rows = y1 - y0;
+        xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
+        const uint32_t t = micros();
+        ui::Canvas cv = ui::Canvas::panelWindow(stripBuf[k], W, x0, x1, y0, rows);
+        ui::draw(cv, app, model, ms, scratch);
+        for (int s = y0 / kStripRows; s <= (y1 - 1) / kStripRows; ++s) {
+            if (redrawnLo[s] == redrawnHi[s]) { redrawnLo[s] = x0; redrawnHi[s] = x1; }
+            else { redrawnLo[s] = min<int>(redrawnLo[s], x0); redrawnHi[s] = max<int>(redrawnHi[s], x1); }
+        }
+        busy += micros() - t;
+        const Job j{stripBuf[k], static_cast<int16_t>(W - y0 - rows), static_cast<int16_t>(x0), static_cast<int16_t>(rows),
+                    static_cast<int16_t>(x1 - x0), static_cast<int8_t>(k)};
+        xQueueSend(jobs, &j, portMAX_DELAY);
+    }
+    queueEnd();
     return busy;
 }
 
@@ -536,7 +581,19 @@ void loop() {
     lastHalf = ms / 500;
     lastFrame = ms;
     const uint32_t t0 = micros();
-    sumDraw += drawFrame(ms);
+    // The list at rest whose last frame had the same key: only its live marks change.
+    static uint32_t restShown = 0;
+    ui::Mark marks[8];
+    int nMarks = 0;
+    const uint32_t rest = ui::restKey(app, model, ms, marks, 8, nMarks);
+#ifdef POWER_LOG
+    const bool whole = plog::litWanted();   // the lit fraction is measured over a whole frame
+#else
+    const bool whole = false;
+#endif
+    if (rest && rest == restShown && !sendAll && !whole) sumDraw += drawMarks(ms, marks, nMarks);
+    else sumDraw += drawFrame(ms);
+    restShown = rest;
     sumFrame += micros() - t0;
     aodDrawn = aod;
     if (aod) aodShown = ui::aodKey(app, model, ms);

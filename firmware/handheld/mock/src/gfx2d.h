@@ -43,6 +43,9 @@ public:
     // (buffer row r is screen column r, and within it screen row y is at y0 + rows - 1 - y) and byte-swapped.
     // That is exactly the panel window for columns [screenW - y0 - rows, screenW - y0), all rows.
     static Canvas panelBand(uint16_t* px, int screenW, int y0, int rows);
+    // Only screen columns [x0, x1) of such a band: px holds (x1 - x0) * rows pixels, buffer row r being screen column
+    // x0 + r. That is the panel window for columns [screenW - y0 - rows, screenW - y0), rows [x0, x1).
+    static Canvas panelWindow(uint16_t* px, int screenW, int x0, int x1, int y0, int rows);
 
     // State, like ctx.save()/restore() in the mockup: a translation, a clip rectangle, and a global alpha.
     int ox = 0, oy = 0;

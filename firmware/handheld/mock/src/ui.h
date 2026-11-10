@@ -70,6 +70,12 @@ void draw(Canvas& cv, App& a, const mock::Model& m, uint32_t ms, uint16_t* scrat
 float brightness(const App& a, const mock::Model& m);
 // True while anything moves faster than the 2 Hz bob: a transition, a drag or scroll settling, a hop, rain or snow.
 bool animating(const App& a, const mock::Model& m, uint32_t ms);
+// The Stops list at rest (nothing moving, no transition, no toast): a key of everything its frame draws except the
+// live marks' blink, and the marks' screen rectangles. Two such frames with equal keys differ only inside those
+// rectangles, so the device redraws just them (main.cpp). 0 for any other frame. A new input to that screen must be
+// added here.
+struct Mark { int16_t x, y, w, h; };
+uint32_t restKey(const App& a, const mock::Model& m, uint32_t ms, Mark* marks, int maxMarks, int& nMarks);
 // True on the dim always-on screen (Home or First dimmed: the status row and Trackie alone), not mid-transition.
 bool alwaysOn(const App& a);
 // Everything the always-on screen's frame depends on (what drawHome reads when dimmed, the burn-in shift, and the
