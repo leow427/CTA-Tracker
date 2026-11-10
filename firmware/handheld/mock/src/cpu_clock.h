@@ -4,9 +4,10 @@
 // screen, the handheld's usual state, keeps the cores only a few percent busy.
 //
 // Each reason to run at full speed takes a hold, from any task; the clock drops when the last one is released. The
-// loop holds it except on the dim always-on screen with no finger down, and the touch task through every press
-// (main.cpp); the network task holds it from each TLS handshake (or each request on a kept-open connection) to
-// the end of the poll, and through every join and scan (live.cpp), so a handshake takes as long as before.
+// loop holds it while it draws and sends a frame, while anything moves, and while a finger is down, and the touch
+// task through every press (main.cpp); the network task holds it from each TLS handshake (or each request on a
+// kept-open connection) to the end of the poll, and through every join and scan (live.cpp), so a handshake takes as
+// long as before.
 //
 // Switching between 80, 160, and 240 MHz on the ESP32-S3 only changes the CPU's divider of the PLL, which stays on:
 // the APB bus (and so SPI, the panel's QSPI) stays at 80 MHz, the FreeRTOS tick and esp_timer (millis, micros) run

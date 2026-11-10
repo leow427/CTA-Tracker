@@ -244,11 +244,20 @@ bool inRect(float x, float y, const Rect& r) { return x > r.x && x < r.x + r.w &
 Rect gPetTile{0, 0, 0, 0}, gHomeCard{0, 0, 0, 0};
 
 // ---------- screens ----------
+// The dim always-on screen's motion: Trackie bobs once a second, and the whole screen shifts a few pixels every 10 s
+// so nothing burns in. aodKey() reads these too.
+int aodBob(uint32_t ms) { return (ms / 1000) % 2 ? 0 : -4; }
+void aodShift(uint32_t ms, int& ox, int& oy) {
+    const uint32_t k = ms / 10000;
+    ox = static_cast<int>((k * 3) % 7) - 3;
+    oy = static_cast<int>((k * 5) % 7) - 3;
+}
+
 void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, const View& v) {
     const bool docked = m.docked, first = v.screen == Screen::First, stale = anyStale(m);
     drawStatusRow(cv, m, 68, aod || docked);
     const bool up = (ms / 500) % 2 == 0;
-    if (aod) { drawPet(cv, m.mood, docked, C - 64, 146 + ((ms / 1000) % 2 ? 0 : -4), 4, nullptr, false); return; }
+    if (aod) { drawPet(cv, m.mood, docked, C - 64, 146 + aodBob(ms), 4, nullptr, false); return; }   // see aodKey()
     if (!docked && m.weather != mock::Weather::Clear) {   // rain or snow behind Trackie
         const bool rain = m.weather == mock::Weather::Rain;
         for (int i = 0; i < 16; ++i) {
@@ -315,39 +324,57 @@ void drawTabs(Canvas& cv, Tab tab) {
 }
 
 // Rendered cards, reused while a card's content and width stay the same (re-rendering every card every frame is
-// too slow on the ESP32). A card renders into scratch (internal RAM on the device, where per-pixel work is fast)
-// and is copied into the cache. Without cache memory, each card renders into scratch every time.
-struct CacheEntry { char key[128]; int half; uint32_t used; };
+// too slow on the ESP32). A card renders straight into the cache entry it replaces (the least recently used);
+// without cache memory, into scratch every time. The entries' keys live in the cache memory too (PSRAM on the
+// device), and a small index in internal RAM (each key's hash, width, and last use) keeps the lookup, a dozen times
+// a frame while the list scrolls, from reading them: a key is only compared in full when its hash matches.
+constexpr int kMaxCacheEntries = 32;
+struct CacheKey { char key[128]; };
+struct CacheIndex { uint32_t hash; int half; uint32_t used; };
 uint16_t* gCacheMem = nullptr;
 int gCacheN = 0;
-CacheEntry gCache[16];
+CacheKey* gCache = nullptr;
+CacheIndex gIndex[kMaxCacheEntries];
 uint32_t gCacheClock = 0;
 
-// While the list moves, any cached width of the same card will do (anyHalf); it settles to the exact one.
+uint32_t keyHash(const char* s) {   // FNV-1a
+    uint32_t h = 2166136261u;
+    for (; *s; ++s) h = (h ^ static_cast<uint8_t>(*s)) * 16777619u;
+    return h;
+}
+uint32_t gCardRenders = 0;   // cards rendered, cached or not (cardRenders())
+
+// While the list moves (or slides in a transition), any cached width of the same card will do (anyHalf), the exact
+// one first; it settles to the exact one.
 const uint16_t* cardImage(const Card& c, Tab tab, int half, bool anyHalf, const CardView& v, uint32_t ms, uint16_t* scratch) {
     char key[128];
     snprintf(key, sizeof(key), "%d|%u|%s|%s|%d|%s|%d%d%d|%s|%s%s%s", static_cast<int>(tab), c.station, c.rec.route,
              c.rec.dir, v.min, v.sched ? v.clock : "", v.delayed, v.alert, v.stale, c.heading,
              c.nPips > 0 ? c.pips[0] : "", c.nPips > 1 ? c.pips[1] : "", c.nPips > 2 ? c.pips[2] : "");
     int slot = -1;
+    const uint32_t h = keyHash(key);
     if (gCacheN) {
-        int lru = 0;
+        int lru = 0, other = -1;   // other: the same card at another width
         for (int e = 0; e < gCacheN; ++e) {
-            if (strcmp(gCache[e].key, key) == 0 && (anyHalf || gCache[e].half == half)) { gCache[e].used = ++gCacheClock; return gCacheMem + e * kScratchPixels; }
-            if (gCache[e].used < gCache[lru].used) lru = e;
+            if (gIndex[e].hash == h && strcmp(gCache[e].key, key) == 0) {
+                if (gIndex[e].half == half) { gIndex[e].used = ++gCacheClock; return gCacheMem + e * kScratchPixels; }
+                if (other < 0) other = e;
+            }
+            if (gIndex[e].used < gIndex[lru].used) lru = e;
         }
+        if (anyHalf && other >= 0) { gIndex[other].used = ++gCacheClock; return gCacheMem + other * kScratchPixels; }
         slot = lru;
     }
-    for (int p = 0; p < kScratchPixels; ++p) scratch[p] = kKey;
-    Canvas off(scratch, 340, CARD_H + 6);
+    ++gCardRenders;
+    uint16_t* const img = slot >= 0 ? gCacheMem + slot * kScratchPixels : scratch;
+    for (int p = 0; p < kScratchPixels; ++p) img[p] = kKey;
+    Canvas off(img, 340, CARD_H + 6);
     routeCard(off, 170 - half, 0, half * 2, CARD_H, v, ms, false);
     if (slot >= 0) {
-        memcpy(gCacheMem + slot * kScratchPixels, scratch, kScratchPixels * sizeof(uint16_t));
         snprintf(gCache[slot].key, sizeof(gCache[slot].key), "%s", key);
-        gCache[slot].half = half;
-        gCache[slot].used = ++gCacheClock;
+        gIndex[slot] = {h, half, ++gCacheClock};
     }
-    return scratch;   // blitted right away, before scratch is reused
+    return img;   // scratch is blitted right away, before it's reused
 }
 
 void drawStops(Canvas& cv, const App& a, const Model& m, uint32_t ms, Tab tab, uint16_t* scratch) {
@@ -629,11 +656,22 @@ void tap(App& a, Model& m, float x, float y, uint32_t ms) {
 
 }  // namespace
 
-void setCardCache(uint16_t* mem, int entries) {
-    gCacheMem = mem;
-    gCacheN = mem ? (entries > 16 ? 16 : entries) : 0;
-    for (CacheEntry& e : gCache) { e.key[0] = 0; e.used = 0; }
+size_t cardCacheBytes(int entries) {
+    return static_cast<size_t>(entries) * (kScratchPixels * sizeof(uint16_t) + sizeof(CacheKey));
 }
+
+void setCardCache(void* mem, int entries) {
+    if (entries > kMaxCacheEntries) entries = kMaxCacheEntries;   // the rest of mem goes unused
+    gCacheMem = static_cast<uint16_t*>(mem);
+    gCacheN = mem ? entries : 0;
+    gCache = mem ? reinterpret_cast<CacheKey*>(gCacheMem + static_cast<size_t>(entries) * kScratchPixels) : nullptr;
+    for (int e = 0; e < gCacheN; ++e) {
+        gCache[e].key[0] = 0;
+        gIndex[e] = {keyHash(""), 0, 0};
+    }
+}
+
+uint32_t cardRenders() { return gCardRenders; }
 
 void init(App& a, uint32_t ms) { a = App(); a.lastInput = ms; a.lastTick = ms; }
 
@@ -652,6 +690,30 @@ bool animating(const App& a, const Model& m, uint32_t ms) {
 }
 
 bool alwaysOn(const App& a) { return isAod(a, a.view) && !a.trans.on; }
+
+AodKey aodKey(const App& a, const Model& m, uint32_t ms) {
+    AodKey k;
+    memset(&k, 0, sizeof(k));
+    k.screen = static_cast<uint8_t>(a.view.screen);
+    k.dim = a.dim;
+    int ox, oy;
+    aodShift(ms, ox, oy);
+    k.ox = static_cast<int8_t>(ox);
+    k.oy = static_cast<int8_t>(oy);
+    k.bob = static_cast<int8_t>(aodBob(ms));
+    // drawStatusRow
+    k.clockKnown = m.clockKnown;
+    if (m.clockKnown) mock::clockText(m.now, 0, k.clock, sizeof(k.clock));
+    const mock::WeatherView wx = mock::weatherView(m);
+    k.icon = wx.icon;
+    k.rgb = wx.rgb;
+    memcpy(k.temp, wx.temp, sizeof(k.temp));
+    k.stale = anyStale(m);
+    // drawPet, and brightness()
+    k.mood = static_cast<uint8_t>(m.mood);
+    k.docked = m.docked;
+    return k;
+}
 
 void cycleScenario(App& a, Model& m, uint32_t ms) {
     m.scenario = static_cast<Scenario>((static_cast<int>(m.scenario) + 1) % static_cast<int>(Scenario::Count));
@@ -715,11 +777,7 @@ void draw(Canvas& cv, App& a, const Model& m, uint32_t ms, uint16_t* scratch) {
     cv.clear(col::bg);
     cv.ox = cv.oy = 0;
     cv.alpha = 1;
-    if (a.dim) {   // shift a few pixels every 10 s so nothing burns in
-        const uint32_t k = ms / 10000;
-        cv.ox = static_cast<int>((k * 3) % 7) - 3;
-        cv.oy = static_cast<int>((k * 5) % 7) - 3;
-    }
+    if (a.dim) aodShift(ms, cv.ox, cv.oy);   // shift a few pixels every 10 s so nothing burns in
     const int bx = cv.ox, by = cv.oy;
     if (a.trans.on) {
         const float t = fminf(1, (ms - a.trans.t0) / 220.f), p = 1 - powf(1 - t, 3), D = W * a.trans.dir;

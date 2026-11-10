@@ -16,6 +16,7 @@
 #include "TouchDrvCSTXXX.hpp"
 #include "cpu_clock.h"
 #include "mock_data.h"
+#include "row_hash.h"
 #include "touch_filter.h"
 #include "ui.h"
 #ifdef HANDHELD_LIVE
@@ -90,6 +91,9 @@ struct Job {
 QueueHandle_t jobs;
 volatile uint8_t wantBrightness = kFullBrightness;
 volatile uint32_t sentPx = 0, sendUs = 0;
+// Frames queued by the loop and finished by the sender (their end-of-frame job), so the loop can tell when its last
+// frame is all on the panel.
+volatile uint32_t framesQueued = 0, framesSent = 0;
 
 void sendTask(void*) {
     uint8_t brightnessNow = 0;
@@ -112,17 +116,13 @@ void sendTask(void*) {
 #ifdef POWER_LOG
             plog::frameDone(static_cast<uint16_t>(j.x));   // an end-of-frame job carries the frame's number in x
 #endif
+            framesSent = framesSent + 1;
         }
         if (j.release >= 0) xSemaphoreGive(stripFree[j.release]);
     }
 }
 
-inline uint32_t hashRow(const uint16_t* p, int n) {   // FNV-1a over 32-bit words; n is even
-    const uint32_t* w = reinterpret_cast<const uint32_t*>(p);
-    uint32_t h = 2166136261u;
-    for (int i = 0; i < n / 2; ++i) h = (h ^ w[i]) * 16777619u;
-    return h;
-}
+static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_hash.h's unrolled cases");
 
 // Draws the frame strip by strip and queues the changed rows. Returns the microseconds spent drawing.
 uint32_t drawFrame(uint32_t ms) {
@@ -176,6 +176,7 @@ uint32_t drawFrame(uint32_t ms) {
 #else
     const Job end{nullptr, 0, 0, 0, 0, -1};
 #endif
+    framesQueued = framesQueued + 1;
     xQueueSend(jobs, &end, portMAX_DELAY);
     return busy;
 }
@@ -251,9 +252,11 @@ void handleTouch() {
 
 // ---------- the CPU clock ----------
 
-// The loop's hold on full speed (cpu_clock.h). It lets go only once the dim always-on screen is on the panel, with no
-// finger down; that screen changes a little twice a second. A tap there wakes it on release, by which time the press
-// has taken the hold back (here, and in the touch task), so the wake is drawn exactly as fast as before.
+// The loop's hold on full speed (cpu_clock.h). Awake, every frame is drawn and sent at full speed, and so is
+// anything that moves; between the frames of a still screen (Home's bob, the live mark's blink: twice a second) it
+// lets go once the last frame is on the panel. On the dim always-on screen it lets go once that screen is on the
+// panel, and draws its once-a-second change slowly. A touch takes full speed in the touch task the moment the press
+// is read, before the loop sees it, so every response to a tap is drawn exactly as fast as before.
 bool fastHeld = false;
 
 void fullSpeed(bool on) {
@@ -372,8 +375,10 @@ void setup() {
     scratch = static_cast<uint16_t*>(heap_caps_malloc(ui::kScratchPixels * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 #endif
     if (!stripBuf[0] || !stripBuf[1] || !scratch) Serial.println("memory: allocation failed");
-    constexpr int kCards = 16;
-    if (uint16_t* cache = static_cast<uint16_t*>(ps_malloc(kCards * ui::kScratchPixels * 2))) ui::setCardCache(cache, kCards);
+    // 32 rendered cards (2.2 MB of PSRAM): both tabs' cards, at rest and moving, fit at once, so switching tabs
+    // or opening a card doesn't re-render the other tab's cards (16 didn't fit 12 trains and 5 buses).
+    constexpr int kCards = 32;
+    if (void* cache = ps_malloc(ui::cardCacheBytes(kCards))) ui::setCardCache(cache, kCards);
     touch.setPins(kTpRst, kTpInt);
     touchOk = touch.begin(Wire, CST92XX_SLAVE_ADDRESS, kSda, kScl);
     Serial.printf("reset reason %d (1 power-on, 3 software, 4 panic, 6 task watchdog, 9 brownout)\n",
@@ -413,6 +418,9 @@ void loop() {
     const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
     pollSerial(ms);
     if (ms - lastData >= 1000 || lastData == 0) {
+        // New data changes what the next frame shows, so it's taken in at full speed, as the frame is drawn (except
+        // on the dim always-on screen, as before).
+        if (!ui::alwaysOn(app)) fullSpeed(true);
 #ifdef HANDHELD_LIVE
         // The clock: NTP once synced, the build time until then.
         const uint32_t ntp = live::unixNow();
@@ -460,13 +468,28 @@ void loop() {
     if (wasDim && !app.dim) live::wake();
     wasDim = app.dim;
 #endif
-    // Every input of this frame is in: full speed for anything but the dim always-on screen left alone, once it's on
-    // the panel. The frame that dims to it is drawn at full speed too, so the full-brightness moment before the
-    // dimmed brightness applies (at the end of the frame) lasts as long as before. The profile runs at full speed so
-    // its times compare with the README's (and its cycle counts convert at 240 MHz).
+    // Frames: every frame while something moves; otherwise only when Trackie bobs or the live mark blinks (every
+    // 500 ms), and a few frames a second while dim (spec 8: the animation drops when dimmed). A tap that wakes the
+    // dim screen is drawn at once, not at the next half second. Between frames, wait on touch.
+    static uint32_t lastHalf = UINT32_MAX;
+    static bool wasMoving = false, shownDim = false;
+    const bool moving = !app.dim && ui::animating(app, model, ms);
+    const bool settling = wasMoving && !moving;   // one smooth frame right after motion stops
+    wasMoving = moving;
+    const bool woke = shownDim && !app.dim;
+    const bool idle = !woke && ((!moving && !settling && ms / 500 == lastHalf) || (app.dim && ms - lastFrame < 250));
     static bool aodDrawn = false;   // the last frame drawn was the always-on screen
+    static ui::AodKey aodShown;     // and what it showed
     const bool aod = ui::alwaysOn(app);
-    fullSpeed(!aod || !aodDrawn || app.drag.down || autoScrollUntil != 0 || profileReq);
+    // Every input of this frame is in. Full speed while a frame is due or still being sent, while anything moves, and
+    // with a finger down; slow between the frames of a still screen. The dim always-on screen runs slow once it's on
+    // the panel; the frame that dims to it is drawn at full speed, so the full-brightness moment before the dimmed
+    // brightness applies (at the end of the frame) lasts as long as before. The profile runs at full speed so its
+    // times compare with the README's (and its cycle counts convert at 240 MHz).
+    bool fast = app.drag.down || autoScrollUntil != 0 || profileReq;
+    if (aod) fast = fast || !aodDrawn;
+    else fast = fast || moving || !idle || framesSent != framesQueued;
+    fullSpeed(fast);
     if (profileReq) { profileReq = false; profile(ms); }
 #ifdef POWER_LOG
     if (plog::due(ms)) {
@@ -493,15 +516,12 @@ void loop() {
     }
     plog::flush();
 #endif
-    // Full speed while something moves; otherwise only when Trackie bobs or the live mark blinks (every 500 ms),
-    // and a few frames a second while dim (spec 8: the animation drops when dimmed). Between frames, wait on touch.
-    static uint32_t lastHalf = UINT32_MAX;
-    static bool wasMoving = false;
-    const bool moving = !app.dim && ui::animating(app, model, ms);
-    const bool settling = wasMoving && !moving;   // one smooth frame right after motion stops
-    wasMoving = moving;
-    const bool idle = (!moving && !settling && ms / 500 == lastHalf) || (app.dim && ms - lastFrame < 250);
-    if (idle) {
+    // The dim always-on screen changes once a second at most (Trackie's bob), plus the clock and the burn-in shift: a
+    // frame that would draw it exactly as it is on the panel is skipped (ui::AodKey covers everything it shows).
+    bool skip = false;
+    if (!idle && aod && aodDrawn && !sendAll) skip = ui::aodKey(app, model, ms) == aodShown;
+    if (idle || skip) {
+        if (skip) { lastHalf = ms / 500; lastFrame = ms; }
         touchf::Event e;
         xQueuePeek(touchEvents, &e, pdMS_TO_TICKS(4));
         return;
@@ -512,6 +532,8 @@ void loop() {
     sumDraw += drawFrame(ms);
     sumFrame += micros() - t0;
     aodDrawn = aod;
+    if (aod) aodShown = ui::aodKey(app, model, ms);
+    shownDim = app.dim;
     ++frames;
 #ifdef POWER_LOG
     plog::frame(moving, ms);

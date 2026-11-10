@@ -2,7 +2,9 @@
 // The handheld's screens and gestures, ported from docs/ideas/2026-11-04-handheld-ui-mockup.html and drawn from
 // mock::Model. Plain C++: the device feeds it touch points and pushes the framebuffer; tools/preview.cpp renders
 // it on a laptop.
+#include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "gfx2d.h"
 #include "mock_data.h"
@@ -54,8 +56,11 @@ struct App {
 };
 
 void init(App& a, uint32_t ms);
-// Optional: memory for `entries` rendered cards (kScratchPixels each), so the list redraws them only on change.
-void setCardCache(uint16_t* mem, int entries);
+// Optional: memory (cardCacheBytes(entries) bytes, 4-byte aligned) for `entries` rendered cards and their keys, so
+// the list redraws them only on change.
+size_t cardCacheBytes(int entries);
+void setCardCache(void* mem, int entries);
+uint32_t cardRenders();   // cards rendered so far (into the cache or scratch), for tools/frame_test.cpp
 // Easing, auto-dim, and the long-press debug gesture. Call once per frame.
 void tick(App& a, mock::Model& m, uint32_t ms);
 // Draws the whole frame. scratch must hold kScratchPixels.
@@ -67,6 +72,25 @@ float brightness(const App& a, const mock::Model& m);
 bool animating(const App& a, const mock::Model& m, uint32_t ms);
 // True on the dim always-on screen (Home or First dimmed: the status row and Trackie alone), not mid-transition.
 bool alwaysOn(const App& a);
+// Everything the always-on screen's frame depends on (what drawHome reads when dimmed, the burn-in shift, and the
+// brightness). While alwaysOn(), two frames with equal keys draw the same pixels at the same brightness, so the device
+// skips the second (main.cpp). A new input to that screen must be added here.
+struct AodKey {
+    uint8_t screen, mood;
+    bool dim, docked, clockKnown, stale;
+    int8_t ox, oy, bob;
+    char clock[8];
+    char temp[8];
+    const char* icon;
+    uint32_t rgb;
+    bool operator==(const AodKey& o) const {
+        return screen == o.screen && mood == o.mood && dim == o.dim && docked == o.docked && clockKnown == o.clockKnown &&
+               stale == o.stale && ox == o.ox && oy == o.oy && bob == o.bob && strcmp(clock, o.clock) == 0 &&
+               strcmp(temp, o.temp) == 0 && icon == o.icon && rgb == o.rgb;
+    }
+    bool operator!=(const AodKey& o) const { return !(*this == o); }
+};
+AodKey aodKey(const App& a, const mock::Model& m, uint32_t ms);
 
 // Touch, in screen coordinates, with each sample's own time (velocity comes from those times, not frame times).
 void pointerDown(App& a, mock::Model& m, float x, float y, uint32_t ms);
