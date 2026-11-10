@@ -98,3 +98,34 @@ Stopped by hand at about 8:22 PM, roughly 13 minutes in (Leo's call). Run 3 was 
 3. **Lowest free internal RAM rose from 21 to 25 KB,** probably because there were fewer TLS connections in the second half (no Wi-Fi). Not credited to the change.
 4. **Failed requests right after boot are a pre-existing problem.** Baseline run 1 (also freshly flashed) shows the same pattern: one station's requests failing every 22 s for about 4.5 minutes. The runs that weren't reflashed (baseline 2 and 3) don't. That wastes radio time and keeps the CPU at 240 MHz, and it outlasts the warm-up's 3-minute limit, so it spoils phase 1. Worth fixing as its own round.
 5. **The Wi-Fi drop happened at 240 MHz** (phase 4 is awake, so no clock switches were near it), and the board kept failing to rejoin for over 10 minutes. The same network refused the plain live build earlier tonight (disconnect reason 2), so the network is the likely cause, not round 1; being checked before a rerun.
+
+## Round 1, rerun: passes (2026-11-09)
+
+- **Run:** `runs/2026-11-09-r1-2.csv` (1,025 samples, no resets, every request succeeded). Firmware `1c39d26`, stress-v1, fixed test coordinates, not reflashed (the board was replugged after a USB hang, then ran this firmware). Report: `reports/r1.html`, table: `reports/r1.md` (baseline's three runs as the reference, with the same two exclusions; the inconclusive first run left out).
+- **Conditions changed:** the old network kept refusing the board, so this run is on a second network at about −30 dBm (the baseline ran at −55 to −57). The model only adds request cost below −60 dBm, so the signal doesn't move the estimate directly.
+
+| Phase | Baseline mA | Round 1 mA | Change | Noise ×2 | FPS moving | Slowest frame ms | Tap→screen ms |
+|---|---|---|---|---|---|---|---|
+| 1 Dim idle | 52.6 | 43.6 | **−9.0 (−17%)** | 3.0 | – | – | – |
+| 2 Awake, still | 57.7 | 57.9 | +0.2 | 3.0 | – | – | – |
+| 3 Scroll | 107.9 | 104.4 | −3.5 | 8.8 | 37.3 → 38.0 | 86 → 64 | – |
+| 4 Screen churn | 65.5 | 65.6 | +0.1 | 3.4 | 37.1 → 37.9 | 66 → 63 | 23 → 22 (max 65 → 64) |
+| 5 Network burst | 85.6 | 85.0 | −0.6 | 1.2 | – | – | – |
+| 6 Everything | 123.1 | 125.4 | +2.3 | 3.0 | 47.2 → 51.9 | 84 → 71 | 30 → 28 (max 76 → 70) |
+| 7 Cool-down | 51.3 | 43.4 | **−7.9 (−15%)** | 3.4 | – | – | – |
+
+**Projected battery life: 36.9 → 43.4 h** (54.2 → 46.1 mA average). Lowest free internal RAM 21 KB (unchanged).
+
+**Result: passes the gate.** Power fell well beyond noise in dim idle and cool-down and rose beyond noise nowhere (phase 6's +2.3 is inside 3.0). Nothing the user sees got worse: fps, slowest frame and tap→screen are equal or better everywhere, and data age per phase matches the baseline within a few seconds.
+
+**Findings**
+
+1. **80 MHz holds where it should:** 92% of dim idle and 94% of cool-down ran at 80 MHz; every awake phase stayed at 240.
+2. **The network burst barely moved (−0.6 mA, expected about −5).** It spends only 52% of its time at 80 MHz: one request every 2 s holds 240 MHz for about 1 s each, plus the time around it. Shorter request handling would help both power and data freshness.
+3. **CPU busy % rose in dim** (9/2 → 13/6): the same work takes three times the cycles at 80 MHz. Expected, and costed by the model.
+4. **Requests took 10–15% longer** in every phase (dim 866 → 963 ms, burst 858 → 988). This run used a different network, so it can't be pinned on round 1, but it's worth watching. Requests hold 240 MHz throughout, so the clock isn't the obvious cause. Data age is unchanged, so riders wouldn't notice.
+5. **Post-boot failures didn't appear** in this run, but it wasn't a fresh flash. The round 2 brief asks the worker to find their cause.
+
+## From round 2: stress-v2 and real data (2026-11-09)
+
+Leo's call: from round 2 on, the stress test scrolls back and forth between the Trains and Buses tabs, and runs use real data for where Leo is (`power_run.py --here`, the Mac's location; never recorded). Runs can now go overnight: during a run the test build keeps daytime polling and moods. Details are in the spec, section 3 (stress-v2). stress-v1 and stress-v2 runs are never compared, so round 1's firmware is rerun under stress-v2 (change `r1v2`) as the reference for rounds 2 and 3. Round 2's worker brief, which puts performance (responsiveness, load times) alongside power: `briefs/round-2.md`.
