@@ -228,3 +228,28 @@ Round 2 runs against the earlier reference, for the record only (`reports/r2.md`
 **Why:** core 0 got busier, not idler (scroll 36 → 56%, everything 43 → 58%). The frame rate rose 40%, and every frame's row hashing now runs in the sender on core 0, at a higher priority (2) than the network task (1). The network task gets less CPU, so each request holds the radio longer. In the model, Wi-Fi went from about 32 to 37–42 mA in phase 6. The DMA itself freed core 0; the hashing move gave that time back, and more.
 
 **Next:** test the DMA change alone (`5f225f4`, the hashing still on core 1), interleaved with round 2, and keep whichever part passes.
+
+## Round 3, DMA sends alone: borderline; round 3 left off main (2026-11-10)
+
+- **Runs:** `runs/2026-11-10-r3a-1.csv` (3:59 AM) and `-2.csv` (4:37 AM), firmware `5f225f4` (DMA sends, hashing still on the drawing core), interleaved with round 2's `r2-5` (4:18 AM). Compared with `r2-4` and `r2-5`. Report: `reports/r3a.html`, table: `reports/r3a.md`. 9–12 train cards in every run.
+
+| Phase | Round 2 mA | DMA only mA | Change | Core 0 busy % | FPS moving | Tap→screen ms (max) |
+|---|---|---|---|---|---|---|
+| 1 Dim idle | 40.8 | 40.1 | −0.7 | 11 → 10 | – | – |
+| 2 Awake, still | 48.3 | 48.7 | +0.4 | 13 → 13 | – | – |
+| 3 Scroll | 89.4 | 86.4 | **−3.0** | **40 → 24** | 79.9 → 78.3 | 17 → 18 (28 → 30) |
+| 4 Screen churn | 56.9 | 53.9 | −3.0 | 20 → 14 | 41.1 → 41.0 | 21 → 21 (40 → 47) |
+| 5 Network burst | 68.3 | 70.5 | +2.2 | 25 → 28 | – | – |
+| 6 Everything | 99.1 | 106.0 | +6.9 (noise 8.6) | 44 → 41 | 68.2 → 63.7 | 19 → 20 (51 → 51) |
+| 7 Cool-down | 42.2 | 41.2 | −1.0 | 12 → 11 | – | – |
+
+**Result: borderline, not kept.**
+- **For:** DMA does what it was meant to. Core 0 while scrolling drops from 40 to 24% busy, and scrolling uses 3 mA less.
+- **Against:** the everything phase reads higher, though inside its own noise. Its fps is a little lower (68.2 → 63.7), and churn's worst tap rose from 40 to 47 ms. That misses the rule that nothing the user sees may get worse, and nobody has checked the panel's picture by eye since the change.
+- **What's kept:** main goes back to round 2's firmware (commit `0c60ad2` reverts round 3). The work stays on branches `power-r3` (all of round 3) and `power-r3-dma-only`.
+
+**Findings**
+
+1. **Server latency is real noise.** Median train request time in the dim burst phase (where drawing doesn't matter) ranged from 1.36 to 2.03 s between runs, and bus requests from 1.06 to 1.81 s. Weather (369 ms) and alerts (140 ms) never moved. That makes the Wi-Fi share of phases 5 and 6 noisy: 8–10 mA between neighbouring runs of the same firmware.
+2. **Card count drives scrolling power.** 6 cards against 12 moves scrolling by 5–8 mA through the screen term. Only neighbouring runs with matching data compare cleanly.
+3. **For a later round 3:** keep DMA sends and the hashing on the drawing core, and give the network task priority over the sender while a request is in flight. Then check by eye on the panel and rerun interleaved.
