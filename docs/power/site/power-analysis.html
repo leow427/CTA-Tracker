@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Handheld Power Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--font-anthropic-sans:Inter,system-ui,-apple-system,sans-serif;--font-anthropic-serif:"Source Serif 4",Georgia,serif;
+--color-fg:#1f1e1c;--color-fg-muted:#6b6862;--color-panel:#fff;--color-border-line:#e4e1da;--color-ok:#2f8a4e;--color-bad:#c0453a;
+--cds-text-secondary:#6b6862;--cds-border:#e4e1da;--cds-chart-grid:#ebe8e1;--cds-chart-muted:#8a867e;--cds-surface-popover:#fff;--cds-shadow-popover:0 4px 16px rgba(0,0,0,.12);
+--cds-gap-xs:4px;--cds-gap-sm:8px;--cds-gap-md:16px;--cds-gap-xl:40px;--cds-pad-sm:8px;--cds-pad-md:12px;--cds-pad-lg:20px;--cds-radius:12px;
+--cds-font-size-caption:.8125rem;--cds-font-size-body:1rem;--cds-font-size-heading:1.25rem;--cds-font-size-title:2.25rem;--cds-font-weight-medium:500;--bg:#faf9f6}
+@media (prefers-color-scheme:dark){:root{--color-fg:#ecebe7;--color-fg-muted:#a09c94;--color-panel:#25241f;--color-border-line:#3a3832;--color-ok:#5cc27e;--color-bad:#ec7a6f;
+--cds-text-secondary:#a09c94;--cds-border:#3a3832;--cds-chart-grid:#34322d;--cds-chart-muted:#8f8b83;--cds-surface-popover:#2e2d28;--bg:#1a1915}}
+body{margin:0;background:var(--bg);color:var(--color-fg)}
+#dash-root{padding:40px 16px 64px;display:flex;justify-content:center}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(function(){
+  const raw={"phases": "stress,round,round_label,phase,phase_name,est_ma,noise_ma,busy_core0,busy_core1,fps_moving,slowest_frame_ms,tap_ms,tap_max_ms,request_ms,requests_ok,requests_all,lowest_ram_kb\nv1,baseline,Baseline,1,Dim idle,52.6,1.5,9,2,,,,,866,30,30,21\nv1,baseline,Baseline,2,\"Awake, still\",57.7,1.5,10,4,,,,,700,26,26,21\nv1,baseline,Baseline,3,Scroll,107.9,4.4,61,100,37.3,86,,,1837,19,19,21\nv1,baseline,Baseline,4,Screen churn,65.5,1.7,18,23,37.1,66,23,65,779,29,29,21\nv1,baseline,Baseline,5,Network burst,85.6,0.6,38,3,,,,,858,261,261,21\nv1,baseline,Baseline,6,Everything,123.1,1.5,65,70,47.2,84,30,76,1343,220,220,21\nv1,baseline,Baseline,7,Cool-down,51.3,1.7,8,2,,,,,805,25,25,21\nv1,r1,Round 1,1,Dim idle,43.6,,13,6,,,,,963,16,16,22\nv1,r1,Round 1,2,\"Awake, still\",57.9,,9,4,,,,,889,8,8,22\nv1,r1,Round 1,3,Scroll,104.4,,57,100,38.0,64,,,1999,9,9,22\nv1,r1,Round 1,4,Screen churn,65.6,,17,25,37.9,63,22,64,804,9,9,22\nv1,r1,Round 1,5,Network burst,85.0,,40,5,,,,,988,86,86,22\nv1,r1,Round 1,6,Everything,125.4,,63,70,51.9,71,28,70,1540,71,71,21\nv1,r1,Round 1,7,Cool-down,43.4,,13,6,,,,,827,8,8,21\nv2,r1v2n,Round 1 (v2 reference),1,Dim idle,43.6,0.1,13,6,,,,,951,32,32,23\nv2,r1v2n,Round 1 (v2 reference),2,\"Awake, still\",58.3,0.3,9,4,,,,,885,16,16,23\nv2,r1v2n,Round 1 (v2 reference),3,Scroll,81.5,2.2,28,97,92.2,36,14,27,1159,22,22,22\nv2,r1v2n,Round 1 (v2 reference),4,Screen churn,64.8,1.1,17,21,41.9,63,23,141,810,19,19,22\nv2,r1v2n,Round 1 (v2 reference),5,Network burst,86.2,1.5,39,5,,,,,1023,169,170,21\nv2,r1v2n,Round 1 (v2 reference),6,Everything,117.1,0.7,53,68,72.0,52,19,46,1323,150,151,21\nv2,r1v2n,Round 1 (v2 reference),7,Cool-down,43.3,0.2,13,6,,,,,824,16,16,21\nv2,r2,Round 2,1,Dim idle,41.6,2.5,12,4,,,,,666,48,48,25\nv2,r2,Round 2,2,\"Awake, still\",48.7,1.8,13,6,,,,,755,24,24,25\nv2,r2,Round 2,3,Scroll,87.4,6.4,37,98,86.3,49,16,28,832,32,32,25\nv2,r2,Round 2,4,Screen churn,56.8,1.8,20,22,40.7,48,21,40,640,30,30,25\nv2,r2,Round 2,5,Network burst,71.6,10.4,27,4,,,,,737,260,260,21\nv2,r2,Round 2,6,Everything,99.3,3.9,43,68,72.8,50,19,51,780,249,249,21\nv2,r2,Round 2,7,Cool-down,41.8,1.8,12,4,,,,,717,26,26,21\nv2,r3,Round 3,1,Dim idle,42.8,0.8,13,3,,,,,744,29,29,22\nv2,r3,Round 3,2,\"Awake, still\",46.2,0.6,11,5,,,,,319,16,16,22\nv2,r3,Round 3,3,Scroll,88.7,9.2,56,91,128.3,47,12,26,1542,15,15,22\nv2,r3,Round 3,4,Screen churn,53.6,2.6,18,21,47.2,48,17,28,795,17,17,22\nv2,r3,Round 3,5,Network burst,69.2,2.3,28,3,,,,,665,174,174,21\nv2,r3,Round 3,6,Everything,111.0,1.9,58,65,93.2,41,16,41,1123,153,153,21\nv2,r3,Round 3,7,Cool-down,43.2,0.5,14,3,,,,,805,18,18,21\nv2,r3a,\"Round 3, DMA only\",1,Dim idle,40.1,1.0,10,4,,,,,478,30,30,25\nv2,r3a,\"Round 3, DMA only\",2,\"Awake, still\",48.7,1.4,13,6,,,,,699,16,16,25\nv2,r3a,\"Round 3, DMA only\",3,Scroll,86.4,0.4,24,99,78.3,48,18,30,743,22,22,25\nv2,r3a,\"Round 3, DMA only\",4,Screen churn,53.9,0.5,14,24,41.0,51,21,47,315,20,20,25\nv2,r3a,\"Round 3, DMA only\",5,Network burst,70.5,4.0,28,4,,,,,709,174,174,21\nv2,r3a,\"Round 3, DMA only\",6,Everything,106.0,8.6,41,70,63.7,50,20,51,899,166,166,21\nv2,r3a,\"Round 3, DMA only\",7,Cool-down,41.2,0.1,11,4,,,,,561,16,16,21\n", "rounds": "round,round_label,stress,firmware,runs,projected_hours,average_ma,verdict,change\nbaseline,Baseline,v1,1aad096,3,36.9,54.2,reference,First working live firmware: CPU at 240 MHz all the time\nr1,Round 1,v1,1c39d26,1,43.4,46.1,passed,\"80 MHz on the dim always-on screen; 240 MHz is a hold taken by touch, network and drawing\"\nr1v2n,Round 1 (v2 reference),v2,d5adfc8,2,43.9,45.6,reference,Round 1's firmware rerun under stress-v2 at the same time of night as round 2\nr2,Round 2,v2,dd3a0af,3,46.3,43.2,passed,\"DNS fix, resumed TLS sessions, clock from the first station, 80 MHz in network waits and between still frames, unchanged dim frames skipped, 32-card cache\"\nr3,Round 3,v2,34e357f,2,45.4,44.0,failed,\"DMA panel sends, and row hashing moved to the sender on core 0\"\nr3a,\"Round 3, DMA only\",v2,5f225f4,2,47.9,41.8,\"borderline, not kept\",DMA panel sends alone\n", "load_times": "milestone,before_s,after_s\nFirst trains on screen,12,2.3\nEvery stop loaded,18,8.5\n"}, src={};
+  for(const k in raw){const r=d3.csvParse(raw[k]);src[k]=r;}
+  const calcs={}, draws={};
+  window.dash={
+    colors:['#2a78d6','#cc6f2b','#3d9a5b','#8b5cc7','#c2486e','#6b7a8a'],
+    data(id){ if(id in src) return {status:'ok',data:src[id],columns:src[id].columns};
+      const c=calcs[id]; if(!c) return {status:'missing',data:[]};
+      if(!('v' in c)) c.v=c.fn(...c.inputs.map(i=>dash.data(i).data));
+      return {status:'ok',data:c.v}; },
+    calc(id,o){calcs[id]=o;},
+    draw(name,fn){ if(fn){(draws[name]=draws[name]||[]).push(fn);} run(name); },
+    onData(fn){fn(); addEventListener('resize',fn);},
+  };
+  function run(name){ const fns=draws[name]; if(!fns) return;
+    document.querySelectorAll('[data-draw="'+name+'"]').forEach(el=>fns.forEach(f=>f(el))); }
+  let t; addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(()=>Object.keys(draws).forEach(run),100);});
+})();
+</script>
+</head><body><div id="dash-root">
+<style>
+  .pa { display: flex; flex-direction: column; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); color: var(--color-fg); max-width: 920px; }
+  .pa h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .pa h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .pa p { margin: 0; line-height: 1.5; max-width: 62ch; }
+  .pa .cap { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .pa-head { display: flex; flex-direction: column; gap: var(--cds-gap-sm); }
+  .pa-eyebrow { font-size: var(--cds-font-size-caption); letter-spacing: .06em; text-transform: uppercase; color: var(--color-fg-muted); }
+
+  .pa-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--cds-gap-md); }
+  .pa-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-xs); min-width: 0; }
+  .pa-tile .label { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .pa-tile .big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 2.4rem; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .pa-tile .big small { font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-body); color: var(--color-fg-muted); margin-left: 4px; }
+  .pa-tile .from { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+  .pa-chg { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .pa-chg.good { color: var(--color-ok); }
+  .pa-chg.bad { color: var(--color-bad); }
+
+  .pa-rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--cds-gap-md); }
+  .pa-card { border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-md); min-width: 0; }
+  .pa-card.dim { background: transparent; }
+  .pa-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--cds-gap-sm); }
+  .pa-card h3 { margin: 0; font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); }
+  .pa-card p { color: var(--color-fg-muted); font-size: var(--cds-font-size-body); }
+  .pa-pill { padding: 1px 9px; border-radius: 999px; font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); white-space: nowrap; border: 1px solid currentColor; }
+  .pa-pill.passed { color: var(--color-ok); }
+  .pa-pill.failed { color: var(--color-bad); }
+  .pa-pill.start { color: var(--color-fg-muted); }
+  .pa-stats { display: flex; flex-direction: column; gap: var(--cds-gap-sm); margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--color-border-line); padding-top: var(--cds-pad-md); }
+  .pa-stats li { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: var(--cds-gap-sm); font-size: var(--cds-font-size-body); }
+  .pa-stats .k { color: var(--color-fg-muted); min-width: 0; }
+  .pa-stats .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pa-stats .pa-chg { font-size: var(--cds-font-size-caption); min-width: 4.5em; text-align: right; }
+
+  .pa details { border-top: 1px solid var(--color-border-line); padding-top: var(--cds-pad-md); }
+  .pa summary { cursor: pointer; font-weight: var(--cds-font-weight-medium); }
+  .pa details ul { margin: var(--cds-gap-sm) 0 0; padding-left: 1.2em; line-height: 1.6; max-width: 70ch; color: var(--color-fg-muted); }
+  .pa .muted { color: var(--color-fg-muted); }
+  .pa-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--cds-gap-sm); }
+  .pa-chart { position: relative; min-height: 120px; width: 100%; }
+  .pa-chart svg { display: block; width: 100%; overflow: visible; }
+  .pa-chart text { font-family: var(--font-anthropic-sans); }
+  .pa-chart .tick text, .pa-chart .lbl { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); }
+  .pa-chart .val { fill: var(--color-fg); font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .pa-chart .grid line { stroke: var(--cds-chart-grid); }
+  .pa-chart .domain { display: none; }
+  .pa-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: var(--cds-pad-sm) var(--cds-pad-md); font-size: var(--cds-font-size-caption); line-height: 1.45; white-space: nowrap; z-index: 2; }
+  .pa-tip .t { color: var(--cds-text-secondary); }
+  .pa-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm) var(--cds-gap-md); list-style: none; margin: 0; padding: 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .pa-legend li { display: flex; align-items: center; gap: 6px; }
+  .pa-sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .pa-sw.muted { background: var(--cds-chart-muted); }
+  .pa-section { display: flex; flex-direction: column; gap: var(--cds-gap-md); }
+  .pa-tile.hero { grid-column: span 2; }
+  @media (max-width: 520px) { .pa-tile.hero { grid-column: auto; } }
+  .pa-tiles.power { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  [data-dash-source-state=refreshing] { opacity: .5; }
+</style>
+
+<div class="pa">
+  <header class="pa-head" id="summary">
+    <h1>Handheld Power Analysis</h1>
+    <p>I ran three rounds of optimization on the handheld, and two passed. It now lasts about a quarter longer on a charge and loads its data much faster, and I didn't change any feature.</p>
+  </header>
+
+  <section class="pa-section" id="headline">
+  <div class="pa-tiles power">
+    <div class="pa-tile hero">
+      <span class="label">Battery life, typical day</span>
+      <span class="big"><span data-draw="t-battery" data-source="chained" data-field="now" data-where="item=battery">—</span><small>h</small></span>
+      <span class="from">was <span data-draw="f-battery" data-source="chained" data-field="baseline" data-where="item=battery">—</span> h · <span class="pa-chg" data-draw="c-battery" data-source="chained" data-field="change_pct" data-where="item=battery">—</span></span>
+    </div>
+    <div class="pa-tile">
+      <span class="label">Always-on dim screen</span>
+      <span class="big"><span data-draw="t-dim" data-source="chained" data-field="now" data-where="item=dim">—</span><small>mA</small></span>
+      <span class="from">was <span data-draw="f-dim" data-source="chained" data-field="baseline" data-where="item=dim">—</span> mA · <span class="pa-chg" data-draw="c-dim" data-source="chained" data-field="change_pct" data-where="item=dim">—</span></span>
+    </div>
+    <div class="pa-tile">
+      <span class="label">Awake, still</span>
+      <span class="big"><span data-draw="t-awake" data-source="chained" data-field="now" data-where="item=awake">—</span><small>mA</small></span>
+      <span class="from">was <span data-draw="f-awake" data-source="chained" data-field="baseline" data-where="item=awake">—</span> mA · <span class="pa-chg" data-draw="c-awake" data-source="chained" data-field="change_pct" data-where="item=awake">—</span></span>
+    </div>
+    <div class="pa-tile">
+      <span class="label">Network burst</span>
+      <span class="big"><span data-draw="t-burst" data-source="chained" data-field="now" data-where="item=burst">—</span><small>mA</small></span>
+      <span class="from">was <span data-draw="f-burst" data-source="chained" data-field="baseline" data-where="item=burst">—</span> mA · <span class="pa-chg" data-draw="c-burst" data-source="chained" data-field="change_pct" data-where="item=burst">—</span></span>
+    </div>
+    <div class="pa-tile">
+      <span class="label">Everything at once</span>
+      <span class="big"><span data-draw="t-every" data-source="chained" data-field="now" data-where="item=every">—</span><small>mA</small></span>
+      <span class="from">was <span data-draw="f-every" data-source="chained" data-field="baseline" data-where="item=every">—</span> mA · <span class="pa-chg" data-draw="c-every" data-source="chained" data-field="change_pct" data-where="item=every">—</span></span>
+    </div>
+    <div class="pa-tile">
+      <span class="label">First trains after Wi-Fi connects</span>
+      <span class="big"><span data-draw="t-load" data-source="load_times" data-field="after_s" data-where="milestone=First trains on screen">—</span><small>s</small></span>
+      <span class="from">was <span data-draw="f-load" data-source="load_times" data-field="before_s" data-where="milestone=First trains on screen">—</span> s</span>
+    </div>
+  </div>
+  <p class="cap">These are estimated currents, from my baseline to now. "Now" chains two of my comparisons: round 1 against the baseline, then round 2 against round 1 rerun at the same hour.</p>
+  </section>
+
+  <section class="pa-section" id="rounds">
+    <div class="pa-rounds">
+      <article class="pa-card dim" id="round-baseline">
+        <div class="pa-card-top"><h3>Baseline</h3><span class="pa-pill start">Starting point</span></div>
+        <p>I started from the first working firmware. Its CPU ran at full speed all the time, even with the screen dimmed.</p>
+        <ul class="pa-stats">
+          <li><span class="k">Battery life</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="after" data-where="key=base-battery">—</span> h</span><span class="pa-chg"></span></li>
+          <li><span class="k">Dim screen</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="after" data-where="key=base-dim">—</span> mA</span><span class="pa-chg"></span></li>
+        </ul>
+      </article>
+
+      <article class="pa-card" id="round-1">
+        <div class="pa-card-top"><h3>Round 1</h3><span class="pa-pill passed">Passed</span></div>
+        <p>I slowed the CPU to 80 MHz while the screen is dim, and sped it back up the moment anything happens.</p>
+        <ul class="pa-stats">
+          <li><span class="k">Dim screen</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r1-dim">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r1-dim">—</span> mA</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r1-dim">—</span></li>
+          <li><span class="k">Battery life</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r1-battery">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r1-battery">—</span> h</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r1-battery">—</span></li>
+          <li><span class="k">Scrolling</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r1-fps">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r1-fps">—</span> fps</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r1-fps">—</span></li>
+        </ul>
+      </article>
+
+      <article class="pa-card" id="round-2">
+        <div class="pa-card-top"><h3>Round 2</h3><span class="pa-pill passed">Passed</span></div>
+        <p>I made network requests faster, fixed a DNS bug, and slowed the CPU between the frames of a still screen.</p>
+        <ul class="pa-stats">
+          <li><span class="k">Awake, still</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r2-awake">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r2-awake">—</span> mA</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r2-awake">—</span></li>
+          <li><span class="k">Everything at once</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r2-every">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r2-every">—</span> mA</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r2-every">—</span></li>
+          <li><span class="k">First trains</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r2-load">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r2-load">—</span> s</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r2-load">—</span></li>
+        </ul>
+      </article>
+
+      <article class="pa-card" id="round-3">
+        <div class="pa-card-top"><h3>Round 3</h3><span class="pa-pill failed">Not kept</span></div>
+        <p>I tried sending the screen by DMA. Scrolling got much smoother, but network requests slowed down and it used more power, so I didn't keep it.</p>
+        <ul class="pa-stats">
+          <li><span class="k">Scrolling</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r3-fps">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r3-fps">—</span> fps</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r3-fps">—</span></li>
+          <li><span class="k">Everything at once</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r3-every">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r3-every">—</span> mA</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r3-every">—</span></li>
+          <li><span class="k">Requests while scrolling</span><span class="v"><span data-draw="s" data-source="roundstats" data-field="before" data-where="key=r3-req">—</span> → <span data-draw="s" data-source="roundstats" data-field="after" data-where="key=r3-req">—</span> ms</span><span class="pa-chg" data-draw="sc" data-source="roundstats" data-field="change_pct" data-where="key=r3-req">—</span></li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="pa-section" id="phases">
+    <div class="pa-row">
+      <h2>Estimated current in each stress phase</h2>
+      <select class="dash-select" id="stress-pick" aria-label="Stress test version">
+        <option value="v2">Stress-v2: rounds 1 to 3</option>
+        <option value="v1">Stress-v1: baseline and round 1</option>
+      </select>
+    </div>
+    <p class="muted" data-stress="v2">I used real stops near me and switched between Trains and Buses while scrolling. I judged round 3 against round 2 runs from the same hour, so its bars here, next to round 2's three runs, read slightly differently from its verdict.</p>
+    <p class="muted" data-stress="v1" hidden>I used fixed test stops here. Round 1 put the CPU at 80 MHz on the dim screen.</p>
+    <ul class="pa-legend" data-stress="v2">
+      <li><span class="pa-sw" data-swatch="0"></span>Round 1 (reference)</li>
+      <li><span class="pa-sw" data-swatch="1"></span>Round 2 (kept)</li>
+      <li><span class="pa-sw" data-swatch="2"></span>Round 3 (failed)</li>
+      <li><span class="pa-sw" data-swatch="3"></span>Round 3, DMA only (not kept)</li>
+    </ul>
+    <ul class="pa-legend" data-stress="v1" hidden>
+      <li><span class="pa-sw" data-swatch="0"></span>Baseline</li>
+      <li><span class="pa-sw" data-swatch="1"></span>Round 1</li>
+    </ul>
+    <div class="pa-chart" id="phase-chart" data-draw="phasechart" data-source="phases"></div>
+    <p class="cap">Milliamps on the 3.3 V rail, averaged over each phase. Lower is better.</p>
+  </section>
+
+  <details id="method">
+    <summary>How I measured this</summary>
+    <ul>
+      <li>I estimated currents with a power model built from the firmware's own once-a-second logs. The board ran on USB with no battery.</li>
+      <li>I ran the same 18-minute scripted stress test every time, from dim idle to everything at once. A round passed only if power dropped and nothing you'd notice got slower.</li>
+      <li>I compared each round with the one before it, run at the same hour of the night. Battery life and the dim screen chain those comparisons back to the baseline.</li>
+      <li>The full details are in <code>docs/power/summary.md</code> and <code>docs/power/log.md</code> in my repository.</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+  dash.calc('chained', {
+    title: 'Baseline to now, chained',
+    description: 'Each figure is baseline × (round 1 ÷ baseline, stress-v1) × (round 2 ÷ round 1, stress-v2).',
+    inputs: ['phases', 'rounds'],
+    fn: (phases, rounds) => {
+      const ma = (round, stress, phase) => {
+        const r = phases.find((x) => x.round === round && x.stress === stress && x.phase === phase);
+        return r ? Number(r.est_ma) : NaN;
+      };
+      const hours = (round) => {
+        const r = rounds.find((x) => x.round === round);
+        return r ? Number(r.projected_hours) : NaN;
+      };
+      const r1 = (v) => Math.round(v * 10) / 10;
+      const out = [];
+      const hb = hours('baseline');
+      const hn = hours('r1') * hours('r2') / hours('r1v2n');
+      out.push({ item: 'battery', baseline: hb, now: r1(hn), change_pct: r1((hn - hb) / hb * 100) });
+      for (const [item, phase] of [['dim', '1'], ['awake', '2'], ['burst', '5'], ['every', '6']]) {
+        const b = ma('baseline', 'v1', phase);
+        const n = ma('r1', 'v1', phase) * ma('r2', 'v2', phase) / ma('r1v2n', 'v2', phase);
+        out.push({ item, baseline: b, now: r1(n), change_pct: r1((n - b) / b * 100) });
+      }
+      return out;
+    },
+  });
+
+  dash.calc('roundstats', {
+    title: 'Key stats per round',
+    description: 'Before and after for each round, each against the round before it in the same stress test: round 1 against the baseline, round 2 against round 1 rerun at the same hour, round 3 against round 2.',
+    inputs: ['phases', 'rounds', 'load_times'],
+    fn: (phases, rounds, load_times) => {
+      const get = (round, stress, phase, field) => {
+        const r = phases.find((x) => x.round === round && x.stress === stress && x.phase === phase);
+        return r ? Number(r[field]) : NaN;
+      };
+      const hours = (round) => Number((rounds.find((x) => x.round === round) || {}).projected_hours);
+      const first = load_times.find((x) => x.milestone === 'First trains on screen') || {};
+      const row = (key, before, after, higherIsBetter) => ({
+        key, before, after, higher_is_better: higherIsBetter,
+        change_pct: Number.isFinite(before) && before ? Math.round((after - before) / before * 1000) / 10 : null,
+      });
+      return [
+        row('base-battery', null, hours('baseline'), true),
+        row('base-dim', null, get('baseline', 'v1', '1', 'est_ma'), false),
+        row('r1-dim', get('baseline', 'v1', '1', 'est_ma'), get('r1', 'v1', '1', 'est_ma'), false),
+        row('r1-battery', hours('baseline'), hours('r1'), true),
+        row('r1-fps', get('baseline', 'v1', '3', 'fps_moving'), get('r1', 'v1', '3', 'fps_moving'), true),
+        row('r2-awake', get('r1v2n', 'v2', '2', 'est_ma'), get('r2', 'v2', '2', 'est_ma'), false),
+        row('r2-every', get('r1v2n', 'v2', '6', 'est_ma'), get('r2', 'v2', '6', 'est_ma'), false),
+        row('r2-load', Number(first.before_s), Number(first.after_s), false),
+        row('r3-fps', get('r2', 'v2', '3', 'fps_moving'), get('r3', 'v2', '3', 'fps_moving'), true),
+        row('r3-every', get('r2', 'v2', '6', 'est_ma'), get('r3', 'v2', '6', 'est_ma'), false),
+        row('r3-req', get('r2', 'v2', '3', 'request_ms'), get('r3', 'v2', '3', 'request_ms'), false),
+      ];
+    },
+  });
+</script>
+
+<script>
+  const fmt = (v) => (Number.isFinite(v) ? (Number.isInteger(v) ? String(v) : d3.format('.1f')(v)) : '—');
+  const pct = (el, v, good) => {
+    if (!Number.isFinite(v)) { el.textContent = '—'; el.className = 'pa-chg'; return; }
+    el.textContent = (v > 0 ? '+' : '-') + d3.format('.0f')(Math.abs(v)) + '%';
+    el.className = 'pa-chg ' + (good ? 'good' : 'bad');
+  };
+  const where = (el) => new URLSearchParams(el.dataset.where || '');
+
+  // Headline tiles.
+  const chainedRow = (item) => {
+    const c = dash.data('chained');
+    return c.status === 'ok' && Array.isArray(c.data) ? c.data.find((r) => r.item === item) : null;
+  };
+  for (const item of ['battery', 'dim', 'awake', 'burst', 'every']) {
+    dash.draw('t-' + item, (el) => { const r = chainedRow(item); el.textContent = r ? fmt(r.now) : '—'; });
+    dash.draw('f-' + item, (el) => { const r = chainedRow(item); el.textContent = r ? fmt(r.baseline) : '—'; });
+    dash.draw('c-' + item, (el) => {
+      const r = chainedRow(item);
+      pct(el, r ? r.change_pct : NaN, r ? (item === 'battery' ? r.change_pct > 0 : r.change_pct < 0) : false);
+    });
+  }
+  const loadRow = () => {
+    const d = dash.data('load_times');
+    return d.status === 'ok' ? d.data.find((r) => r.milestone === 'First trains on screen') : null;
+  };
+  dash.draw('t-load', (el) => { const r = loadRow(); el.textContent = r ? fmt(Number(r.after_s)) : '—'; });
+  dash.draw('f-load', (el) => { const r = loadRow(); el.textContent = r ? fmt(Number(r.before_s)) : '—'; });
+
+  // Round cards: every number reads its own row by key.
+  const statRow = (el) => {
+    const s = dash.data('roundstats');
+    if (s.status !== 'ok' || !Array.isArray(s.data)) return null;
+    return s.data.find((r) => r.key === where(el).get('key')) || null;
+  };
+  dash.draw('s', (el) => {
+    const r = statRow(el);
+    el.textContent = r ? fmt(r[el.dataset.field]) : '—';
+  });
+  dash.draw('sc', (el) => {
+    const r = statRow(el);
+    if (!r) { pct(el, NaN); return; }
+    const v = r.change_pct;
+    pct(el, v, r.higher_is_better ? v > 0 : v < 0);
+  });
+</script>
+
+<script>
+  // Swatches and the stress picker: outside drawings, only listen and set style or hidden.
+  document.querySelectorAll('[data-swatch]').forEach((s) => { s.style.background = dash.colors[Number(s.dataset.swatch)]; });
+  window.paStress = 'v2';
+  document.querySelectorAll('#stress-pick').forEach((sel) => {
+    sel.value = window.paStress;
+    sel.addEventListener('change', () => {
+      window.paStress = sel.value;
+      document.querySelectorAll('[data-stress]').forEach((e) => { e.hidden = e.dataset.stress !== sel.value; });
+      dash.draw('phasechart');
+    });
+  });
+</script>
+
+<script>
+  // Shared tooltip helper, used inside each chart's drawing.
+  window.paTip = (host) => {
+    let tip = host.querySelector('.pa-tip');
+    if (!tip) { tip = document.createElement('div'); tip.className = 'pa-tip'; tip.hidden = true; host.appendChild(tip); }
+    return {
+      show(event, lines) {
+        tip.replaceChildren(...lines.map(([cls, text]) => { const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = text; return d; }));
+        tip.hidden = false;
+        const hb = host.getBoundingClientRect();
+        const x = event.clientX - hb.left, y = event.clientY - hb.top;
+        const tw = tip.offsetWidth, th = tip.offsetHeight;
+        tip.style.left = Math.max(0, Math.min(hb.width - tw, x + 12)) + 'px';
+        tip.style.top = Math.max(0, y - th - 10) + 'px';
+      },
+      hide() { tip.hidden = true; },
+    };
+  };
+</script>
+
+<script>
+  // Grouped bars: estimated mA per phase, one bar per round.
+  dash.draw('phasechart', (el) => {
+    const d = dash.data('phases');
+    el.replaceChildren();
+    if (d.status !== 'ok') { el.textContent = d.status === 'error' ? 'Failed to load' : '—'; return; }
+    const stress = window.paStress || 'v2';
+    const series = stress === 'v1' ? ['baseline', 'r1'] : ['r1v2n', 'r2', 'r3', 'r3a'];
+    const rows = d.data.filter((r) => r.stress === stress && series.includes(r.round));
+    const phases = [...new Set(rows.map((r) => r.phase))].sort();
+    const name = Object.fromEntries(rows.map((r) => [r.phase, r.phase_name]));
+    const label = Object.fromEntries(rows.map((r) => [r.round, r.round_label]));
+    const W = Math.max(280, el.clientWidth);
+    const svg = d3.select(el).append('svg').attr('role', 'img')
+      .attr('aria-label', `Estimated current in each stress phase, ${stress === 'v1' ? 'baseline and round 1' : 'rounds 1 to 3'}`);
+    const probe = svg.append('text').attr('class', 'lbl');
+    let labelW = 0;
+    phases.forEach((p) => { probe.text(name[p]); labelW = Math.max(labelW, probe.node().getComputedTextLength()); });
+    probe.remove();
+    const narrow = W < 460;
+    const left = narrow ? 0 : labelW + 16, right = 48, top = 4, axisH = 22;
+    const barH = series.length > 2 ? 11 : 15, inner = 2, labelH = narrow ? 18 : 0, groupGap = 14;
+    const groupH = series.length * barH + (series.length - 1) * inner;
+    const H = top + phases.length * (labelH + groupH + groupGap) + axisH;
+    svg.attr('viewBox', `0 0 ${W} ${H}`).attr('height', H);
+    const max = d3.max(rows, (r) => Number(r.est_ma));
+    const x = d3.scaleLinear().domain([0, max]).nice().range([left, W - right]);
+    const plotBottom = H - axisH;
+    const ticks = Math.max(2, Math.floor((W - left - right) / 70));
+    svg.append('g').attr('class', 'grid').selectAll('line').data(x.ticks(ticks)).join('line')
+      .attr('x1', (t) => x(t)).attr('x2', (t) => x(t)).attr('y1', top).attr('y2', plotBottom);
+    svg.append('g').attr('transform', `translate(0,${plotBottom})`).call(d3.axisBottom(x).ticks(ticks).tickSize(0).tickPadding(8).tickFormat((t) => t + (t === x.ticks(ticks).slice(-1)[0] ? ' mA' : '')));
+    const tip = window.paTip(el);
+    phases.forEach((p, i) => {
+      const y0 = top + i * (labelH + groupH + groupGap);
+      svg.append('text').attr('class', 'lbl').attr('x', narrow ? 0 : left - 12)
+        .attr('y', narrow ? y0 + 12 : y0 + labelH + groupH / 2 + 4).attr('text-anchor', narrow ? 'start' : 'end').text(name[p]);
+      series.forEach((s, j) => {
+        const r = rows.find((q) => q.phase === p && q.round === s);
+        if (!r) return;
+        const v = Number(r.est_ma);
+        const y = y0 + labelH + j * (barH + inner);
+        svg.append('rect').attr('x', left).attr('y', y).attr('height', barH).attr('rx', 3)
+          .attr('width', Math.max(2, x(v) - left)).style('fill', dash.colors[j])
+          .on('pointermove', (ev) => tip.show(ev, [[null, `${name[p]} · ${label[s]}`], ['t', `${v} mA estimated` + (r.noise_ma ? ` (noise ${r.noise_ma})` : '')],
+            ['t', `CPU busy ${r.busy_core0}% / ${r.busy_core1}%` + (r.fps_moving ? ` · ${r.fps_moving} fps moving` : '')]]))
+          .on('pointerleave', () => tip.hide());
+        svg.append('text').attr('class', 'val').attr('x', x(v) + 5).attr('y', y + barH / 2 + 4).text(d3.format('.1f')(v));
+      });
+    });
+  });
+</script>
+
+</div></body></html>
