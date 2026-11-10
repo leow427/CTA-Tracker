@@ -5,8 +5,8 @@
 //
 // Each reason to run at full speed takes a hold, from any task; the clock drops when the last one is released. The
 // loop holds it except on the dim always-on screen with no finger down, and the touch task through every press
-// (main.cpp); the network task holds it through every request, join, and scan (live.cpp), so a TLS handshake takes
-// as long as before.
+// (main.cpp); the network task holds it from each TLS handshake (or each request on a kept-open connection) to
+// the end of the poll, and through every join and scan (live.cpp), so a handshake takes as long as before.
 //
 // Switching between 80, 160, and 240 MHz on the ESP32-S3 only changes the CPU's divider of the PLL, which stays on:
 // the APB bus (and so SPI, the panel's QSPI) stays at 80 MHz, the FreeRTOS tick and esp_timer (millis, micros) run
@@ -28,6 +28,24 @@ public:
     ~Fast() { release(); }
     Fast(const Fast&) = delete;
     Fast& operator=(const Fast&) = delete;
+};
+
+// Holds full speed from its first on() to the end of its scope: for a request, whose DNS lookup and TCP connection
+// only wait on the network, while the TLS handshake and the parsing after it are CPU work.
+class Lazy {
+public:
+    Lazy() = default;
+    ~Lazy() { if (held_) release(); }
+    void on() {
+        if (held_) return;
+        held_ = true;
+        hold();
+    }
+    Lazy(const Lazy&) = delete;
+    Lazy& operator=(const Lazy&) = delete;
+
+private:
+    bool held_ = false;
 };
 
 #ifdef POWER_LOG
