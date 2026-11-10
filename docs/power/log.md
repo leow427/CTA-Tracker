@@ -253,3 +253,10 @@ Round 2 runs against the earlier reference, for the record only (`reports/r2.md`
 1. **Server latency is real noise.** Median train request time in the dim burst phase (where drawing doesn't matter) ranged from 1.36 to 2.03 s between runs, and bus requests from 1.06 to 1.81 s. Weather (369 ms) and alerts (140 ms) never moved. That makes the Wi-Fi share of phases 5 and 6 noisy: 8–10 mA between neighbouring runs of the same firmware.
 2. **Card count drives scrolling power.** 6 cards against 12 moves scrolling by 5–8 mA through the screen term. Only neighbouring runs with matching data compare cleanly.
 3. **For a later round 3:** keep DMA sends and the hashing on the drawing core, and give the network task priority over the sender while a request is in flight. Then check by eye on the panel and rerun interleaved.
+
+## The wearable's new card layout: no change in power or speed (2026-11-10)
+
+- **Change:** train cards lead with the stop name (`81e3c8a`, from Leo), a direction letter on every card, and bigger line squares.
+- **Runs:** `runs/2026-11-10-ui-1.csv` (new UI) and `runs/2026-11-10-r2-6.csv` (round 2 firmware, run right after), midday, 12 train cards and 5 bus cards in both. One run each.
+- **Result: no meaningful difference.** Scroll fps while moving 62.1 → 62.5, slowest scroll frame 71 → 65 ms, tap→screen 23 → 22 ms (max 46 → 47). The CPU and screen parts of the estimate match in every phase. Everything (phase 6) read 9 mA higher, all of it Wi-Fi time with the same median request times (midday CTA requests took 3–5 s, against about 1.4 s overnight), so server timing, not drawing.
+- **One to watch:** lowest free internal RAM 18.5 KB against round 2's 23.1 KB in this pair (20.4–23 KB across round 2's runs). It was reached in the dim network-burst phase, when no cards are drawn, and the new code uses no heap, so the network is the likelier cause. Not rechecked (Leo's call). Worth a look before Bluetooth is added.
