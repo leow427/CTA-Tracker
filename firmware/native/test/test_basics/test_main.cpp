@@ -15,7 +15,7 @@ void tearDown() {}
 static void test_line_colors() {
     TEST_ASSERT_EQUAL_HEX32(0xC60C30, cta::lineColor("Red"));
     TEST_ASSERT_EQUAL_HEX32(0xC60C30, cta::lineColor("red"));  // ttpositions uses lowercase
-    TEST_ASSERT_EQUAL_HEX32(0x00A1DE, cta::lineColor("Blue"));
+    TEST_ASSERT_EQUAL_HEX32(0x2F7BFF, cta::lineColor("Blue"));
     TEST_ASSERT_EQUAL_HEX32(0x62361B, cta::lineColor("Brn"));
     TEST_ASSERT_EQUAL_HEX32(0x009B3A, cta::lineColor("G"));
     TEST_ASSERT_EQUAL_HEX32(0xF9461C, cta::lineColor("Org"));

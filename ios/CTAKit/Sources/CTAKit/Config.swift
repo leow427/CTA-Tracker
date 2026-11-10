@@ -52,7 +52,7 @@ public enum LineColors {
 
     public static let trains: [TrainLine] = [
         TrainLine(route: "Red", name: "Red Line", rgb: 0xC60C30),
-        TrainLine(route: "Blue", name: "Blue Line", rgb: 0x00A1DE),
+        TrainLine(route: "Blue", name: "Blue Line", rgb: 0x2F7BFF),
         TrainLine(route: "Brn", name: "Brown Line", rgb: 0x62361B),
         TrainLine(route: "G", name: "Green Line", rgb: 0x009B3A),
         TrainLine(route: "Org", name: "Orange Line", rgb: 0xF9461C),
@@ -72,7 +72,7 @@ public enum LineColors {
     /// The app's navy panel and map (Transit-style restyle).
     public static let navy: UInt32 = 0x0B1A36
     /// Buses on navy: a bright blue, since the devices' gray and Ink vanish there.
-    public static let busAccent: UInt32 = 0x2F7BFF
+    public static let busAccent: UInt32 = 0x00A1DE
 
     /// A route's accent: the train's color, the bus blue for every bus.
     public static func accent(_ route: String) -> UInt32 { train(route)?.rgb ?? busAccent }

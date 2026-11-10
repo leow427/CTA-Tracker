@@ -208,9 +208,9 @@ function font(ctx, w, size) { ctx.font = `${w} ${size}px ${FONT}`; }
 const alpha = (hex6, a) => hex6 + Math.round(a * 255).toString(16).padStart(2, '0');
 
 /* ---------- line colors: a port of CTAKit's LineColors ---------- */
-const LINE = { Red: 0xC60C30, Blue: 0x00A1DE, Brn: 0x62361B, G: 0x009B3A, Org: 0xF9461C, Pink: 0xE27EA6, P: 0x522398, Y: 0xF9E300 };
+const LINE = { Red: 0xC60C30, Blue: 0x2F7BFF, Brn: 0x62361B, G: 0x009B3A, Org: 0xF9461C, Pink: 0xE27EA6, P: 0x522398, Y: 0xF9E300 };
 const LINE_NAME = { Red: 'Red', Blue: 'Blue', Brn: 'Brown', G: 'Green', Org: 'Orange', Pink: 'Pink', P: 'Purple', Y: 'Yellow' };
-const BUS = 0x2F7BFF;
+const BUS = 0x00A1DE;
 const hex = n => '#' + n.toString(16).padStart(6, '0');
 function lum(rgb) {
   const ch = s => { const c = ((rgb >> s) & 255) / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };

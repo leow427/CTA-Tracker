@@ -17,7 +17,7 @@ Leo's verdict on the first build: it still looked like the old app, and the Liqu
 - **No Liquid Glass.** Controls and chips are solid raised navy (`0x17294F`) with a faint rim.
 - **Map.** Mapbox Standard in daylight with a navy palette for land, roads, water, and buildings, still in 3D, so the L lines glow. It no longer follows the sun, and the on-phone sun times are removed.
 - **Main screen.** At top left is the pet in a cream circle with a gear badge (Settings), with the "Near place" pill tucked under it. Recenter is a round button that turns yellow while following. A headlight-yellow search bar sits on the navy panel's rounded top edge, and the All · Trains · Buses menu is at its end. The list is rows on navy, with no cards: a huge route number in its line color, "→ destination" in color ("West to Downtown" for buses), the stop, and big minutes on the right. Rows are split by hairlines.
-- **Line colors on navy.** Big type is lifted toward white until it reaches 3:1, and smaller text until it reaches 4.5:1 (`LineColors.onNavy`). Buses use a bright blue (`0x2F7BFF`).
+- **Line colors on navy.** Big type is lifted toward white until it reaches 3:1, and smaller text until it reaches 4.5:1 (`LineColors.onNavy`). Buses use a bright blue (`0x00A1DE`; it was `0x2F7BFF` until 2026-11-09, when that deeper blue went to the Blue Line).
 - **Stop detail.** The line's huge number sits over the map, with a red × (close) and ★ down the right. The navy page has "→ destination", big departure tiles (the next one solid in the line color, the later ones tinted navy), the chips (Delayed, freshness), the alerts, and the stop's other lines on a timeline in their colors.
 
 ### Name: Trackie (2026-11-05)

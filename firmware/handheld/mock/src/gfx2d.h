@@ -68,6 +68,8 @@ public:
     // Nunito text. weight 800 or 900; sizes are the ones tools/font_build.html renders.
     static const Font* font(int weight, int size);
     static float measure(const Font* f, const char* text);
+    // Whether the font has a glyph for every character (the large title sizes carry letters and digits only).
+    static bool covers(const Font* f, const char* text);
     // Shortens text with "…" to fit maxW, into out (cap bytes).
     static const char* fit(const Font* f, const char* text, float maxW, char* out, size_t cap);
     float text(const Font* f, const char* text, float x, float y, uint32_t rgb, Align al = Align::Left,

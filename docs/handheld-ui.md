@@ -10,7 +10,7 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
 
 - **Black on every screen.** Only what's drawn lights up on the AMOLED, which saves battery.
 - **The iPhone app's pixel style.** Cards and tabs have stepped pixel corners, a thin rim, light from the top, and a hard edge under them, so they sit up like game tiles.
-- **Line colors.** Every card is in its line's CTA color: a darker shade of the line as the fill, a lighter shade for all its text (the app's `LineColors.card` and `cardText` math). All buses share one color.
+- **Line colors.** Every card is in its line's CTA color: a darker shade of the line as the fill, a lighter shade for all its text (the app's `LineColors.card` and `cardText` math). All buses share one color, the light blue `0x00A1DE`; the Blue Line uses the deeper `0x2F7BFF` (swapped 2026-11-09, when the Blue Line read too light).
 - **Pixel minutes.** Arrival minutes use the app's 5×7 pixel digits, like a departure board, at whole scales only so they stay crisp.
 - **Type.** Heavy, rounded type for route names. SF Pro Rounded can't ship on a non-Apple device, so the mockup uses Nunito Black; convert the chosen font with `lv_font_conv` at the sizes used.
 - **Colors in small doses:** headlight yellow for the active control, mist for secondary text, cream for Trackie's speech bubble, amber only for Delayed.
@@ -62,15 +62,15 @@ Swipe down to go back to Home.
 ### The card
 
 Every card shows:
-- **The line or route:** "Red", "Brown", "22".
+- **The route, for buses:** "22", on top. Train cards don't name the line: the card's color does (2026-11-09).
 - **Where it ends and the way it goes.** A bus says both: "South to Harrison". A train's direction is the end of its line, so "To Kimball" says both. Where a platform's direction and a train's destination differ (Green's shared trunk), the card shows the train's destination.
-- **The stop name:** "Belmont", "Clark & Belmont". Train cards also show small squares for the station's other lines.
+- **The stop name:** "Belmont", "Clark & Belmont". On a train card it's the largest text, on top (24 px, stepping down to 21 or 19 before it truncates), with small squares after it for the station's other lines.
 - **The next arrival:** big pixel minutes, "Due" at 0–1 min, with a live mark. A timetable-only time shows as a clock time instead.
 - **Badges:** ⚠ for an alert on that route, an amber "Delayed" chip.
 
 ### Stop detail
 
-Tap a card. The tapped line or route comes first, then every other line and direction at that stop, each with where it ends and its next 3–4 arrivals. Alerts for the stop's routes show below. Swipe right to go back.
+Tap a card. The tapped line or route comes first (a train's title is the stop name in its line's color, with where it goes under it; a bus's is its route number), then every other line and direction at that stop, each with where it ends and its next 3–4 arrivals. Alerts for the stop's routes show below. Swipe right to go back.
 
 ### Dim (always-on)
 

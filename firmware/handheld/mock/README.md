@@ -122,7 +122,7 @@ What made the difference:
 ## Notes
 
 - **Touch mapping.** The touch panel reads a half turn from the display, so a touch at (tx, ty) is screen point (465 − ty, tx).
-- **Bus colour.** Bus cards use the app's bus blue (`0x2F7BFF`, iOS redesign spec), not `cta::kBusColor`, which the LEDs use.
+- **Bus colour.** Bus cards use the app's bus blue (`0x00A1DE`, `LineColors.busAccent`), not `cta::kBusColor`, which the LEDs use.
 - **Card cache.** The list draws cards from a cache of 32 rendered cards in PSRAM (2.2 MB, keys included), enough for both tabs at once; 16 didn't hold 12 trains and 5 buses, so switching tabs re-rendered cards mid-transition. A card renders straight into the entry it replaces. Cards scale with nearest sampling while moving and smoothly at rest. While the list moves or slides in a transition, any cached width of a card will do (the exact one first), so a slide doesn't stop to render cards; at rest each card is drawn at its exact width (the frame a slide ends on renders any it lacks). A card whose content changed (its minutes, say) is rendered whenever it's next drawn. Re-rendering every card every frame ran under 1 fps.
 - **Serial (115200).**
 

@@ -12,7 +12,7 @@ struct LineColor {
 };
 
 constexpr LineColor kLineColors[] = {
-    {"Red", 0xC60C30}, {"Blue", 0x00A1DE}, {"Brn", 0x62361B}, {"G", 0x009B3A},
+    {"Red", 0xC60C30}, {"Blue", 0x2F7BFF}, {"Brn", 0x62361B}, {"G", 0x009B3A},
     {"Org", 0xF9461C}, {"Pink", 0xE27EA6}, {"P", 0x522398},   {"Y", 0xF9E300},
 };
 

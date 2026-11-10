@@ -300,6 +300,12 @@ const Font* Canvas::font(int weight, int size) {
     return best;
 }
 
+bool Canvas::covers(const Font* f, const char* t) {
+    while (*t)
+        if (!glyphFor(f, nextCp(t))) return false;
+    return true;
+}
+
 float Canvas::measure(const Font* f, const char* t) {
     float w = 0;
     while (*t) {

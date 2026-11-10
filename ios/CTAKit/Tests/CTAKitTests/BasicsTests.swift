@@ -7,7 +7,7 @@ struct BasicsTests {
     @Test func lineColors() {
         #expect(LineColors.rgb("Red") == 0xC60C30)
         #expect(LineColors.rgb("red") == 0xC60C30)   // ttpositions uses lowercase
-        #expect(LineColors.rgb("Blue") == 0x00A1DE)
+        #expect(LineColors.rgb("Blue") == 0x2F7BFF)
         #expect(LineColors.rgb("Brn") == 0x62361B)
         #expect(LineColors.rgb("G") == 0x009B3A)
         #expect(LineColors.rgb("Org") == 0xF9461C)

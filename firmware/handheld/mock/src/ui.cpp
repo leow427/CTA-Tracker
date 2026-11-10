@@ -21,7 +21,7 @@ using mock::Model;
 using mock::Scenario;
 
 constexpr int CARD_H = 96, ROW = kRow, FOCUS = 206;
-constexpr uint32_t kBusCard = 0x2F7BFF;   // the app's bus blue for cards (iOS redesign spec); the LEDs use cta::kBusColor
+constexpr uint32_t kBusCard = 0x00A1DE;   // the app's bus blue for cards (LineColors.busAccent); the LEDs use cta::kBusColor
 constexpr uint16_t kKey = 0x0001;         // transparent in the card scratch buffer
 
 const Font* F(int w, int s) { return Canvas::font(w, s); }
@@ -160,25 +160,43 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
     }
     const int L = x + 16;
     const float maxW = w - 32 - rightW - 10;
-    const Font* fName = F(900, 34);
-    const char* name = Canvas::fit(fName, c.bus ? c.route : mock::lineName(c.route), maxW - (c.alert ? 26 : 0), buf, sizeof(buf));
-    const float nw = cv.text(fName, name, L, y + 4, t.text);
-    if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8), y + 16, 1, t.text);
-    cv.arrowCircle(L + 8, y + 59, 8, t.text, t.card);
-    const Font* fHead = F(900, 16);
-    cv.text(fHead, Canvas::fit(fHead, c.heading, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t.text);
-    int sx = L;
-    if (c.delayed) sx += cv.chip("Delayed", L, y + 72, col::amber, 0x000000) + 6;
-    const Font* fStop = F(800, 13);
-    const float pipW = c.nPips * 14;
-    const char* stop = Canvas::fit(fStop, c.stop, maxW + rightW - (sx - L) - pipW - 4, buf, sizeof(buf));
-    const float sw = cv.text(fStop, stop, sx, y + 73, t.text);
-    float px = sx + sw + 8;
-    for (int i = 0; i < c.nPips; ++i) {
-        const Theme& pt = th(c.pips[i], false);
-        cv.fillRect(px, y + 76, 10, 10, t.text);
-        cv.fillRect(px + 1.5f, y + 77.5f, 7, 7, pt.accent);
-        px += 14;
+    auto pips = [&](float px, float py) {   // the station's other lines, as small squares in their colors
+        for (int i = 0; i < c.nPips; ++i) {
+            const Theme& pt = th(c.pips[i], false);
+            cv.fillRect(px, py, 10, 10, t.text);
+            cv.fillRect(px + 1.5f, py + 1.5f, 7, 7, pt.accent);
+            px += 14;
+        }
+    };
+    if (c.bus) {   // the route number, then where it goes, then the stop
+        const Font* fName = F(900, 34);
+        const char* name = Canvas::fit(fName, c.route, maxW - (c.alert ? 26 : 0), buf, sizeof(buf));
+        const float nw = cv.text(fName, name, L, y + 4, t.text);
+        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8), y + 16, 1, t.text);
+        cv.arrowCircle(L + 8, y + 59, 8, t.text, t.card);
+        const Font* fHead = F(900, 16);
+        cv.text(fHead, Canvas::fit(fHead, c.heading, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t.text);
+        int sx = L;
+        if (c.delayed) sx += cv.chip("Delayed", L, y + 72, col::amber, 0x000000) + 6;
+        const Font* fStop = F(800, 13);
+        const char* stop = Canvas::fit(fStop, c.stop, maxW + rightW - (sx - L) - c.nPips * 14 - 4, buf, sizeof(buf));
+        pips(sx + cv.text(fStop, stop, sx, y + 73, t.text) + 8, y + 76);
+    } else {       // a train's color names its line, so the stop leads, large, then where it goes
+        const float pipW = c.nPips ? c.nPips * 14 + 4 : 0;
+        const float nameW = maxW - pipW - (c.alert ? 26 : 0);
+        const Font* fName = F(900, 24);
+        static const int kSmaller[] = {21, 19};   // step down before truncating
+        for (int size : kSmaller)
+            if (Canvas::measure(fName, c.stop) > nameW) fName = F(900, size);
+        const int ny = 15 + (24 - fName->size) * 2 / 3;
+        const float nw = cv.text(fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), L, y + ny, t.text);
+        pips(L + nw + 8, y + 24);
+        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + pipW), y + 21, 1, t.text);
+        int hx = L;
+        if (c.delayed) hx += cv.chip("Delayed", L, y + 58, col::amber, 0x000000) + 6;
+        cv.arrowCircle(hx + 8, y + 67, 8, t.text, t.card);
+        const Font* fHead = F(900, 16);
+        cv.text(fHead, Canvas::fit(fHead, c.heading, maxW - (hx - L) - 22, buf, sizeof(buf)), hx + 22, y + 57, t.text);
     }
     cv.alpha = saved;
 }
@@ -442,19 +460,37 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
     const int s = static_cast<int>(lroundf(a.detailScroll));
     const int savedOy = cv.oy;
     cv.oy -= s;
-    // the line's huge name with a hard pixel drop shadow in its dark shade
-    const char* name = bus ? hero->rec.route : mock::lineName(hero->rec.route);
-    static const int kTitle[] = {84, 76, 68, 60, 52, 44};
-    const Font* ft = F(900, 44);
-    for (int size : kTitle) { ft = F(900, size); if (Canvas::measure(ft, name) <= 2 * chordHalf(58 - s) - 70) break; }
-    cv.text(ft, name, C + 5, 24 + 5, t.card, Align::Center);
-    cv.text(ft, name, C, 24, t.text, Align::Center);
-    cv.text(F(800, 17), hero->rec.name, C, 118, col::mist, Align::Center);
     char buf[48];
-    const Font* fh = F(900, 21);
-    const float hw = fminf(260, Canvas::measure(fh, hero->heading)), hx = C - (hw + 28) / 2;
-    cv.arrowCircle(hx + 10, 154, 10, t.text, col::navy);
-    cv.text(fh, Canvas::fit(fh, hero->heading, 260, buf, sizeof(buf)), hx + 28, 142, t.text);
+    if (bus) {
+        // the route's huge number with a hard pixel drop shadow in its dark shade, then where it goes
+        static const int kTitle[] = {84, 76, 68, 60, 52, 44};
+        const Font* ft = F(900, 44);
+        for (int size : kTitle) { ft = F(900, size); if (Canvas::measure(ft, hero->rec.route) <= 2 * chordHalf(58 - s) - 70) break; }
+        cv.text(ft, hero->rec.route, C + 5, 24 + 5, t.card, Align::Center);
+        cv.text(ft, hero->rec.route, C, 24, t.text, Align::Center);
+        cv.text(F(800, 17), hero->rec.name, C, 118, col::mist, Align::Center);
+        const Font* fh = F(900, 21);
+        const float hw = fminf(260, Canvas::measure(fh, hero->heading)), hx = C - (hw + 28) / 2;
+        cv.arrowCircle(hx + 10, 154, 10, t.text, col::navy);
+        cv.text(fh, Canvas::fit(fh, hero->heading, 260, buf, sizeof(buf)), hx + 28, 142, t.text);
+    } else {
+        // a train's color names its line, so the stop is the title, with the same drop shadow, then where it goes
+        static const int kTitle[] = {68, 60, 52, 44, 34};
+        const float maxT = 2 * chordHalf(74 - s) - 60;
+        const Font* ft = F(900, 34);
+        for (int size : kTitle) {
+            ft = F(900, size);
+            if (Canvas::covers(ft, hero->rec.name) && Canvas::measure(ft, hero->rec.name) <= maxT) break;
+        }
+        const char* title = Canvas::fit(ft, hero->rec.name, maxT, buf, sizeof(buf));
+        const int ty0 = 40 + (68 - ft->size) / 2;   // a smaller title sits centered in the 68 px one's space
+        cv.text(ft, title, C + 4, ty0 + 4, t.card, Align::Center);
+        cv.text(ft, title, C, ty0, t.text, Align::Center);
+        const Font* fh = F(900, 21);
+        const float hw = fminf(260, Canvas::measure(fh, hero->heading)), hx = C - (hw + 28) / 2;
+        cv.arrowCircle(hx + 10, 144, 10, t.text, col::navy);
+        cv.text(fh, Canvas::fit(fh, hero->heading, 260, buf, sizeof(buf)), hx + 28, 132, t.text);
+    }
     // departure tiles: the next one outlined in the light shade
     const int tw = 100, th2 = 112, gap = 10, x0 = C - (3 * tw + 2 * gap) / 2, ty = 182;
     for (int i = 0; i < 3 && i < hero->rec.count; ++i) {
@@ -530,9 +566,8 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
             const int R = x + w - 16;
             const int dw = cv.pixelText(big, R, y + (g.sched ? 22 : 14), g.sched ? 3 : 4, gt.text, Align::Right);
             if (!g.sched && mins > 1) cv.text(F(800, 12), "min", R - dw / 2.f, y + 46, gt.text, Align::Center);
-            cv.text(F(900, 24), mock::lineName(g.rec.route), x + 16, y + 6, gt.text);
-            cv.arrowCircle(x + 23, y + 52, 7, gt.text, gt.card);
-            cv.text(F(900, 14), Canvas::fit(F(900, 14), g.heading, w - dw - 72, buf, sizeof(buf)), x + 36, y + 43, gt.text);
+            cv.arrowCircle(x + 25, y + 36, 9, gt.text, gt.card);
+            cv.text(F(900, 21), Canvas::fit(F(900, 21), g.heading, w - dw - 72, buf, sizeof(buf)), x + 41, y + 22, gt.text);
             if (g.rec.arrivals[0].delayed) cv.chip("Delayed", x + w - dw - 96, y + 10, col::amber, 0x000000);
             cv.alpha = saved;
             y += 86;
