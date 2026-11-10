@@ -151,3 +151,23 @@ Leo's call: from round 2 on, the stress test scrolls back and forth between the 
 1. **The dim phases match round 1 under stress-v1** (43.3 against 43.6), as they should: stress-v2 changes only the scrolling and the stops.
 2. **Scrolling is cheaper and faster under stress-v2** (93.6 mA, 62.6 fps against 104.4 and 38.0). Half the time it's on the Buses tab, which has 4 cards here, so the list hardly moves and many frames change few rows. That's why v1 and v2 numbers are never compared.
 3. **Two runs agree very closely** (noise 0.0–1.5 mA). Since two runs can understate noise, rounds 2 and 3 are judged against at least the baseline's typical noise of 1.5 mA per phase: a change has to move a phase by more than 3 mA to count.
+
+## Round 2: faster requests and an 80 MHz still screen (2026-11-10), first look
+
+- **Change:** commits `5b09be1` (network) and `dd3a0af` (display), by worker 2, three review rounds with two fresh Opus xhigh reviewers each. Brief: `briefs/round-2.md`.
+  - Network:
+    - A failed DNS lookup no longer goes on to an 8 s connect to 0.0.0.0. This was the cause of the 22 s post-boot failures.
+    - TLS sessions resume per host.
+    - The clock is set from the first station's `Date` header.
+    - The CPU stays at 80 MHz during DNS and TCP waits.
+  - Display:
+    - 80 MHz between the frames of a still awake screen.
+    - Unchanged always-on frames are skipped.
+    - A tap that wakes the dim screen is drawn at once, not at the next half-second.
+    - The card cache holds 32 cards instead of 16, so tab switches don't re-render mid-slide.
+    - The row hash is cheaper.
+- **Load time on the board** (fresh flash, serial): first trains 2.3 s after Wi-Fi up (was about 12 s); everything loaded 8.5 s after Wi-Fi up (was about 18 s).
+- **Runs:** `runs/2026-11-10-r2-1.csv`, `-2.csv` (1:25–2:00 AM), no resets, every request succeeded. TLS: train connections resumed 33 of 66 times, weather and alerts about 40%, buses never (their session is too big for its slot, as the worker expected).
+- **Not yet comparable with the reference.** At 1:30 AM there were 6–8 train cards and 2 bus cards; the reference (10:56–11:35 PM) had 12 and 4. Fewer cards make scrolling and churn cheaper and faster, so these runs flatter round 2. The reference and round 2 are being rerun interleaved (reference, round 2, reference) so both see the same late-night data; the verdict follows below.
+
+Round 2 runs against the earlier reference, for the record only (`reports/r2.md`): every phase lower (dim idle 43.3 → 41.0, awake still 59.3 → 48.6, burst 84.5 → 73.5, everything 122.4 → 104.6), fps moving 62.6 → 85.9 in scroll, slowest frame 76 → 48 ms, tap→screen 20 → 15 ms, request ms down in every phase (burst 1005 → 777). Lowest free internal RAM 21.3 → 20.4 KB (inside the 2 KB allowance). Projected 46.9 h.
