@@ -41,3 +41,7 @@ Memory and fixed parts add 7 mA to every phase. All figures are model-v1 estimat
 4. **A failed request is expensive.** A hung train request keeps the radio busy for 22 s before it gives up.
 5. **Free internal RAM got as low as 21 KB** during the run (25 KB before phase 6). That's below the known 30 KB dip and a stability risk to watch, especially once BLE is added.
 6. **No resets, every phase ran on time, and every request in phases 2–7 succeeded** (87 of 87 in the network burst).
+
+## Baseline, run 2 of 3: stopped (2026-11-09)
+
+Stopped by hand at about 8:22 PM, roughly 13 minutes in (Leo's call). Run 3 was cancelled. No data was saved: the run script only wrote its CSV when a run ended. It now saves whatever it recorded when it's stopped, marked `# aborted: stopped by hand`.

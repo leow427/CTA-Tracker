@@ -12,6 +12,7 @@ import datetime
 import glob
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -106,6 +107,11 @@ def main():
         "# lines: H = column names, P = one sample a second, E = events; see the spec, section 2",
     ]
 
+    # A stopped run (Ctrl-C or a kill) still saves what it recorded, marked aborted.
+    def stopped(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stopped)
+
     with serial.Serial(port, 115200, timeout=0.5) as s:
         time.sleep(0.5)
         s.reset_input_buffer()
@@ -118,48 +124,51 @@ def main():
         phase = None
         aborted = None
         buf = b""
-        while True:
-            if time.time() - t_start > TIMEOUT_S:
-                aborted = "timeout"
-                break
-            chunk = s.read(4096)
-            if not chunk:
-                continue
-            buf += chunk
-            *lines, buf = buf.split(b"\n")
-            done = False
-            for raw in lines:
-                line = raw.decode(errors="replace").strip()
-                if line.startswith("H,"):
-                    last_h = line
+        try:
+            while True:
+                if time.time() - t_start > TIMEOUT_S:
+                    aborted = "timeout"
+                    break
+                chunk = s.read(4096)
+                if not chunk:
                     continue
-                if not (line.startswith("P,") or line.startswith("E,")):
-                    if line.startswith("reset reason") and started:
+                buf += chunk
+                *lines, buf = buf.split(b"\n")
+                done = False
+                for raw in lines:
+                    line = raw.decode(errors="replace").strip()
+                    if line.startswith("H,"):
+                        last_h = line
+                        continue
+                    if not (line.startswith("P,") or line.startswith("E,")):
+                        if line.startswith("reset reason") and started:
+                            aborted = "the board reset mid-run"
+                            done = True
+                        continue
+                    if not started:
+                        if line.startswith("E,") and f",start,{STRESS_VERSION}" in line:
+                            started = True
+                            if last_h:
+                                kept.append(last_h)
+                            kept.append(line)
+                        continue
+                    kept.append(line)
+                    if line.startswith("E,") and ",boot," in line:
                         aborted = "the board reset mid-run"
                         done = True
-                    continue
-                if not started:
-                    if line.startswith("E,") and f",start,{STRESS_VERSION}" in line:
-                        started = True
-                        if last_h:
-                            kept.append(last_h)
-                        kept.append(line)
-                    continue
-                kept.append(line)
-                if line.startswith("E,") and ",boot," in line:
-                    aborted = "the board reset mid-run"
-                    done = True
-                elif line.startswith("E,") and line.endswith(",done"):
-                    done = True
-                elif line.startswith("E,") and ",phase," in line:
-                    phase = line.rsplit(",", 1)[1]
-                    print(f"  phase {phase} at {time.time() - t_start:.0f} s", file=sys.stderr)
-            if time.time() - last_print > 60 and started:
-                last_print = time.time()
-                p = [l for l in kept if l.startswith("P,")]
-                print(f"  {len(p)} samples, phase {phase}", file=sys.stderr)
-            if done:
-                break
+                    elif line.startswith("E,") and line.endswith(",done"):
+                        done = True
+                    elif line.startswith("E,") and ",phase," in line:
+                        phase = line.rsplit(",", 1)[1]
+                        print(f"  phase {phase} at {time.time() - t_start:.0f} s", file=sys.stderr)
+                if time.time() - last_print > 60 and started:
+                    last_print = time.time()
+                    p = [l for l in kept if l.startswith("P,")]
+                    print(f"  {len(p)} samples, phase {phase}", file=sys.stderr)
+                if done:
+                    break
+        except KeyboardInterrupt:
+            aborted = "stopped by hand"
         if aborted:
             s.write(b"X\n")
 
