@@ -35,7 +35,7 @@ Memory and fixed parts add 7 mA to every phase. All figures are model-v1 estimat
 
 **Findings**
 
-1. **\*Phase 1 is not clean in this run.** The warm-up timed out after 3 minutes, because one train station's requests kept failing (12 failures, each holding the radio for 22 s before timing out). Phase 1 started while those retries were still going, so its Wi-Fi share is inflated. Cool-down (phase 7, 50.2 mA) is the clean dim-idle number for this run. The 24.8 h projection uses phase 1, so it's too low; with phase 7's dim number it would be about 37 h.
+1. **\*Phase 1 is not clean in this run.** The warm-up timed out after 3 minutes, because one train station's requests kept failing (12 failures, each holding the radio for 22 s before timing out). Phase 1 started while those retries were still going, so its Wi-Fi share is inflated. Cool-down (phase 7, 50.2 mA) is the clean dim-idle number for this run. The 24.8 h projection uses phase 1, so it's too low; with phase 7's dim number it would be about 38 h.
 2. **The CPU is the biggest cost while idle.** In dim idle the CPU is about 34 of 50 mA, though the cores are only 2–12% busy. The chip runs at 240 MHz the whole time and never light-sleeps (power management is off in this Arduino core).
 3. **Scrolling maxes out core 1** (100% busy drawing, 37 fps), and sends about 4.1 million pixels a second to the panel. That's the most expensive screen state.
 4. **A failed request is expensive.** A hung train request keeps the radio busy for 22 s before it gives up.
