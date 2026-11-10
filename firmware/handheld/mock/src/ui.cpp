@@ -117,6 +117,7 @@ struct CardView {
     bool delayed, alert, stale;
     const char* pips[3];
     int nPips;
+    char compass;
 };
 
 CardView viewOf(const Card& c, bool bus, const Model& m) {
@@ -133,7 +134,19 @@ CardView viewOf(const Card& c, bool bus, const Model& m) {
     v.stale = cta::isStale(c.rec, m.now);
     for (int i = 0; i < c.nPips; ++i) v.pips[i] = c.pips[i];
     v.nPips = c.nPips;
+    v.compass = c.compass;
     return v;
+}
+
+// The direction letter beside a card's name: a small square in the card's text color with the letter cut out of
+// it, like a route shield. Returns the room it takes, gap included (0 with no letter).
+float compassBadge(Canvas& cv, char letter, float x, float cy, int size, const Theme& t) {
+    if (!letter) return 0;
+    const uint8_t steps[1] = {1};
+    cv.fillPixelShape(static_cast<int>(x), static_cast<int>(cy) - size / 2, size, size, 2, steps, 1, t.text);
+    const char str[2] = {letter, 0};
+    cv.text(F(900, size >= 24 ? 18 : 16), str, x + size / 2.f, cy + 0.5f, t.card, Align::Center, Base::Middle);
+    return size + 8;
 }
 
 void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32_t ms, bool glyph = true) {
@@ -160,38 +173,48 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
     }
     const int L = x + 16;
     const float maxW = w - 32 - rightW - 10;
-    auto pips = [&](float px, float py) {   // the station's other lines, as small squares in their colors
+    constexpr float kPip = 14, kPipStep = kPip + 4;   // a pip and the room it takes
+    auto pips = [&](float px, float py) {   // the station's other lines, as squares in their colors
         for (int i = 0; i < c.nPips; ++i) {
             const Theme& pt = th(c.pips[i], false);
-            cv.fillRect(px, py, 10, 10, t.text);
-            cv.fillRect(px + 1.5f, py + 1.5f, 7, 7, pt.accent);
-            px += 14;
+            cv.fillRect(px, py, kPip, kPip, t.text);
+            cv.fillRect(px + 2, py + 2, kPip - 4, kPip - 4, pt.accent);
+            px += kPipStep;
         }
     };
     if (c.bus) {   // the route number, then where it goes, then the stop
         const Font* fName = F(900, 34);
-        const char* name = Canvas::fit(fName, c.route, maxW - (c.alert ? 26 : 0), buf, sizeof(buf));
+        const float badgeW = c.compass ? 24 + 8 : 0;
+        const char* name = Canvas::fit(fName, c.route, maxW - badgeW - (c.alert ? 26 : 0), buf, sizeof(buf));
         const float nw = cv.text(fName, name, L, y + 4, t.text);
-        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8), y + 16, 1, t.text);
+        const float bw = compassBadge(cv, c.compass, L + nw + 10, y + 24, 24, t);
+        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + bw), y + 16, 1, t.text);
         cv.arrowCircle(L + 8, y + 59, 8, t.text, t.card);
+        // With the letter beside the number, "South to Harlem" says only where it goes: "To Harlem".
+        const char* head = c.heading;
+        char hb[40];
+        if (c.compass)
+            if (const char* to = strstr(c.heading, " to ")) { snprintf(hb, sizeof(hb), "To %s", to + 4); head = hb; }
         const Font* fHead = F(900, 16);
-        cv.text(fHead, Canvas::fit(fHead, c.heading, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t.text);
+        cv.text(fHead, Canvas::fit(fHead, head, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t.text);
         int sx = L;
         if (c.delayed) sx += cv.chip("Delayed", L, y + 72, col::amber, 0x000000) + 6;
         const Font* fStop = F(800, 13);
-        const char* stop = Canvas::fit(fStop, c.stop, maxW + rightW - (sx - L) - c.nPips * 14 - 4, buf, sizeof(buf));
-        pips(sx + cv.text(fStop, stop, sx, y + 73, t.text) + 8, y + 76);
+        const char* stop = Canvas::fit(fStop, c.stop, maxW + rightW - (sx - L) - c.nPips * kPipStep - 4, buf, sizeof(buf));
+        pips(sx + cv.text(fStop, stop, sx, y + 73, t.text) + 8, y + 74);
     } else {       // a train's color names its line, so the stop leads, large, then where it goes
-        const float pipW = c.nPips ? c.nPips * 14 + 4 : 0;
-        const float nameW = maxW - pipW - (c.alert ? 26 : 0);
+        const float pipW = c.nPips ? c.nPips * kPipStep : 0;
+        const float badgeW = c.compass ? 20 + 8 : 0;
+        const float nameW = maxW - badgeW - pipW - (c.alert ? 26 : 0);
         const Font* fName = F(900, 24);
         static const int kSmaller[] = {21, 19};   // step down before truncating
         for (int size : kSmaller)
             if (Canvas::measure(fName, c.stop) > nameW) fName = F(900, size);
         const int ny = 15 + (24 - fName->size) * 2 / 3;
         const float nw = cv.text(fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), L, y + ny, t.text);
-        pips(L + nw + 8, y + 24);
-        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + pipW), y + 21, 1, t.text);
+        const float bw = compassBadge(cv, c.compass, L + nw + 8, y + 29, 20, t);
+        pips(L + nw + 8 + bw, y + 22);
+        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + bw + pipW), y + 21, 1, t.text);
         int hx = L;
         if (c.delayed) hx += cv.chip("Delayed", L, y + 58, col::amber, 0x000000) + 6;
         cv.arrowCircle(hx + 8, y + 67, 8, t.text, t.card);

@@ -29,6 +29,7 @@ struct Card {
     double lat, lon;
     float distKm;
     char heading[32];      // "To Kimball", "West to Harlem"
+    char compass;          // 'N', 'S', 'E' or 'W' beside the card's name, or 0 (cta::busCompass, cta::trainCompass)
     bool close;            // one of the 3 closest stops of either kind: only these may hype (spec 6.3)
 };
 

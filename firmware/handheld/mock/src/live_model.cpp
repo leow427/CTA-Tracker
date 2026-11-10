@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "compass.h"
+
 #include "mood.h"
 
 namespace mock {
@@ -74,6 +76,7 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
             if (!seen) c.pips[c.nPips++] = o.rec.route;   // points into s, which outlives this model update
         }
         snprintf(c.heading, sizeof(c.heading), "To %s", c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
+        c.compass = cta::trainCompass(c.rec.route, c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
     }
     m.nBuses = 0;
     for (int i = 0; i < s.nBuses && m.nBuses < kMaxCards; ++i) {
@@ -85,6 +88,7 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
         char dir[16];
         compass(c.rec.dir, dir, sizeof(dir));
         snprintf(c.heading, sizeof(c.heading), "%s to %s", dir, c.rec.count ? c.rec.arrivals[0].dest : "?");
+        c.compass = cta::busCompass(c.rec.dir);
     }
     // One card per route and direction, at the nearest listed stop that still has an arrival (spec 8.3): a farther
     // stop may serve a route a nearer one shows. After the countdown, so a route whose nearer card just ran out of

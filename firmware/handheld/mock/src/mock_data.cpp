@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "compass.h"
 #include "cta_config.h"
 #include "mood.h"
 #ifdef POWER_LOG
@@ -233,6 +234,7 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
                 c.lat = st.lat; c.lon = st.lon;
                 c.distKm = distKm(st.lat, st.lon);
                 snprintf(c.heading, sizeof(c.heading), "To %s", d->to[di]);
+                c.compass = cta::trainCompass(d->line, d->to[di]);
                 // The scenario's nudges, as the mockup's flags() makes them.
                 if (sc == Scenario::Worried && strcmp(d->line, "Brn") == 0) delay(c, 4);
                 if (sc == Scenario::Sad && strcmp(d->line, "Red") == 0) c.rec.alert = true;
@@ -258,6 +260,7 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
         c.lat = bs.lat; c.lon = bs.lon;
         c.distKm = distKm(bs.lat, bs.lon);
         snprintf(c.heading, sizeof(c.heading), "%s to %s", bs.compass, bs.dest);
+        c.compass = cta::busCompass(bs.compass);
         if (sc == Scenario::Worried && strcmp(bs.rt, "22") == 0) delay(c, 4);
     }
     // The 3 closest stops of either kind may hype (spec 10).

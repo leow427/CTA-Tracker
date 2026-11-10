@@ -63,8 +63,9 @@ Swipe down to go back to Home.
 
 Every card shows:
 - **The route, for buses:** "22", on top. Train cards don't name the line: the card's color does (2026-11-09).
-- **Where it ends and the way it goes.** A bus says both: "South to Harrison". A train's direction is the end of its line, so "To Kimball" says both. Where a platform's direction and a train's destination differ (Green's shared trunk), the card shows the train's destination.
-- **The stop name:** "Belmont", "Clark & Belmont". On a train card it's the largest text, on top (24 px, stepping down to 21 or 19 before it truncates), with small squares after it for the station's other lines.
+- **A direction letter:** N, S, E or W in a small square after the big name (the route number on a bus, the stop name on a train), so the way it goes reads at a glance (2026-11-10). A bus's comes from Bus Tracker ("Southbound"); a train's from a fixed table of each line's ends in `firmware/lib/cta/src/compass.cpp`, since Train Tracker gives no compass point: diagonal lines take their main heading (Blue to O'Hare is N, Orange to Midway is S) and Loop-bound trains the way they enter the Loop. An unknown destination shows no letter.
+- **Where it ends and the way it goes.** A bus card says "To Harrison", its letter giving the direction; the detail screen keeps "South to Harrison". A train's direction is the end of its line, so "To Kimball" says both. Where a platform's direction and a train's destination differ (Green's shared trunk), the card shows the train's destination.
+- **The stop name:** "Belmont", "Clark & Belmont". On a train card it's the largest text, on top (24 px, stepping down to 21 or 19 before it truncates), with squares after its direction letter for the station's other lines (14 px, in each line's color).
 - **The next arrival:** big pixel minutes, "Due" at 0–1 min, with a live mark. A timetable-only time shows as a clock time instead.
 - **Badges:** ⚠ for an alert on that route, an amber "Delayed" chip.
 
