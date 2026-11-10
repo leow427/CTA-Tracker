@@ -354,7 +354,14 @@ void pollSerial(uint32_t ms) {
 void setup() {
 #ifdef POWER_LOG
     Serial.setTxBufferSize(4096);   // the power log writes whole lines only, so a line must fit
+#else
+    Serial.setTxBufferSize(1024);   // a burst of lines (the frame stats are three writes) fits while the host reads
 #endif
+    // Never wait on USB serial. Plugged into a computer with nothing reading the port, the host stops taking data,
+    // and each print would block its task for up to 2 s (20 tries of the 100 ms default): the frame loop's stats line
+    // froze the screen for seconds on the first frame after a pause, and every 10 s while scrolling. Output nobody
+    // reads is dropped instead.
+    Serial.setTxTimeoutMs(0);
     Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
     Serial.begin(115200);
     cpuclk::begin();   // before the network task, which holds full speed through each request
@@ -541,16 +548,19 @@ void loop() {
     if (ms - statT > 10000 || statsReq) {
         statsReq = false;
         const uint32_t f = frames ? frames : 1;
-        Serial.printf("fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); ",
-                      frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W);
-        Serial.printf("scenario %s, mood %d, %d trains, %d buses, internal free %u (min %u)", mock::scenarioName(model.scenario),
-                      static_cast<int>(model.mood), model.nTrains, model.nBuses, heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+        // One write, so the line arrives whole or not at all (prints don't wait for room; see setup()).
+        static char line[384];
+        int k = snprintf(line, sizeof(line), "fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); ",
+                         frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W);
+        k += snprintf(line + k, sizeof(line) - k, "scenario %s, mood %d, %d trains, %d buses, internal free %u (min %u)",
+                      mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
+                      heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 #ifdef HANDHELD_LIVE
-        Serial.printf(", wifi %d, CTA requests %u%s%s", snap->wifiUp, static_cast<unsigned>(snap->requests),
-                      snap->status[0] ? ", " : "", snap->status);
+        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u%s%s", snap->wifiUp,
+                      static_cast<unsigned>(snap->requests), snap->status[0] ? ", " : "", snap->status);
 #endif
-        Serial.println();
+        snprintf(line + k, sizeof(line) - k, "\r\n");
+        Serial.print(line);
         frames = sumDraw = sumFrame = 0;
         sentPx = 0;
         sendUs = 0;
