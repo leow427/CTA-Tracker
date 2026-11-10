@@ -1,6 +1,6 @@
 #pragma once
-// The hash of one panel row of a strip, and the runs of rows whose hash changed (main.cpp sends only those). Plain
-// C++, so tools/frame_test.cpp checks it on a laptop.
+// The hash of one panel row of a strip (main.cpp sends only the rows whose hash changed). Plain C++, so
+// tools/frame_test.cpp checks it on a laptop.
 #include <stdint.h>
 
 // FNV-1a over a panel row's 32-bit words (n pixels, n even), in two interleaved lanes so one lane's multiply runs
@@ -25,25 +25,4 @@ inline uint32_t hashRow(const uint16_t* p, int n) {
     uint32_t h = 2166136261u;
     for (int i = 0; i < n / 2; ++i) h = (h ^ w[i]) * 16777619u;
     return h;
-}
-
-// The rows of one strip (n panel rows of `rows` pixels each, as drawn) that changed since the panel last showed it:
-// each row's hash against hashes[] (which takes the new ones), every row when `all`. Changed rows go out in runs,
-// unchanged gaps of up to mergeGap rows sent anyway to save a window, each run widened to even bounds (the CO5300
-// wants even windows). emit(r0, r1) gets each run, rows r0..r1 inclusive, first to last, as soon as it's known.
-template <typename Emit>
-inline void changedRuns(const uint16_t* strip, int rows, int n, uint32_t* hashes, bool all, int mergeGap, Emit&& emit) {
-    int runStart = -1, runEnd = -1;
-    for (int x = 0; x < n; ++x) {
-        const uint32_t h = hashRow(strip + x * rows, rows);
-        if (h == hashes[x] && !all) continue;
-        hashes[x] = h;
-        if (runStart >= 0 && x - runEnd > mergeGap) {
-            emit(runStart & ~1, runEnd | 1);
-            runStart = -1;
-        }
-        if (runStart < 0) runStart = x;
-        runEnd = x;
-    }
-    if (runStart >= 0) emit(runStart & ~1, runEnd | 1);
 }
