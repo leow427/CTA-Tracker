@@ -69,9 +69,14 @@ def fnum(r, k):
         return None
 
 
+EXCLUDE = set()   # (run file name, phase): phases known to be bad, left out of every figure
+
+
 def phase_stats(run, model):
     stats = {}
     for ph in SCORED:
+        if (run["name"], ph) in EXCLUDE:
+            continue
         s = [x for x in run["samples"] if x["phase"] == ph and x["scored"]]
         if not s:
             continue
@@ -185,6 +190,9 @@ def markdown(group, ref, model):
     if p:
         lines += ["", f"Projected battery life (typical day, 2000 mAh): **{p['hours']:.1f} h** "
                       f"at {p['avg_ma']:.1f} mA average. Model {model['version']}; every figure is an estimate."]
+    excl = [f"{n} phase {p}" for (n, p) in sorted(EXCLUDE) if any(r["name"] == n for r in group["runs"])]
+    if excl:
+        lines.append(f"Excluded (disturbed): {', '.join(excl)}.")
     aborted = [r["name"] for r in group["runs"] if r["aborted"]]
     if aborted:
         lines.append(f"Aborted runs: {', '.join(aborted)}.")
@@ -402,7 +410,12 @@ def main():
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--out", help="write the HTML report here")
     ap.add_argument("--title", default="Handheld power report")
+    ap.add_argument("--exclude", action="append", default=[], metavar="RUN.csv:PHASE",
+                    help="leave a phase of a run out (it was disturbed); say why in docs/power/log.md")
     args = ap.parse_args()
+    for e in args.exclude:
+        name, ph = e.rsplit(":", 1)
+        EXCLUDE.add((os.path.basename(name), int(ph)))
     model = load()
     runs = [read_run(p, model) for p in args.runs]
     groups = [summarize(g, model) for g in group_runs(runs)]

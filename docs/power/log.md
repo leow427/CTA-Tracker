@@ -45,3 +45,30 @@ Memory and fixed parts add 7 mA to every phase. All figures are model-v1 estimat
 ## Baseline, run 2 of 3: stopped (2026-11-09)
 
 Stopped by hand at about 8:22 PM, roughly 13 minutes in (Leo's call). Run 3 was cancelled. No data was saved: the run script only wrote its CSV when a run ended. It now saves whatever it recorded when it's stopped, marked `# aborted: stopped by hand`.
+
+## Baseline, runs 2 and 3, and the baseline result (2026-11-09)
+
+- **Runs:** `runs/2026-11-09-baseline-2.csv` and `-3.csv` (1,025 samples each, no resets, every request succeeded: 226 and 221 of them). Both ran on firmware `1aad096` without reflashing. Run 2 of the first attempt was stopped by hand and isn't among these.
+- **Report:** `reports/baseline.html`, table: `reports/baseline.md`. Per-run reports: `reports/baseline-after-run-2.*`, `-3.*`.
+- **Two phases excluded** (`--exclude`), since something other than the firmware disturbed them:
+  - Run 1, phase 1: one station's requests were failing at the start (see run 1).
+  - Run 3, phase 3: the stress test began on the screen run 2 had left, the Buses tab, so it scrolled the 5-card bus list instead of the 12-card train list. It drew up to 117 frames a second, many with nothing changed, and sent half the pixels. That's a flaw in the stress test, now fixed: `stress::start` resets to Home, the Trains tab, and both lists at the top, as a fresh boot shows (`stress.cpp`). Every measured run after this one is also flashed first, which resets it too.
+
+| Phase | Est. mA | Noise (range) | CPU busy c0/c1 % | FPS moving | Slowest frame ms | Tap→screen ms | Request ms (ok/all) |
+|---|---|---|---|---|---|---|---|
+| 1 Dim idle | 52.6 | 1.5 | 9 / 2 | – | – | – | 866 (30/30) |
+| 2 Awake, still | 57.7 | 1.5 | 10 / 4 | – | – | – | 700 (26/26) |
+| 3 Scroll | 107.9 | 4.4 | 61 / 100 | 37.3 | 86 | – | 1837 (19/19) |
+| 4 Screen churn | 65.5 | 1.7 | 18 / 23 | 37.1 | 66 | 23 (max 65) | 779 (29/29) |
+| 5 Network burst | 85.6 | 0.6 | 38 / 3 | – | – | – | 858 (261/261) |
+| 6 Everything | 123.1 | 1.5 | 65 / 70 | 47.2 | 84 | 30 (max 76) | 1343 (220/220) |
+| 7 Cool-down | 51.3 | 1.7 | 8 / 2 | – | – | – | 805 (25/25) |
+
+**Baseline projected battery life: 36.9 h** (typical day, 2000 mAh) at 54.2 mA average. Lowest free internal RAM: 21 KB.
+
+**Findings**
+
+1. **Noise is small**: within 1.7 mA for every phase except scrolling (4.4 mA). So a saving above about 3 mA in a quiet phase (about 9 mA while scrolling) is real by the spec's rule (twice the noise).
+2. **Dim idle is about 52 mA, and the CPU is about 34 of it** while 2–9% busy, confirming run 1's main finding. That's round 1's target.
+3. **Scrolling is the most expensive state the user drives** (108 mA): the drawing core is pegged at 100%.
+4. The model's numbers are unchanged by the round 1 worker's model-v2 code for these runs: re-scored, they match model-v1 exactly (they have no per-clock columns).

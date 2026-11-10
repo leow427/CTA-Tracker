@@ -32,6 +32,7 @@ constexpr int kNPhases = sizeof(kPhases) / sizeof(kPhases[0]);
 constexpr uint32_t kStillTapMs = 10000, kChurnStepMs = 1500, kMixScrollMs = 10000;
 
 bool on = false;
+bool startReset = false;   // reset the screens on the next tick (start() has no App)
 int idx = -1;          // -1: warm-up
 uint32_t phaseT0 = 0, nextAct = 0;
 int churnStep = 0;
@@ -147,6 +148,10 @@ void start(uint32_t ms) {
     on = true;
     idx = -1;
     phaseT0 = ms;
+    // Every run starts from the screen a fresh boot shows (Home, the Trains tab, both lists at the top), so a run
+    // without a reflash scrolls the same list as one with (run 3 of the baseline scrolled Buses, left over from the
+    // run before).
+    startReset = true;
     live::resetBurstCount();
     live::setBurst(false);
     plog::header();
@@ -168,6 +173,15 @@ uint8_t phase() { return on && idx >= 0 ? kPhases[idx].id : 0; }
 
 void tick(ui::App& a, mock::Model& m, uint32_t ms, bool loaded) {
     if (!on) return;
+    if (startReset) {
+        startReset = false;
+        a.view.screen = Screen::Home;
+        a.view.tab = Tab::Trains;
+        a.trans.on = false;
+        for (int t = 0; t < 2; ++t) a.scroll[t] = a.scrollTarget[t] = 0;
+        a.detailScroll = a.detailTarget = 0;
+        a.lastInput = ms;
+    }
     if (idx < 0) {   // warm-up: sit on Home until every stop is in
         if ((loaded && ms - phaseT0 > 5000) || ms - phaseT0 > kWarmMaxMs) {
             if (!loaded) plog::event("warmup_timeout");
