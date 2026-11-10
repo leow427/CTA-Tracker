@@ -4,9 +4,10 @@
 // (tools/panel_bus_stub/), which record every transaction framed by the chip select and check the driver's rules:
 // polled transactions never while queued ones are in flight, no more in flight than the queue holds, a descriptor
 // never touched while in flight, the chip select high only with nothing in flight, nothing longer than the bus takes.
-// Sends are windows like main.cpp's (even first row, odd last row; full strips, tiny runs, mixed, repeated windows),
-// with the driver taking up to 20,460 bytes per transaction as on the device, refusing every third queued one (the
-// polled fallback), and taking only 4,092 (more transactions in flight than one strip needs).
+// Sends are windows like main.cpp's (even first row, odd last row; full strips, tiny runs, mixed, repeated windows,
+// windows that differ only in height), with the driver taking up to 20,460 bytes per transaction as on the device,
+// refusing every third queued one (the polled fallback), taking only 4,092 (more transactions in flight than one
+// strip needs), and with start() left to finish the send before it.
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -O2 -Itools/panel_bus_stub -Isrc tools/panel_bus_test.cpp src/panel_bus.cpp \
 //       -o /tmp/panel_bus_test && /tmp/panel_bus_test
@@ -168,8 +169,10 @@ uint32_t rnd() {
     return s;
 }
 
+bool finishFirst = true;   // false: leave it to start(), which finishes any send still in flight itself
+
 void send(int16_t x, int r0, int r1, int16_t rows, uint16_t* strip, int& sends) {
-    panel::finish();   // as main.cpp: the send before is done first (StripSender's settle)
+    if (finishFirst) panel::finish();   // as main.cpp: the send before is done first (StripSender's settle)
     const int16_t n = static_cast<int16_t>(r1 - r0 + 1);
     panel::start(x, static_cast<int16_t>(r0), rows, n, strip + r0 * rows);
     libDraw(x, static_cast<int16_t>(r0), rows, n, strip + r0 * rows);
@@ -200,10 +203,16 @@ bool runFrames(const char* name) {
                     int r1 = (r0 + len - 1) | 1;
                     if (r1 > W - 1) r1 = W - 1;
                     send(x, r0, r1, static_cast<int16_t>(rows), buf[k], sends);
-                    if (rnd() % 5 == 0) {   // the same window again: no address commands this time
+                    const uint32_t again = rnd() % 10;
+                    if (again < 3) {
+                        // The same window again (no address commands this time), or the same first row with another
+                        // last row (only the height differs, as when one strip's change grows or shrinks).
+                        int r1b = r1;
+                        if (again == 2) r1b = r1 + 2 <= W - 1 ? r1 + 2 : r1 - 2 > r0 ? r1 - 2 : r1;
                         panel::finish();
-                        for (int i = r0 * rows; i < (r1 + 1) * rows; ++i) buf[k][i] ^= 0x5a5a;
-                        send(x, r0, r1, static_cast<int16_t>(rows), buf[k], sends);
+                        for (int i = r0 * rows; i < ((r1 > r1b ? r1 : r1b) + 1) * rows; ++i) buf[k][i] ^= 0x5a5a;
+                        send(x, r0, r1b, static_cast<int16_t>(rows), buf[k], sends);
+                        r1 = r1b;
                     }
                     r = r1 + 10 + static_cast<int>(rnd() % 60);
                 }
@@ -304,6 +313,9 @@ int main() {
     failEvery = 0;
     maxLen = 4092;
     ok = panel::begin(kCs, 80000000, 6, 0) && runFrames("4 KB transactions") && ok;
+    maxLen = 20460;
+    finishFirst = false;
+    ok = panel::begin(kCs, 80000000, 6, 0) && runFrames("start() finishing the send before it") && ok;
     if (!ok || violations) {
         printf("%d failures\n", violations);
         return 1;
