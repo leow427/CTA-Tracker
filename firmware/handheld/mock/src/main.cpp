@@ -86,13 +86,17 @@ constexpr int kMergeGap = 8;                                       // unchanged 
 
 uint16_t* stripBuf[2];            // DMA-capable internal RAM; the bus sends straight from it
 SemaphoreHandle_t stripFree[2];
-uint32_t rowHash[kStrips][W];     // per strip, per panel row (= screen column): what the panel shows
-bool sendAll = true;
+uint32_t rowHash[kStrips][W];     // per strip, per panel row (= screen column): what the panel shows (the sender's)
+bool sendAll = true;              // the loop's: the next frame sends every row
 
+// A drawn strip for the sender, which hashes its rows, sends the ones that changed, and gives the buffer back; or the
+// end of a frame (px null: apply the brightness).
 struct Job {
-    const uint16_t* px;   // nullptr: end of frame (apply the brightness)
-    int16_t x, y, w, h;   // panel window
-    int8_t release;       // the strip buffer this job finishes with, or -1
+    const uint16_t* px;   // stripBuf[buf]
+    int8_t strip;         // which strip, 0 at the top
+    int8_t buf;
+    bool all;             // send every row (the panel's content isn't known)
+    uint16_t seq;         // end of frame: the frame's number, for the power log
 };
 QueueHandle_t jobs;
 volatile uint8_t wantBrightness = kFullBrightness;
@@ -116,41 +120,64 @@ void panelInit(void*) {
     vTaskDelete(nullptr);
 }
 
+static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_hash.h's unrolled cases");
+
+// The sender, on core 0. Each strip's rows are hashed here rather than on the drawing core, which now only draws:
+// the hashing (about 1.3 ms a frame at 240 MHz) used to sit between drawing one strip and the next, and now runs
+// alongside the drawing of the next strip, and alongside the DMA of the runs already found (panel::start returns once
+// a run is queued). A strip's buffer goes back to the loop once its last run is on the panel: at once if the next
+// job hasn't come yet, else when the next strip's first run is ready to go (its rows hashed while the last run went
+// out).
 void sendTask(void*) {
     uint8_t brightnessNow = 0;
+    int held = -1;   // a strip buffer whose last run may still be going out
+    auto settle = [&]() {   // every send done (the library's always are); gives back the held buffer
+        if (panelDma) panel::finish();
+        if (held >= 0) {
+            xSemaphoreGive(stripFree[held]);
+            held = -1;
+        }
+    };
     Job j;
     for (;;) {
+        if (held >= 0 && uxQueueMessagesWaiting(jobs) == 0) settle();   // the loop is still drawing: free it now
         xQueueReceive(jobs, &j, portMAX_DELAY);
         if (j.px) {
             const uint32_t t = micros();
-            if (panelDma) {   // the same bytes as the library's call below; this task sleeps while they go out
-                panel::start(j.x, j.y, j.w, j.h, j.px);
-                panel::finish();
-            } else {
-                gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
-            }
-            sendUs += micros() - t;
-            sentPx += j.w * j.h;
+            const int s = j.strip, y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
+            // Panel window: columns [W - y0 - rows, W - y0), and the panel rows (screen columns) that changed, in runs.
+            const int16_t px = static_cast<int16_t>(W - y0 - rows);
+            bool sent = false;
+            changedRuns(j.px, rows, W, rowHash[s], j.all, kMergeGap, [&](int r0, int r1) {
+                settle();   // the run before, this strip's or the last one's, is on the panel
+                const int16_t n = static_cast<int16_t>(r1 - r0 + 1);
+                const uint16_t* p = j.px + r0 * rows;
+                if (panelDma) panel::start(px, static_cast<int16_t>(r0), static_cast<int16_t>(rows), n, p);
+                else gfx->draw16bitBeRGBBitmap(px, static_cast<int16_t>(r0), const_cast<uint16_t*>(p), rows, n);
+                sent = true;
+                sentPx += rows * n;
 #ifdef POWER_LOG
-            plog::sent(j.w * j.h);
+                plog::sent(rows * n);
 #endif
+            });
+            if (sent) held = j.buf;
+            else xSemaphoreGive(stripFree[j.buf]);   // nothing changed in this strip
+            sendUs += micros() - t;
         } else {
+            settle();   // the whole frame is on the panel
             if (wantBrightness != brightnessNow) {
                 brightnessNow = wantBrightness;
                 gfx->setBrightness(brightnessNow);
             }
 #ifdef POWER_LOG
-            plog::frameDone(static_cast<uint16_t>(j.x));   // an end-of-frame job carries the frame's number in x
+            plog::frameDone(j.seq);
 #endif
             framesSent = framesSent + 1;
         }
-        if (j.release >= 0) xSemaphoreGive(stripFree[j.release]);
     }
 }
 
-static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_hash.h's unrolled cases");
-
-// Draws the frame strip by strip and queues the changed rows. Returns the microseconds spent drawing.
+// Draws the frame strip by strip and hands each strip to the sender. Returns the microseconds spent drawing.
 uint32_t drawFrame(uint32_t ms) {
     uint32_t busy = 0;
 #ifdef POWER_LOG
@@ -160,7 +187,7 @@ uint32_t drawFrame(uint32_t ms) {
 #endif
     for (int s = 0; s < kStrips; ++s) {
         const int k = s & 1, y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
-        xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
+        xSemaphoreTake(stripFree[k], portMAX_DELAY);   // the sender is done with it
         const uint32_t t = micros();
         uint16_t* buf = stripBuf[k];
         ui::Canvas cv = ui::Canvas::panelBand(buf, W, y0, rows);
@@ -168,39 +195,18 @@ uint32_t drawFrame(uint32_t ms) {
 #ifdef POWER_LOG
         if (lit) plog::litStrip(buf, W * rows);
 #endif
-        // Panel window: columns [W - y0 - rows, W - y0), and the panel rows (screen columns) that changed, in runs.
-        const int px = W - y0 - rows;
-        int runStart = -1, runEnd = -1;
-        Job pending{nullptr, 0, 0, 0, 0, -1};
-        auto flush = [&]() {
-            if (runStart < 0) return;
-            if (pending.px) xQueueSend(jobs, &pending, portMAX_DELAY);
-            const int r0 = runStart & ~1, r1 = runEnd | 1;   // the CO5300 wants even windows
-            pending = {buf + r0 * rows, static_cast<int16_t>(px), static_cast<int16_t>(r0), static_cast<int16_t>(rows),
-                       static_cast<int16_t>(r1 - r0 + 1), -1};
-            runStart = -1;
-        };
-        for (int x = 0; x < W; ++x) {
-            const uint32_t h = hashRow(buf + x * rows, rows);
-            if (h == rowHash[s][x] && !sendAll) continue;
-            rowHash[s][x] = h;
-            if (runStart >= 0 && x - runEnd > kMergeGap) flush();
-            if (runStart < 0) runStart = x;
-            runEnd = x;
-        }
-        flush();
         busy += micros() - t;
-        if (pending.px) { pending.release = static_cast<int8_t>(k); xQueueSend(jobs, &pending, portMAX_DELAY); }
-        else xSemaphoreGive(stripFree[k]);   // nothing changed in this strip
+        const Job job{buf, static_cast<int8_t>(s), static_cast<int8_t>(k), sendAll, 0};
+        xQueueSend(jobs, &job, portMAX_DELAY);
     }
     sendAll = false;
     wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
 #ifdef POWER_LOG
     if (lit) plog::litDone();
     plog::frameQueued(frameSeq);
-    const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
+    const Job end{nullptr, -1, -1, false, frameSeq};
 #else
-    const Job end{nullptr, 0, 0, 0, 0, -1};
+    const Job end{nullptr, -1, -1, false, 0};
 #endif
     framesQueued = framesQueued + 1;
     xQueueSend(jobs, &end, portMAX_DELAY);
@@ -511,14 +517,16 @@ void loop() {
     const bool idle = !woke && ((!moving && !settling && ms / 500 == lastHalf) || (app.dim && ms - lastFrame < 250));
     static bool aodDrawn = false;   // the last frame drawn was the always-on screen
     static ui::AodKey aodShown;     // and what it showed
+    static uint32_t dimFrame = 0;   // framesQueued once the frame that dimmed to the always-on screen was queued
     const bool aod = ui::alwaysOn(app);
     // Every input of this frame is in. Full speed while a frame is due or still being sent, while anything moves, and
     // with a finger down; slow between the frames of a still screen. The dim always-on screen runs slow once it's on
-    // the panel; the frame that dims to it is drawn at full speed, so the full-brightness moment before the dimmed
-    // brightness applies (at the end of the frame) lasts as long as before. The profile runs at full speed so its
-    // times compare with the README's (and its cycle counts convert at 240 MHz).
+    // the panel; the frame that dims to it is drawn and sent at full speed (the sender hashes its last strips after
+    // the loop has drawn them), so the full-brightness moment before the dimmed brightness applies (at the end of the
+    // frame) lasts no longer than before. The profile runs at full speed so its times compare with the README's (and
+    // its cycle counts convert at 240 MHz).
     bool fast = app.drag.down || autoScrollUntil != 0 || profileReq;
-    if (aod) fast = fast || !aodDrawn;
+    if (aod) fast = fast || !aodDrawn || static_cast<int32_t>(framesSent - dimFrame) < 0;
     else fast = fast || moving || !idle || framesSent != framesQueued;
     fullSpeed(fast);
     if (profileReq) { profileReq = false; profile(ms); }
@@ -562,6 +570,7 @@ void loop() {
     const uint32_t t0 = micros();
     sumDraw += drawFrame(ms);
     sumFrame += micros() - t0;
+    if (aod && !aodDrawn) dimFrame = framesQueued;
     aodDrawn = aod;
     if (aod) aodShown = ui::aodKey(app, model, ms);
     shownDim = app.dim;

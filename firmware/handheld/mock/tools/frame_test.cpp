@@ -5,7 +5,9 @@
 //     renders none while it slides (the 16 entries before didn't hold both tabs, so slides rendered cards);
 //   - the dim always-on screen: two frames with the same ui::AodKey are the same pixels at the same brightness, so
 //     skipping the second (main.cpp) shows nothing different;
-//   - the row hash (row_hash.h): a row that changes in any one word always hashes differently.
+//   - the row hash (row_hash.h): a row that changes in any one word always hashes differently;
+//   - the changed rows (row_hash.h's changedRuns, run on the sender since round 3): the same runs as the loop that
+//     found them on the drawing core before, and sending just those leaves the panel showing every frame.
 // Frames are drawn through the device's strip path (48-row strips in the panel's layout).
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -O2 -Isrc -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/frame_test.cpp \
@@ -263,10 +265,99 @@ void testRowHash() {
     printf("row hash: %d one-word changes, %d missed\n", flips, missed);
 }
 
+// ---------- the changed rows (row_hash.h's changedRuns, which the sender runs since round 3) ----------
+
+// The loop that found the changed rows on the drawing core before round 3 (main.cpp's drawFrame), for comparison.
+void oldRuns(const uint16_t* buf, int rows, uint32_t* hashes, bool all, std::vector<std::pair<int, int>>& out) {
+    int runStart = -1, runEnd = -1;
+    auto flush = [&]() {
+        if (runStart < 0) return;
+        out.push_back({runStart & ~1, runEnd | 1});
+        runStart = -1;
+    };
+    for (int x = 0; x < ui::W; ++x) {
+        const uint32_t h = hashRow(buf + x * rows, rows);
+        if (h == hashes[x] && !all) continue;
+        hashes[x] = h;
+        if (runStart >= 0 && x - runEnd > 8) flush();
+        if (runStart < 0) runStart = x;
+        runEnd = x;
+    }
+    flush();
+}
+
+// Frames through the strips as the device draws them: a Stops list scrolling with tab switches, coming to rest,
+// dimming, and the always-on screen, with every row resent once midway (as after the "p" profile). Each strip's runs
+// must be the old loop's, and copying just those rows onto a model of the panel must leave it showing the frame.
+void testChangedRuns() {
+    constexpr int kRows = 48, kStrips = (ui::W + kRows - 1) / kRows;
+    static uint16_t strip[ui::W * kRows];
+    static uint16_t panel[kStrips][ui::W * kRows];   // what the panel shows, strip by strip, in the strips' layout
+    static uint32_t hNew[kStrips][ui::W], hOld[kStrips][ui::W];
+    memset(hNew, 0, sizeof(hNew));
+    memset(hOld, 0, sizeof(hOld));
+    static mock::Model m;
+    m = mock::Model();
+    m.scenario = mock::Scenario::Live;
+    mock::update(m, kStart, kStart);
+    ui::App a;
+    ui::init(a, 1000);
+    a.view.screen = ui::Screen::Stops;
+    int frames = 0, runs = 0, wrongRuns = 0, wrongPanel = 0, aodFrames = 0;
+    long rowsSent = 0;
+    uint32_t lastData = 1000;
+    for (uint32_t ms = 1000; ms < 70000; ms += 30) {
+        if (ms - lastData >= 1000) {
+            lastData = ms;
+            mock::update(m, kStart + (ms - 1000) / 1000, kStart);
+        }
+        const int t = static_cast<int>(a.view.tab);
+        if (ms < 20000 && !a.trans.on) {   // scrolling, with a tap on the other tab every 6 s
+            if (ms % 6000 < 30) {
+                const float x = a.view.tab == ui::Tab::Trains ? 350 : 116;
+                ui::pointerDown(a, m, x, 50, ms - 40);
+                ui::pointerUp(a, m, x, 50, ms);
+            } else {
+                a.scrollTarget[t] = 560 + 400 * sinf(ms / 700.f);
+                a.lastInput = ms;
+            }
+        } else if (ms < 20030) {
+            a.scrollTarget[t] = ui::kRow * roundf(a.scrollTarget[t] / ui::kRow);   // then no input: rest, dim, Home
+        }
+        ui::tick(a, m, ms);
+        const bool all = frames == 0 || ms == 25000;
+        for (int s = 0; s < kStrips; ++s) {
+            const int y0 = s * kRows, rows = y0 + kRows <= ui::W ? kRows : ui::W - y0;
+            ui::Canvas cv = ui::Canvas::panelBand(strip, ui::W, y0, rows);
+            ui::draw(cv, a, m, ms, scratch);
+            std::vector<std::pair<int, int>> got, want;
+            changedRuns(strip, rows, ui::W, hNew[s], all, 8, [&](int r0, int r1) {
+                got.push_back({r0, r1});
+                memcpy(panel[s] + r0 * rows, strip + r0 * rows, static_cast<size_t>(r1 - r0 + 1) * rows * 2);
+                rowsSent += r1 - r0 + 1;
+            });
+            oldRuns(strip, rows, hOld[s], all, want);
+            runs += static_cast<int>(got.size());
+            if (got != want && ++wrongRuns <= 3) printf("FAIL: strip %d at %u ms: runs differ from the old loop\n", s, ms);
+            if (memcmp(panel[s], strip, static_cast<size_t>(ui::W) * rows * 2) != 0 && ++wrongPanel <= 3)
+                printf("FAIL: strip %d at %u ms: the panel doesn't show the frame\n", s, ms);
+        }
+        ++frames;
+        if (ui::alwaysOn(a)) ++aodFrames;
+    }
+    CHECK(wrongRuns == 0);
+    CHECK(wrongPanel == 0);
+    CHECK(aodFrames > 100);
+    printf("changed rows: %d frames (%d always-on), %d runs, %ld panel rows sent of %d, %d differ from the old loop, %d "
+           "frames wrong on the panel\n", frames, aodFrames, runs, rowsSent, frames * kStrips * ui::W, wrongRuns,
+           wrongPanel);
+}
+
 }  // namespace
 
 int main() {
     testRowHash();
+    testChangedRuns();
     testAodKey();
     testCardCache();
     if (failures) {
