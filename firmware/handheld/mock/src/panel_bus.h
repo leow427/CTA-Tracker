@@ -8,10 +8,13 @@
 // across them as the library does, and the task blocked on the driver's interrupt instead of spinning.
 //
 // The library's bus has to be in shared mode (Arduino_ESP32QSPI's is_shared_interface), so it doesn't keep the bus to
-// itself; the library still sets the panel up and sets the brightness. Only one task may use the bus: start(),
-// finish() and the library's calls all run on the sender, so a library call never meets a send in flight. begin()
-// must run on that task too, after gfx->begin(): the SPI driver's interrupt is set up on the core that initialised
-// the bus, so the sender's core takes it.
+// itself; the library still sets the panel up and sets the brightness. Only one task may use the bus at a time:
+// after set-up, start(), finish() and the library's calls all run on the sender, which calls the library only after
+// finish(), so a library call never meets a send in flight. gfx->begin() initialises the bus, and the SPI driver
+// puts its interrupt on the core that does, so main.cpp runs it, and begin() after it, from a task on core 0, the
+// sender's core.
+//
+// tools/panel_bus_test.cpp checks the wire against the library's on a laptop.
 #include <stdint.h>
 
 namespace panel {

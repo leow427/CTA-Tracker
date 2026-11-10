@@ -19,6 +19,7 @@
 #include "mock_data.h"
 #include "panel_bus.h"
 #include "row_hash.h"
+#include "strip_send.h"
 #include "touch_filter.h"
 #include "ui.h"
 #ifdef HANDHELD_LIVE
@@ -124,47 +125,38 @@ static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_has
 
 // The sender, on core 0. Each strip's rows are hashed here rather than on the drawing core, which now only draws:
 // the hashing (about 1.3 ms a frame at 240 MHz) used to sit between drawing one strip and the next, and now runs
-// alongside the drawing of the next strip, and alongside the DMA of the runs already found (panel::start returns once
-// a run is queued). A strip's buffer goes back to the loop once its last run is on the panel: at once if the next
-// job hasn't come yet, else when the next strip's first run is ready to go (its rows hashed while the last run went
-// out).
+// alongside the drawing of the next strip, and, when the next strip is already waiting, alongside the DMA of the
+// strip before (panel::start returns once a run is queued). When a strip's buffer goes back to the loop is
+// strip_send.h's StripSender (checked on a laptop by tools/frame_test.cpp).
 void sendTask(void*) {
     uint8_t brightnessNow = 0;
-    int held = -1;   // a strip buffer whose last run may still be going out
-    auto settle = [&]() {   // every send done (the library's always are); gives back the held buffer
+    auto finish = []() {   // the library's sends are done when they return
         if (panelDma) panel::finish();
-        if (held >= 0) {
-            xSemaphoreGive(stripFree[held]);
-            held = -1;
-        }
     };
+    auto give = [](int buf) { xSemaphoreGive(stripFree[buf]); };
+    StripSender out(finish, give);
     Job j;
     for (;;) {
-        if (held >= 0 && uxQueueMessagesWaiting(jobs) == 0) settle();   // the loop is still drawing: free it now
+        out.beforeWait(uxQueueMessagesWaiting(jobs) != 0);
         xQueueReceive(jobs, &j, portMAX_DELAY);
         if (j.px) {
             const uint32_t t = micros();
             const int s = j.strip, y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
             // Panel window: columns [W - y0 - rows, W - y0), and the panel rows (screen columns) that changed, in runs.
             const int16_t px = static_cast<int16_t>(W - y0 - rows);
-            bool sent = false;
-            changedRuns(j.px, rows, W, rowHash[s], j.all, kMergeGap, [&](int r0, int r1) {
-                settle();   // the run before, this strip's or the last one's, is on the panel
+            out.strip(j.px, rows, W, rowHash[s], j.all, kMergeGap, j.buf, [&](int r0, int r1) {
                 const int16_t n = static_cast<int16_t>(r1 - r0 + 1);
                 const uint16_t* p = j.px + r0 * rows;
                 if (panelDma) panel::start(px, static_cast<int16_t>(r0), static_cast<int16_t>(rows), n, p);
                 else gfx->draw16bitBeRGBBitmap(px, static_cast<int16_t>(r0), const_cast<uint16_t*>(p), rows, n);
-                sent = true;
                 sentPx += rows * n;
 #ifdef POWER_LOG
                 plog::sent(rows * n);
 #endif
             });
-            if (sent) held = j.buf;
-            else xSemaphoreGive(stripFree[j.buf]);   // nothing changed in this strip
             sendUs += micros() - t;
         } else {
-            settle();   // the whole frame is on the panel
+            out.frameEnd();   // the whole frame is on the panel, both buffers back
             if (wantBrightness != brightnessNow) {
                 brightnessNow = wantBrightness;
                 gfx->setBrightness(brightnessNow);

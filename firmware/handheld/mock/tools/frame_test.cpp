@@ -7,7 +7,10 @@
 //     skipping the second (main.cpp) shows nothing different;
 //   - the row hash (row_hash.h): a row that changes in any one word always hashes differently;
 //   - the changed rows (row_hash.h's changedRuns, run on the sender since round 3): the same runs as the loop that
-//     found them on the drawing core before, and sending just those leaves the panel showing every frame.
+//     found them on the drawing core before, and sending just those leaves the panel showing every frame;
+//   - the sender's strip buffers (strip_send.h): against a model of the loop and the DMA, interleaved at random, a
+//     buffer is never drawn over while the sender has it or the DMA reads it, always comes back, and nothing
+//     deadlocks.
 // Frames are drawn through the device's strip path (48-row strips in the panel's layout).
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -O2 -Isrc -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/frame_test.cpp \
@@ -24,6 +27,7 @@
 
 #include "mock_data.h"
 #include "row_hash.h"
+#include "strip_send.h"
 #include "ui.h"
 
 namespace {
@@ -353,11 +357,168 @@ void testChangedRuns() {
            wrongPanel);
 }
 
+// ---------- the sender's buffers (strip_send.h's StripSender, as main.cpp's sendTask runs it) ----------
+
+// The loop, the sender and the DMA as three actors sharing the two strip buffers, interleaved at random (the DMA
+// finishes a send whenever it gets a turn, or when the sender waits for it). The loop draws each strip into buffer
+// strip & 1 once it's back, queues it, ends each frame with an end-of-frame job, and every few frames takes both
+// buffers, as the "p" profile does, then has the next frame send every row. Checks: the loop never draws into a buffer
+// the sender has or the DMA still reads; each buffer comes back exactly once each time the loop hands it over;
+// nothing deadlocks; and when the sender ends a frame, the panel shows that frame.
+namespace sendsim {
+
+constexpr int kRows = 8, kN = 64, kStrips = 5, kFrames = 40, kGap = 3;
+enum class Owner : uint8_t { Free, Loop, Sender };
+Owner owner[2];
+uint16_t buf[2][kRows * kN];
+uint16_t panel[kStrips][kRows * kN];
+uint32_t hashes[kStrips][kN];
+struct { bool on; int b, strip, r0, r1; } dma;
+struct Job { int frame, strip, b; bool all, end; };
+std::vector<Job> queue;   // FIFO
+int violations = 0;
+uint32_t rng = 1;
+
+uint32_t next() {
+    rng = rng * 1664525u + 1013904223u;
+    return rng >> 8;
+}
+
+void violation(const char* what, int seed) {
+    if (++violations <= 5) printf("FAIL: sender buffers, seed %d: %s\n", seed, what);
+}
+
+// A strip's pixels in a frame: rows change at different rates, some never, and every 4th frame the even strips don't
+// change at all (a strip with nothing to send).
+uint16_t pixel(int f, int s, int x, int i) {
+    if (f % 4 == 3 && s % 2 == 0) --f;
+    const int period = 1 + (x * 7 + s) % 5;
+    const uint32_t epoch = x % 9 == 0 ? 0 : static_cast<uint32_t>(f / period);
+    uint32_t h = (epoch * 2654435761u) ^ (static_cast<uint32_t>(s) * 40503u) ^ (static_cast<uint32_t>(x) << 16) ^
+                 static_cast<uint32_t>(i);
+    h ^= h >> 13;
+    h *= 0x5bd1e995u;
+    return static_cast<uint16_t>(h ^ (h >> 15));
+}
+
+void completeDma() {
+    if (!dma.on) return;
+    memcpy(panel[dma.strip] + dma.r0 * kRows, buf[dma.b] + dma.r0 * kRows,
+           static_cast<size_t>(dma.r1 - dma.r0 + 1) * kRows * 2);
+    dma.on = false;
+}
+
+void run(int seed) {
+    rng = static_cast<uint32_t>(seed) * 2654435761u + 1;
+    owner[0] = owner[1] = Owner::Free;
+    memset(panel, 0, sizeof(panel));
+    memset(hashes, 0, sizeof(hashes));
+    dma.on = false;
+    queue.clear();
+    auto finish = []() { completeDma(); };
+    auto give = [seed](int b) {
+        if (owner[b] != Owner::Sender) violation("a buffer given back that the sender didn't have", seed);
+        if (dma.on && dma.b == b) violation("a buffer given back while the DMA still reads it", seed);
+        owner[b] = Owner::Free;
+    };
+    StripSender out(finish, give);
+    // The loop's program: each frame's strips, its end, and every 7th frame a profile (both buffers taken, then given).
+    struct Step { int kind, frame, strip; };   // 0 draw, 1 end, 2 take buffer `strip`, 3 give both back
+    std::vector<Step> prog;
+    for (int f = 0; f < kFrames; ++f) {
+        for (int s = 0; s < kStrips; ++s) prog.push_back({0, f, s});
+        prog.push_back({1, f, 0});
+        if (f % 7 == 6) prog.insert(prog.end(), {{2, f, 0}, {2, f, 1}, {3, f, 0}});
+    }
+    size_t pc = 0;
+    bool sendAll = true, check = true;   // check: the sender looks at the queue before it waits
+    int doneFrames = 0;
+    for (int guard = 0; guard < 1000000; ++guard) {
+        const bool loopDone = pc == prog.size();
+        bool loopCan = false;
+        if (!loopDone) {
+            const Step& st = prog[pc];
+            loopCan = st.kind == 0 ? owner[st.strip & 1] == Owner::Free : st.kind == 2 ? owner[st.strip] == Owner::Free : true;
+        }
+        const bool senderCan = check || !queue.empty();
+        if (loopDone && queue.empty() && !dma.on) break;
+        if (!loopCan && !senderCan && !dma.on) {
+            violation("deadlock: the loop waits for a buffer and the sender for a job", seed);
+            return;
+        }
+        const uint32_t pick = next() % 3;
+        if (pick == 0 && loopCan) {
+            const Step st = prog[pc++];
+            if (st.kind == 0) {
+                const int b = st.strip & 1;
+                if (dma.on && dma.b == b) violation("the loop drew into a buffer the DMA still reads", seed);
+                owner[b] = Owner::Loop;
+                for (int x = 0; x < kN; ++x)
+                    for (int i = 0; i < kRows; ++i) buf[b][x * kRows + i] = pixel(st.frame, st.strip, x, i);
+                owner[b] = Owner::Sender;
+                queue.push_back({st.frame, st.strip, b, sendAll, false});
+            } else if (st.kind == 1) {
+                sendAll = false;
+                queue.push_back({st.frame, 0, -1, false, true});
+            } else if (st.kind == 2) {
+                owner[st.strip] = Owner::Loop;
+            } else {
+                owner[0] = owner[1] = Owner::Free;
+                sendAll = true;
+            }
+        } else if (pick == 1 && senderCan) {
+            if (check) {
+                out.beforeWait(!queue.empty());
+                check = false;
+                continue;
+            }
+            const Job j = queue.front();
+            queue.erase(queue.begin());
+            check = true;
+            if (j.end) {
+                out.frameEnd();
+                if (dma.on) violation("a frame ended with a send still going out", seed);
+                for (int s = 0; s < kStrips; ++s)
+                    for (int x = 0; x < kN; ++x)
+                        for (int i = 0; i < kRows; ++i)
+                            if (panel[s][x * kRows + i] != pixel(j.frame, s, x, i)) {
+                                violation("the panel doesn't show the frame at its end", seed);
+                                s = kStrips;
+                                x = kN;
+                                break;
+                            }
+                ++doneFrames;
+                continue;
+            }
+            if (owner[j.b] != Owner::Sender) violation("the sender got a buffer it doesn't have", seed);
+            out.strip(buf[j.b], kRows, kN, hashes[j.strip], j.all, kGap, j.b, [&](int r0, int r1) {
+                if (dma.on) violation("a send started before the one before it was done", seed);
+                dma = {true, j.b, j.strip, r0, r1};
+            });
+        } else if (pick == 2) {
+            completeDma();
+        }
+    }
+    if (doneFrames != kFrames) violation("not every frame ended", seed);
+    if (owner[0] != Owner::Free || owner[1] != Owner::Free) violation("a buffer never came back", seed);
+}
+
+}  // namespace sendsim
+
+void testStripSender() {
+    constexpr int kSeeds = 400;
+    for (int seed = 0; seed < kSeeds; ++seed) sendsim::run(seed);
+    CHECK(sendsim::violations == 0);
+    printf("sender buffers: %d random interleavings of %d frames, %d problems\n", kSeeds, sendsim::kFrames,
+           sendsim::violations);
+}
+
 }  // namespace
 
 int main() {
     testRowHash();
     testChangedRuns();
+    testStripSender();
     testAodKey();
     testCardCache();
     if (failures) {
