@@ -73,6 +73,22 @@ struct BusParseTests {
         #expect(p[0].at == now)
     }
 
+    // Redesign revision 3: tmstmp is the bus's last report (minute precision), so CTA's own countdown wins.
+    @Test func numericCountdownBeatsTheTimestamps() throws {
+        let p = try BusParse.predictions(prd(#""prdtm":"20261105 08:09","prdctdn":"5","dly":false"#), fetched: now)
+        #expect(p[0].at == now.addingTimeInterval(5 * 60 + 30))
+        #expect(ArrivalFormat.minutes(until: p[0].at, now: now) == 5)
+    }
+
+    @Test func negativeCountdownIsDropped() throws {
+        #expect(try BusParse.predictions(prd(#""prdtm":"20261105 07:49","prdctdn":"-11","dly":false"#), fetched: now).isEmpty)
+    }
+
+    @Test func dlyFallsBackToTheTimestamps() throws {
+        let p = try BusParse.predictions(prd(#""prdtm":"20261105 08:15","prdctdn":"DLY","dly":false"#), fetched: now)
+        #expect(p[0].at == now.addingTimeInterval(15 * 60))
+    }
+
     @Test func errorNamingOnlyAPatternIsEmpty() throws {
         let json = #"{"bustime-response":{"error":[{"pid":"100","msg":"No data found for parameter"}]}}"#
         #expect(try BusParse.patterns(Data(json.utf8)).isEmpty)

@@ -32,6 +32,8 @@ import SwiftUI
     var detailHero: DetailHero?
     /// The red × over the map bumps this; the list pops its detail.
     var closeDetail = 0
+    /// A stop icon tapped on the map; the list opens its detail and clears this.
+    var openStop: String?
 
     init() {
         let url = Bundle.main.url(forResource: "stops", withExtension: "json")
@@ -54,6 +56,9 @@ import SwiftUI
     var allFavoriteSlots: [Slot] {
         index.map { CardBuilder.resolved(favorites: favorites, center: center, index: $0) } ?? []
     }
+
+    /// Every L station, for the map's icons.
+    @ObservationIgnored private(set) lazy var stations: [Stop] = index?.stops.filter { $0.kind == .station } ?? []
 
     /// Stop names folded once for search.
     @ObservationIgnored private(set) lazy var search: StopSearch.Index? = index.map { StopSearch.Index($0) }

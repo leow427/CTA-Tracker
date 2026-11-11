@@ -2,12 +2,17 @@ import Foundation
 
 /// Bus Tracker v2 responses (`format=json`).
 public enum BusParse {
-    /// One prediction per `prd`, timed from `fetched` plus `prdtm − tmstmp`. "DUE" is `fetched`; "DLY" is delayed.
+    /// One prediction per `prd`, timed from `fetched` plus CTA's countdown `prdctdn` (+30 s to center the whole
+    /// minute); `tmstmp` is only the bus's last report, to the minute (redesign revision 3). "DUE" is `fetched`,
+    /// a negative countdown has left, and "DLY" falls back to `prdtm − tmstmp` and is delayed.
     /// No predictions at a stop is an empty list; an error not tied to a stop or route (bad key, limit) throws.
     public static func predictions(_ data: Data, fetched: Date) throws -> [Prediction] {
         try list(data, \.prd).compactMap { p in
-            guard let at = p.prdctdn == "DUE" ? fetched : CTATime.at(p.prdtm, responseTime: p.tmstmp, fetched: fetched)
-            else { return nil }
+            let at: Date?
+            if p.prdctdn == "DUE" { at = fetched }
+            else if let n = Int(p.prdctdn) { at = n < 0 ? nil : fetched.addingTimeInterval(Double(n) * 60 + 30) }
+            else { at = CTATime.at(p.prdtm, responseTime: p.tmstmp, fetched: fetched) }
+            guard let at else { return nil }
             return Prediction(stopID: p.stpid, route: p.rt, dir: p.rtdir, dest: p.des, at: at,
                               live: true, delayed: p.dly || p.prdctdn == "DLY")
         }

@@ -29,9 +29,11 @@ enum Theme {
     /// Hairlines between rows.
     static let hairline = Color.white.opacity(0.08)
     /// Headlight yellow, the pixel pet's yellow: the app's signature color (search bar, active controls).
-    static let headlight = Color(rgb: 0xFFD95A)
+    static let headlightRGB: UInt32 = 0xFFD95A
+    static let headlight = Color(rgb: headlightRGB)
     /// The pet avatar's backdrop.
-    static let cream = Color(rgb: 0xF4ECC8)
+    static let creamRGB: UInt32 = 0xF4ECC8
+    static let cream = Color(rgb: creamRGB)
     /// The live glyph off the line colors.
     static let signal = Color(rgb: 0x34C759)
 

@@ -33,6 +33,8 @@ struct CardList: View {
                                 }
                                 .padding(.bottom, Theme.Space.xl)
                                 .frame(maxWidth: .infinity, minHeight: metrics.full, alignment: .top)
+                                // Search results sit on solid navy so they read over the map (revision 3).
+                                .background { if showingSearch { Theme.navy } }
                                 // With no panel behind the pinned search bar, cards end at its bottom edge, so none
                                 // peeks through its pixel corners.
                                 .mask(alignment: .top) {
@@ -85,6 +87,7 @@ struct CardList: View {
         .onChange(of: model.location.denied) { track() }
         .onChange(of: path) { opened() }
         .onChange(of: model.closeDetail) { if !path.isEmpty { path.removeLast() } }   // the red × over the map
+        .onChange(of: model.openStop) { openTapped() }
         // Polls only while the list is on screen: the app is active and nothing covers it (app spec 4.4).
         .onChange(of: scenePhase, initial: true) { updatePolling() }
         .onChange(of: model.showSettings) { updatePolling() }
@@ -99,12 +102,15 @@ struct CardList: View {
             .padding(.bottom, Theme.Space.s)
     }
 
+    /// Search shows while typing, or while focused with favorites to list: all of them, past the ★ section's 3
+    /// (app spec 2, 3: "favorites first, then matches").
+    private var showingSearch: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty || (searching && !model.allFavoriteSlots.isEmpty)
+    }
+
     @ViewBuilder private func content(now: Date) -> some View {
         let slots = model.slots
-        let typed = !query.trimmingCharacters(in: .whitespaces).isEmpty
-        // Search shows while typing, or while focused with favorites to list: all of them, past the ★ section's 3
-        // (app spec 2, 3: "favorites first, then matches").
-        if let search = model.search, typed || (searching && !model.allFavoriteSlots.isEmpty) {
+        if let search = model.search, showingSearch {
             // All favorites match here, not just the ★ section's 3 (app spec 2).
             searchResults(StopSearch.results(query, center: model.center, favorites: model.allFavoriteSlots,
                                              kinds: model.filter.kinds, index: search), now: now)
@@ -154,9 +160,24 @@ struct CardList: View {
         }
     }
 
+    /// A stop icon tapped on the map opens its detail, on the listed card's line when it has one (revision 3).
+    private func openTapped() {
+        guard let id = model.openStop else { return }
+        model.openStop = nil
+        guard path.last?.stopID != id else { return }   // already open
+        // Only cards on screen count: with location off, nearby is hidden.
+        let shown = model.slots.favorites + (model.location.denied ? [] : model.slots.nearby)
+        let listed = shown.first { $0.fetchID == id }
+        let route = DetailRoute(stopID: id, tapped: listed?.line, source: listed?.id ?? id)
+        if path.last != route { path = [route] }
+    }
+
     /// Opening detail: the map centers on the stop, and only that stop is polled.
     private func opened() {
         model.detailStop = path.last.flatMap { model.index?.stop(id: $0.stopID) }
+        // Cleared here, not in detail's onDisappear: swapping one stop for another (a map tap) appears the new
+        // page before the old one disappears, which would erase the new page's hero.
+        if path.isEmpty { model.detailHero = nil }
         track()
     }
 

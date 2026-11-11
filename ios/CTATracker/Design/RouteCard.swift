@@ -2,8 +2,9 @@ import CTAKit
 import SwiftUI
 
 /// One route and direction as a card in its line's color (redesign revision 2): a darker shade of the line as the
-/// raised pixel plate, a lighter shade for all its text. A huge route number, "→ destination" and the stop under it,
-/// and big pixel minutes on the right.
+/// raised pixel plate, a lighter shade for all its text, and big pixel minutes on the right. A bus leads with its
+/// huge route number, then "→ destination" and the stop; a train leads with its stop name, then "→ destination",
+/// since its color names the line (revision 3).
 struct RouteCard: View {
     let line: Line
     let kind: Kind
@@ -18,6 +19,7 @@ struct RouteCard: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var routeSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .largeTitle) private var stationSize: CGFloat = 34
 
     private var next: Prediction? { predictions.first }
     private var later: [Prediction] { Array(predictions.dropFirst().prefix(2)) }
@@ -36,9 +38,15 @@ struct RouteCard: View {
             layout {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top, spacing: Theme.Space.s) {
-                        Text(kind == .bus ? line.route : Self.shortName(line))
-                            .font(.system(size: routeSize, weight: .heavy, design: .rounded)).tracking(-1)
-                            .lineLimit(1).minimumScaleFactor(0.5)
+                        if kind == .bus {
+                            Text(line.route)
+                                .font(.system(size: routeSize, weight: .heavy, design: .rounded)).tracking(-1)
+                                .lineLimit(1).minimumScaleFactor(0.5)
+                        } else {
+                            Text(stopName)
+                                .font(.system(size: stationSize, weight: .heavy, design: .rounded))
+                                .lineLimit(typeSize.isAccessibilitySize ? nil : 2).minimumScaleFactor(0.7)
+                        }
                         if alert { GlyphIcon(image: Glyphs.alert).padding(.top, Theme.Space.m) }
                     }
                     Label {
@@ -49,8 +57,10 @@ struct RouteCard: View {
                     .font(Theme.rounded(.title2, .bold))
                     .labelStyle(TightLabel())
                     .lineLimit(2)
-                    Text(stopName).font(Theme.rounded(.headline, .semibold))
-                        .padding(.top, 2)
+                    if kind == .bus {
+                        Text(stopName).font(Theme.rounded(.headline, .semibold))
+                            .padding(.top, 2)
+                    }
                 }
                 if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
                 ArrivalView(next: next, night: night, unknown: unknown, fresh: freshness == .fresh, now: now)
@@ -97,11 +107,6 @@ extension RouteCard {
         guard kind == .bus, line.dir.hasSuffix("bound"), dest != nil else { return to }
         return "\(line.dir.dropLast(5)) to \(to)"
     }
-
-    /// "Blue", "Brown", "Purple": a train line's name without " Line".
-    static func shortName(_ line: Line) -> String {
-        (LineColors.train(line.route)?.name ?? line.route).replacingOccurrences(of: " Line", with: "")
-    }
 }
 
 /// Icon and title with the kit's 8 pt gap, on the first line's baseline.
@@ -133,7 +138,7 @@ private struct ArrivalView: View {
     private var parts: (big: String, unit: String?)? {
         guard let p = next else { return nil }
         let m = ArrivalFormat.minutes(until: p.at, now: now)
-        return p.live && m >= 1 ? ("\(m)", "minutes") : (ArrivalFormat.label(p, now: now), nil)
+        return p.live && m >= 1 ? ("\(m)", m == 1 ? "minute" : "minutes") : (ArrivalFormat.label(p, now: now), nil)
     }
 
     var body: some View {

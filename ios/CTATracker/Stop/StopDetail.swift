@@ -9,9 +9,9 @@ struct DetailRoute: Hashable {
     let source: String
 }
 
-/// Stop detail over the map (app spec 5.1): the map frames the stop with the line's huge number over it
-/// (`DetailHeroView`); the navy page under it has "→ destination", a row of big departure tiles, the chips,
-/// the alerts, and the stop's other lines, each as a card in its own color.
+/// Stop detail over the map (app spec 5.1): the map frames the stop (a bus's huge number over it, `DetailHeroView`),
+/// washed into the line's dark shade toward the bottom (`MapScreen.wash`). On the wash: "→ destination" and the stop,
+/// a row of big departure tiles, the chips, the alerts, and the stop's other lines, each as a card in its color.
 struct StopDetail: View {
     let route: DetailRoute
     @Environment(AppModel.self) private var model
@@ -29,7 +29,6 @@ struct StopDetail: View {
             .toolbar(.hidden, for: .navigationBar)   // the red × over the map closes it
             .sensoryFeedback(.selection, trigger: chosen)   // set from the start, so only a group tap changes it
             .onChange(of: chosen, initial: true) { hero(stop, chosen: chosen) }
-            .onDisappear { model.detailHero = nil }
         } else {
             EmptyState(title: "No arrivals")
         }
@@ -60,18 +59,22 @@ struct StopDetail: View {
                         Label { Text(RouteCard.heading(top.line, kind: top.kind, dest: top.arrivals.first?.dest)) }
                             icon: { Image(systemName: "arrow.right.circle.fill") }
                             .font(Theme.rounded(.title, .heavy))
-                            .foregroundStyle(Color.cardText(top.line.route))
-                        Text(stop.name).font(Theme.rounded(.headline, .semibold)).foregroundStyle(Theme.mist)
+                        Text(stop.name).font(Theme.rounded(.headline, .semibold))
                     }
+                    .foregroundStyle(Color.cardText(top.line.route))
+                    .shadow(color: .black.opacity(0.6), radius: 6)   // the wash is still thin up here, over the map
+                    .accessibilityElement(children: .combine)
+                    // The color names a train's line on screen; VoiceOver needs it said.
+                    .accessibilityLabel("\(CardSpeech.lineName(top.line, kind: top.kind)) to \(top.arrivals.first?.dest ?? top.line.dir), \(stop.name)")
                     DepartureRow(group: top, state: state, night: Night.now(now), now: now)
                     chips(group: top, stop: stop, failing: failing, now: now)
                 }
                 if failing { UnavailableBanner() }   // the list's outage banner, here too (app spec 8)
-                if !alerts.isEmpty { AlertsRow(alerts: alerts) }
+                if !alerts.isEmpty { AlertsRow(alerts: alerts, route: top?.line.route ?? "") }
                 let others = groups.filter { $0.id != top?.id }
                 if !others.isEmpty {
                     Text("At this stop").font(Theme.rounded(.footnote, .heavy)).textCase(.uppercase).tracking(1)
-                        .foregroundStyle(Theme.mist)
+                        .foregroundStyle(Color.cardText(top?.line.route ?? ""))
                         .padding(.top, Theme.Space.s)
                     VStack(spacing: Theme.cardGap) {
                         ForEach(others) { group in
@@ -87,7 +90,6 @@ struct StopDetail: View {
             .padding(.top, Theme.Space.xl)
             .padding(.bottom, Theme.Space.xxl)
             .frame(maxWidth: .infinity, minHeight: metrics.full - metrics.controlsBottom, alignment: .topLeading)
-            .background(Theme.navy, in: PixelShape(block: 6, bottom: false))
             // The page's top edge on screen: touches above it go to the map (PassThroughHost).
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { model.detailTop = $0 }
         }
@@ -104,8 +106,9 @@ struct StopDetail: View {
                     .plate(Theme.amber, edge: 4, shape: .small)
             }
             FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, now: now)
+                .foregroundStyle(Color.cardText(group.line.route))
                 .padding(.horizontal, Theme.Space.l).frame(height: Theme.mapButton + Theme.Space.xs)
-                .plate(edge: 4, shape: .small)
+                .plate(Color.cardGradient(group.line.route), edge: 4, shape: .small)
         }
     }
 }
@@ -126,7 +129,7 @@ private struct DepartureRow: View {
             // before the first fetch; only then "No arrivals" / "No service now".
             Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service now" : "No arrivals")
                 .font(Theme.rounded(.title3, .bold))
-                .foregroundStyle(Theme.mist)
+                .foregroundStyle(Color.cardText(group.line.route))
                 .redacted(reason: state.loaded || state.unknown ? [] : .placeholder)
         } else {
             ScrollView(.horizontal) {
@@ -163,7 +166,7 @@ private struct DepartureTile: View {
                           shrink: minutes ? 0 : 3)
                 if p.live && !stale { PixelImage(image: Glyphs.live[0], points: 16, template: true).padding(.top, Theme.Space.s) }
             }
-            if minutes { Text("minutes").font(Theme.rounded(.headline, .bold)) }
+            if minutes { Text(m == 1 ? "minute" : "minutes").font(Theme.rounded(.headline, .bold)) }
             Spacer(minLength: 0)
             if p.delayed {
                 Text("DELAYED").foregroundStyle(.black)
@@ -196,11 +199,11 @@ private struct LineCard: View {
     var body: some View {
         let next = group.arrivals.first
         HStack(alignment: .center, spacing: Theme.Space.m) {
+            // A bus's number over its heading; a train's color names its line, so just "→ destination".
             VStack(alignment: .leading, spacing: 2) {
-                Text(group.kind == .bus ? group.line.route : RouteCard.shortName(group.line))
-                    .font(Theme.rounded(.title, .heavy))
+                if group.kind == .bus { Text(group.line.route).font(Theme.rounded(.title, .heavy)) }
                 Text(RouteCard.heading(group.line, kind: group.kind, dest: next?.dest))
-                    .font(Theme.rounded(.headline, .bold))
+                    .font(Theme.rounded(group.kind == .bus ? .headline : .title2, group.kind == .bus ? .bold : .heavy))
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -220,6 +223,10 @@ private struct LineCard: View {
         .padding(Theme.Space.l)
         .plate(Color.cardGradient(group.line.route), rim: Color.cardText(group.line.route).opacity(0.25))
         .contentShape(PixelShape())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([CardSpeech.lineName(group.line, kind: group.kind) + " to " + (next?.dest ?? group.line.dir),
+                             next.map { ArrivalFormat.label($0, now: now) } ?? (night ? "No service now" : "No arrivals")]
+            .joined(separator: ", "))
     }
 }
 
@@ -241,7 +248,6 @@ private struct FreshnessLine: View {
             }
         }
         .font(Theme.rounded(.subheadline, .semibold))
-        .foregroundStyle(.primary)
     }
 
     static func ago(_ seconds: Int) -> String {
@@ -280,6 +286,7 @@ struct DetailState {
 /// The stop's routes' Customer Alerts, collapsed under a ⚠ row (app spec 5.1).
 private struct AlertsRow: View {
     let alerts: [ServiceAlert]
+    let route: String   // the plate takes the page's line shade
     @State private var open = false
 
     var body: some View {
@@ -306,9 +313,9 @@ private struct AlertsRow: View {
                 }
             }
         }
-        .foregroundStyle(.primary)
+        .foregroundStyle(Color.cardText(route))
         .padding(Theme.Space.l)
-        // Neutral: amber is only for the Delayed badge (app spec 4.6); the pixel ⚠ carries the warning.
-        .plate(edge: 4, shape: .small)
+        // The line's shade, not amber: amber is only for the Delayed badge (app spec 4.6); the pixel ⚠ carries the warning.
+        .plate(Color.cardGradient(route), edge: 4, shape: .small)
     }
 }

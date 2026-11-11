@@ -2,24 +2,32 @@ import CTAKit
 import MapboxMaps
 import SwiftUI
 
-/// The Mapbox diorama (redesign spec 6): muted 3D Chicago, the L lines in their colors, listed bus stops,
-/// and the user's puck. It follows the puck until a gesture clears `following`.
+/// The Mapbox diorama (redesign spec 6): muted Chicago in 3D or flat 2D, the L lines in their colors, pixel icons
+/// for every station and the listed bus stops (tap one to open it), and the user's puck. It follows the puck
+/// until a gesture clears `following`.
 struct DioramaMap: View {
     @Binding var following: Bool
     /// The open stop: the camera flies to it, and clearing it restores the camera from before.
     let focus: Stop?
-    let busStops: [Stop]
+    /// Every station plus the listed bus stops, drawn as pixel icons.
+    let stops: [Stop]
+    /// Tilted with 3D buildings, or flat and top-down (redesign revision 3).
+    let threeD: Bool
     /// How much of the map's bottom is covered, so the camera centers in the part left visible. Applied on each
     /// camera move: it changes only when detail opens or closes, and both move the camera.
     let bottomInset: CGFloat
     /// The center of the visible part, reported when the camera settles after the user moved it.
     let onCenter: (CLLocationCoordinate2D) -> Void
+    /// A stop icon was tapped: its stop ID.
+    let onStopTap: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var viewport = Viewport.camera(center: AppModel.loop, zoom: 14.5, bearing: 0, pitch: Self.pitch)
+    @Environment(\.displayScale) private var displayScale
+    @State private var viewport = Viewport.camera(center: AppModel.loop, zoom: 14.5, bearing: 0, pitch: Self.pitch3D)
     @State private var beforeFocus: (viewport: Viewport, following: Bool)?
 
-    static let pitch: CGFloat = 55
+    static let pitch3D: CGFloat = 55
+    private var pitch: CGFloat { threeD ? Self.pitch3D : 0 }
     static let zoom: CGFloat = 15.5
 
     var body: some View {
@@ -41,32 +49,57 @@ struct DioramaMap: View {
                     .lineEmissiveStrength(1)
                     .lineOcclusionOpacity(0.35)
                     .slot(.middle)
-                GeoJSONSource(id: "bus").data(.featureCollection(busFeatures))
-                CircleLayer(id: "bus", source: "bus")
-                    .circleRadius(6)
-                    .circleColor(UIColor(Color(rgb: LineColors.busAccent)))   // the bus blue, as in the rows
-                    .circleStrokeColor(.white)
-                    .circleStrokeWidth(Theme.pinRim)
-                    .circleEmissiveStrength(1)
-                    .slot(.top)
+                ForEvery(StopIcons.images(stops, displayScale: displayScale), id: \.id) { $0.image }
+                GeoJSONSource(id: "stations").data(.featureCollection(features(.station)))
+                GeoJSONSource(id: "buses").data(.featureCollection(features(.bus)))
+                // Crowded stations (the Loop zoomed out) drop instead of piling up, the open one last.
+                stopLayer("stations").iconAllowOverlap(false).symbolSortKey(Exp(.get) { "rank" })
+                // The few listed bus stops always show, even beside a station, without pushing stations out.
+                stopLayer("buses").iconAllowOverlap(true).iconIgnorePlacement(true)
+                TapInteraction(.layer("stations")) { feature, _ in tapped(feature) }
+                TapInteraction(.layer("buses")) { feature, _ in tapped(feature) }
             }
-            .mapStyle(Self.navyStyle)
+            .mapStyle(Self.navyStyle(threeD: threeD))
             .ornamentOptions(OrnamentOptions(
                 scaleBar: ScaleBarViewOptions(visibility: .hidden),
                 compass: CompassViewOptions(visibility: .hidden),
-                logo: LogoViewOptions(position: .bottomLeading, margins: CGPoint(x: Theme.Space.l, y: bottomInset + Theme.Space.s)),
+                logo: LogoViewOptions(position: .bottomLeading, margins: CGPoint(x: Theme.Space.l, y: ornamentY)),
                 attributionButton: AttributionButtonOptions(position: .bottomTrailing,
-                                                            margins: CGPoint(x: Theme.Space.l, y: bottomInset + Theme.Space.s))))
-            .gestureHandlers(MapGestureHandlers(onBegin: { _ in following = false }))
+                                                            margins: CGPoint(x: Theme.Space.l, y: ornamentY))))
+            .gestureHandlers(MapGestureHandlers(
+                // A tap (on a stop, say) doesn't move the camera, so it keeps following; but Mapbox cancels camera
+                // animations on every tap, which idles a follow still flying in (on the next main-queue turn), so
+                // follow again after that.
+                onBegin: { if $0 != .singleTap { following = false } },
+                onEnd: { gesture, _ in
+                    guard gesture == .singleTap else { return }
+                    DispatchQueue.main.async { if following { move(to: follow) } }
+                }))
             .onMapIdle { _ in
                 guard !following, focus == nil, let c = proxy.map?.cameraState.center else { return }
                 onCenter(c)
             }
+            // Following without a fix yet shows no camera at all, so then the pitch is set directly (at load and on
+            // each switch); with a fix, the follow flies to the new pitch.
+            .onMapLoaded { _ in proxy.map?.setCamera(to: CameraOptions(pitch: pitch)) }
+            .onChange(of: threeD) {
+                // Tilt or flatten in place: following re-follows at the new pitch.
+                guard !following, let camera = proxy.map?.cameraState else {
+                    if proxy.location?.latestLocation == nil { proxy.map?.setCamera(to: CameraOptions(pitch: pitch)) }
+                    return move(to: follow)
+                }
+                move(to: .camera(center: camera.center, zoom: camera.zoom, bearing: camera.bearing, pitch: pitch))
+            }
         }
         .ignoresSafeArea()
-        .onChange(of: following, initial: true) { if following { move(to: .followPuck(zoom: Self.zoom, bearing: .constant(0), pitch: Self.pitch)) } }
+        .onChange(of: following, initial: true) { if following { move(to: follow) } }
         .onChange(of: focus?.id) { showFocus() }
     }
+
+    /// The logo and info button sit just above the covered part; over stop detail, also above its header.
+    private var ornamentY: CGFloat { bottomInset + (focus == nil ? Theme.Space.s : Theme.Space.xxl * 4) }
+
+    private var follow: Viewport { .followPuck(zoom: Self.zoom, bearing: .constant(0), pitch: pitch) }
 
     private func move(to target: Viewport) {
         let padded = target.padding(.bottom, bottomInset)
@@ -78,7 +111,7 @@ struct DioramaMap: View {
             if beforeFocus == nil { beforeFocus = (viewport, following) }
             following = false
             move(to: .camera(center: CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon), zoom: Self.zoom,
-                             bearing: 0, pitch: Self.pitch))
+                             bearing: 0, pitch: pitch))
         } else if let before = beforeFocus {
             beforeFocus = nil
             following = before.following
@@ -86,32 +119,54 @@ struct DioramaMap: View {
         }
     }
 
-    private var busFeatures: FeatureCollection {
-        FeatureCollection(features: busStops.map {
-            Feature(geometry: .point(Point(CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon))))
+    /// The stops of one kind as points with their id, icon, and rank (the open stop first in collisions).
+    private func features(_ kind: Kind) -> FeatureCollection {
+        FeatureCollection(features: stops.filter { $0.kind == kind }.map { stop in
+            var f = Feature(geometry: .point(Point(CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon))))
+            f.properties = ["id": .string(stop.id), "icon": .string(StopIcons.id(stop)),
+                            "rank": .number(stop.id == focus?.id ? 0 : 1)]
+            return f
         })
+    }
+
+    private func tapped(_ feature: FeaturesetFeature) -> Bool {
+        if case .string(let id)? = feature.properties["id"] { onStopTap(id) }
+        return true
+    }
+
+    /// A pixel-icon layer: flat to the screen, never tilted or rotated, lit like the lines.
+    private func stopLayer(_ id: String) -> SymbolLayer {
+        SymbolLayer(id: id, source: id)
+            .iconImage(Exp(.get) { "icon" })
+            .iconPitchAlignment(.viewport)
+            .iconRotationAlignment(.viewport)
+            .iconEmissiveStrength(1)
+            .slot(.top)
     }
 
     // MARK: - Static style pieces
 
     /// Dark navy Chicago (Transit-style): Standard's night light over navy land, roads, water, and buildings,
     /// still in 3D, so the L lines and the list's colors carry the brightness.
-    static let navyStyle = MapStyle.standard(
+    static func navyStyle(threeD: Bool) -> MapStyle { .standard(
         lightPreset: .day,   // daylight shading over the navy palette keeps roads and 3D buildings visible
         showPointOfInterestLabels: false,
         showTransitLabels: false,
-        show3dObjects: true,
+        show3dObjects: threeD,
         colorBuildings: StyleColor(UIColor(Color(rgb: 0x1E3460))),
         colorCommercial: StyleColor(UIColor(Color(rgb: 0x132650))),
         colorEducation: StyleColor(UIColor(Color(rgb: 0x132650))),
         colorGreenspace: StyleColor(UIColor(Color(rgb: 0x123A44))),
-        colorLand: StyleColor(UIColor(Color(rgb: 0x10224A))),
+        colorLand: StyleColor(UIColor(Color(rgb: land))),
         colorMedical: StyleColor(UIColor(Color(rgb: 0x132650))),
         colorMotorways: StyleColor(UIColor(Color(rgb: 0x2D4A86))),
         colorRoadLabels: StyleColor(UIColor(Color(rgb: 0x8FA6D6))),
         colorRoads: StyleColor(UIColor(Color(rgb: 0x2A4377))),
         colorTrunks: StyleColor(UIColor(Color(rgb: 0x2D4A86))),
-        colorWater: StyleColor(UIColor(Color(rgb: 0x0A1730))))
+        colorWater: StyleColor(UIColor(Color(rgb: 0x0A1730)))) }
+
+    /// The map's land color, which the main page's wash also uses.
+    static let land: UInt32 = 0x10224A
 
     /// Every train shape as one line feature with its `route`.
     static let lines: FeatureCollection = {

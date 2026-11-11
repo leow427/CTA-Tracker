@@ -8,21 +8,18 @@ struct MapScreen: View {
     @Environment(ArrivalsStore.self) private var arrivals
     /// Our own follow state: only a real gesture clears it, and recenter sets it again.
     @State private var following = true
+    /// Tilted 3D or flat 2D, kept between launches (redesign revision 3).
+    @AppStorage("map3D") private var threeD = true
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 // The list covers the bottom at rest, so the camera centers in the part above it.
-                DioramaMap(following: $following, focus: model.detailStop, busStops: busPins,
-                           bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded()) { center in
-                    model.center = center   // after a pan the list follows the center of the visible map
-                }
-                // The map fades to navy under the cards: clear where the list rests, navy at the bottom.
-                LinearGradient(stops: [.init(color: .clear, location: Theme.listRest - 0.05),
-                                       .init(color: Theme.navy.opacity(0.75), location: 0.8),
-                                       .init(color: Theme.navy, location: 1)],
-                               startPoint: .top, endPoint: .bottom)
-                    .allowsHitTesting(false)
+                DioramaMap(following: $following, focus: model.detailStop, stops: model.stations + busPins, threeD: threeD,
+                           bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
+                           onCenter: { model.center = $0 },   // after a pan the list follows the center of the visible map
+                           onStopTap: { model.openStop = $0 })
+                wash.allowsHitTesting(false)
                 // Its own hosting controller, so the environment is passed in.
                 PassThroughHost(openAbove: model.detailStop == nil ? model.listTop : model.detailTop) {
                     CardList().environment(model).environment(arrivals)
@@ -44,13 +41,38 @@ struct MapScreen: View {
         .onChange(of: following) { followFix() }
     }
 
-    /// Pins only for bus stops that are in the list (app spec 4.1): favorites, plus nearby unless location is off.
+    /// Under the list, a subtle wash in the map's own land color: clear at the top, deepening to mostly opaque at the
+    /// bottom (Leo, 2026-11-10). Under stop detail, the line's dark shade instead: clear at the top, solid over the
+    /// bottom 20% (revision 3).
+    @ViewBuilder private var wash: some View {
+        if let hero = model.detailHero, model.detailStop != nil {
+            let shade = Color.card(hero.line.route)
+            LinearGradient(stops: [.init(color: shade.opacity(0), location: 0), .init(color: shade, location: 0.8)],
+                           startPoint: .top, endPoint: .bottom)
+                .transition(.opacity)
+                .animation(Theme.smooth, value: hero.line.route)
+        } else {
+            let land = Color(rgb: DioramaMap.land)
+            LinearGradient(stops: [.init(color: land.opacity(0), location: 0),
+                                   .init(color: land.opacity(0.55), location: 0.8),
+                                   .init(color: land.opacity(0.8), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .transition(.opacity)
+        }
+    }
+
+    /// Pins for the listed bus stops nearest the map's center (favorites, plus nearby unless location is off).
     private var busPins: [Stop] {
         let shown = model.slots.favorites + (model.location.denied ? [] : model.slots.nearby)
-        var ids = Set(shown.filter { $0.kind == .bus }.map(\.fetchID))
-        if let open = model.detailStop, open.kind == .bus { ids.insert(open.id) }   // the open stop, even from search
-        return ids.sorted().compactMap { model.index?.stop(id: $0) }
+        // Only the few nearest the map's center (Leo, 2026-11-10): the list re-centers on pans, so they follow the view.
+        var ids: [String] = []
+        for slot in shown.filter({ $0.kind == .bus }).sorted(by: { $0.meters < $1.meters })
+            where !ids.contains(slot.fetchID) && ids.count < Self.busPinCount { ids.append(slot.fetchID) }
+        if let open = model.detailStop, open.kind == .bus, !ids.contains(open.id) { ids.append(open.id) }   // even from search
+        return ids.compactMap { model.index?.stop(id: $0) }
     }
+
+    static let busPinCount = 5
 
     /// The pet at the top left (its gear: Settings), saying where the map is in a speech bubble, and recenter.
     private var controls: some View {
@@ -58,7 +80,12 @@ struct MapScreen: View {
             PetAvatar(mood: petMood(now: .now)) { model.showSettings = true }
             NearLabel(center: model.center)
             Spacer(minLength: 0)
-            MapButton(symbol: following ? "location.fill" : "location", label: "Recenter", on: following) { following = true }
+            VStack(spacing: Theme.Space.m) {
+                MapButton(symbol: following ? "location.fill" : "location", label: "Recenter", on: following) { following = true }
+                // Shows the mode it switches to, like Maps.
+                MapButton(symbol: threeD ? "view.2d" : "view.3d", label: threeD ? "Flat map" : "3D map") { threeD.toggle() }
+                    .sensoryFeedback(.selection, trigger: threeD)
+            }
         }
         .padding(.horizontal, Theme.Space.l)
         .padding(.top, Theme.Space.xs)
@@ -166,23 +193,26 @@ nonisolated private struct BubbleTail: Shape {
     }
 }
 
-/// Over open stop detail: the chosen line's huge route number in its color, the stop under it, and the red ×
-/// and ★ down the right (the detail screen's top, over the map).
+/// Over open stop detail: a bus's huge route number in its color, and the red × and ★ down the right
+/// (the detail screen's top, over the map).
 struct DetailHeroView: View {
     let hero: DetailHero
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let name = Text(hero.kind == .bus ? hero.line.route : RouteCard.shortName(hero.line))
+        let name = Text(hero.line.route)
             .font(.system(size: 96, weight: .heavy, design: .rounded)).tracking(-2)
         HStack(alignment: .top) {
-            // A hard pixel drop shadow in the card's dark shade, like a game title.
-            ZStack(alignment: .topLeading) {
-                name.foregroundStyle(Color.card(hero.line.route)).offset(x: 6, y: 6)
-                name.foregroundStyle(Color.cardText(hero.line.route))
+            // A bus's number, with a hard pixel drop shadow in the card's dark shade, like a game title. Trains show
+            // none: the wash's color names the line (revision 3).
+            if hero.kind == .bus {
+                ZStack(alignment: .topLeading) {
+                    name.foregroundStyle(Color.card(hero.line.route)).offset(x: 6, y: 6)
+                    name.foregroundStyle(Color.cardText(hero.line.route))
+                }
+                .lineLimit(1).minimumScaleFactor(0.4)
+                .allowsHitTesting(false)   // the map under it keeps panning
             }
-            .lineLimit(1).minimumScaleFactor(0.4)
-            .allowsHitTesting(false)   // the map under it keeps panning
             Spacer(minLength: Theme.Space.m)
             VStack(spacing: Theme.Space.m) {
                 MapButton(symbol: "xmark", label: "Close", fill: Color(rgb: 0xE5484D)) { model.closeDetail += 1 }
