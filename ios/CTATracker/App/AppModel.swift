@@ -38,6 +38,8 @@ import SwiftUI
     init() {
         let url = Bundle.main.url(forResource: "stops", withExtension: "json")
         index = url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? StopIndex(data: $0) }
+        let stops = index
+        searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
     }
 
@@ -60,8 +62,9 @@ import SwiftUI
     /// Every L station, for the map's icons.
     @ObservationIgnored private(set) lazy var stations: [Stop] = index?.stops.filter { $0.kind == .station } ?? []
 
-    /// Stop names folded once for search.
-    @ObservationIgnored private(set) lazy var search: StopSearch.Index? = index.map { StopSearch.Index($0) }
+    /// Stop names folded once for search, off the main thread from launch, so focusing search never waits on it.
+    @ObservationIgnored private var searchIndex: Task<StopSearch.Index?, Never>?
+    var search: StopSearch.Index? { get async { await searchIndex?.value } }
 
     // MARK: - Storage
 

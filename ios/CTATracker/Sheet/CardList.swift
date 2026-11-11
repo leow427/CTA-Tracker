@@ -153,16 +153,19 @@ struct CardList: View {
         .padding(.vertical, Theme.cardGap / 2)
     }
 
-    /// Runs the search 0.12 s after the last keystroke (a new one cancels it), so typing never waits on a scan,
-    /// and swaps the results in with a fade.
+    /// Runs the search 0.12 s after the last keystroke (a new one cancels it) and off the main thread, so typing and
+    /// the keyboard never wait on a scan, and swaps the results in with a fade.
     private func search() async {
-        guard showingSearch, let index = model.search else { found = nil; expanded = nil; return }   // no stale hits next time
+        guard showingSearch, let index = await model.search else { found = nil; expanded = nil; return }   // no stale hits next time
         if found != nil { try? await Task.sleep(for: .milliseconds(120)) }
         guard !Task.isCancelled else { return }
         // All favorites match here, not just the ★ section's 3 (app spec 2).
-        let r = StopSearch.results(query, center: model.center, favorites: model.allFavoriteSlots,
-                                   kinds: model.filter.kinds, index: index)
-        withAnimation(Theme.snappy) { found = (query, r) }
+        let (q, center, favorites, kinds) = (query, model.center, model.allFavoriteSlots, model.filter.kinds)
+        let r = await Task.detached(priority: .userInitiated) {
+            StopSearch.results(q, center: center, favorites: favorites, kinds: kinds, index: index)
+        }.value
+        guard !Task.isCancelled, showingSearch else { return }
+        withAnimation(Theme.snappy) { found = (q, r) }
     }
 
     /// Search (app spec 3): favorites first, then matching stops, nearest first. Tapping a stop opens big direction
