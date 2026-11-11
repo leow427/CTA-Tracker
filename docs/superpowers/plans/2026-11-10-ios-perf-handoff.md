@@ -58,7 +58,7 @@ At handoff, the tree builds (Release, simulator) and `swift test --package-path 
   scheduled blue.
 - AlertsRow on a bus page: outline its chevron (`Text(Image)`) and its pixel ⚠ (`pixelOutline`).
 
-**Questions for Leo (asked, not yet answered)**
+**Questions for Leo** (answered 2026-11-11: yes to both, done; spec Revision 4 updated)
 - **CPU spikes** (20–36% for about 1 s per minute change, simulator) come from the spring on the minutes' push transition
   (`RouteCard.swift` about line 181, `Theme.snappy`). A short non-spring ease would cut them about 3–4×, but the minutes
   would roll over a little more plainly.

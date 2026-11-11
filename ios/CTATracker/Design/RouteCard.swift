@@ -178,7 +178,8 @@ private struct ArrivalView: View {
                     ScheduledTag(route: route).padding(.top, Theme.Space.xs)
                 }
             }
-            .animation(reduceMotion ? nil : Theme.snappy, value: parts.big)
+            // A short ease, not a spring: a spring's settling tail redrew the card for about a second per minute change.
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: parts.big)
         } else {
             Text(unknown ? "—" : night ? "No service now" : "No arrivals").font(Theme.rounded(.headline, .bold))
                 .fixedSize()

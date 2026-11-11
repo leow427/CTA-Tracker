@@ -272,11 +272,18 @@ extension Color {
 }
 
 /// Text with a solid outline (bus cards): the text drawn shifted 8 ways in the outline color, then itself on top.
+/// 2 pt on big text, 1 pt under about 20 pt, where a 2 pt halo crowded small gray letters to 3.3:1 (Leo 2026-11-11).
 struct OutlinedText: TextRenderer {
     let color: Color
     var width: CGFloat = 2
 
     var displayPadding: EdgeInsets { EdgeInsets(top: width, leading: width, bottom: width, trailing: width) }
+
+    /// A line's outline: thin below a 20 pt font, whose ascent plus descent is about 24 pt.
+    private func width(_ line: Text.Layout.Line) -> CGFloat {
+        let b = line.typographicBounds
+        return b.ascent + b.descent < 24 ? min(1, width) : width
+    }
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         let bounds = layout.reduce(CGRect.null) { $0.union($1.typographicBounds.rect) }
@@ -284,9 +291,12 @@ struct OutlinedText: TextRenderer {
         ctx.drawLayer { halo in
             for step in 0..<8 {
                 let angle = Double(step) * .pi / 4
-                var shifted = halo
-                shifted.translateBy(x: cos(angle) * width, y: sin(angle) * width)
-                for line in layout { shifted.draw(line) }
+                for line in layout {
+                    let w = width(line)
+                    var shifted = halo
+                    shifted.translateBy(x: cos(angle) * w, y: sin(angle) * w)
+                    shifted.draw(line)
+                }
             }
             halo.blendMode = .sourceIn   // every shifted copy becomes the outline color
             halo.fill(Path(bounds), with: .color(color))
