@@ -43,14 +43,27 @@ public enum StopSearch {
         public let stops: [(stop: Stop, meters: Double)]
     }
 
-    /// Names folded once, so a query is a cheap scan; distances are computed only for matches.
+    /// Names and line keys folded once, so a keystroke is a cheap scan of ~11k stops; distances are computed only
+    /// for matches.
     public struct Index: Sendable {
         let stops: StopIndex
-        let entries: [(stop: Stop, name: String)]
+        let entries: [Entry]
+
+        struct Entry: Sendable {
+            let stop: Stop
+            let name: String
+            let routes: [String]       // every line's route ID, matched exactly ("22", "brn")
+            let lineNames: [String]    // trains' line names, matched by prefix ("red", "brown line")
+        }
 
         public init(_ stops: StopIndex) {
             self.stops = stops
-            entries = stops.stops.map { ($0, StopSearch.normalized($0.name)) }
+            entries = stops.stops.map { stop in
+                let lines = (stop.lines ?? []) + (stop.platforms ?? []).flatMap(\.lines)
+                let routes = Array(Set(lines.map(\.route)))
+                return Entry(stop: stop, name: StopSearch.normalized(stop.name), routes: routes.map(StopSearch.normalized),
+                             lineNames: stop.kind == .bus ? [] : routes.map { StopSearch.normalized(LineColors.train($0)?.name ?? $0) })
+            }
         }
     }
 
@@ -64,7 +77,9 @@ public enum StopSearch {
             matchesLine(slot.line, kind: slot.kind, q)
                 || (index.stops.stop(id: slot.fetchID).map { normalized($0.name).contains(q) } ?? false)
         }
-        let hits = index.entries.filter { kinds.contains($0.stop.kind) && ($0.name.contains(q) || serves($0.stop, q)) }.map { e in
+        let hits = index.entries.filter { e in
+            kinds.contains(e.stop.kind) && (e.name.contains(q) || e.routes.contains(q) || e.lineNames.contains { $0.hasPrefix(q) })
+        }.map { e in
             (stop: e.stop, meters: StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)))
         }
         // Stations first (a name search usually means the station, not the bus stops named after it), each nearest first.
@@ -84,10 +99,5 @@ public enum StopSearch {
         if kind == .bus { return normalized(line.route) == q }
         let name = normalized(LineColors.train(line.route)?.name ?? line.route)
         return normalized(line.route) == q || name.hasPrefix(q)
-    }
-
-    static func serves(_ stop: Stop, _ q: String) -> Bool {
-        let lines = (stop.lines ?? []) + (stop.platforms ?? []).flatMap(\.lines)
-        return lines.contains { matchesLine($0, kind: stop.kind, q) }
     }
 }

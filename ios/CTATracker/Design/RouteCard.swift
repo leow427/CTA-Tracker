@@ -101,11 +101,9 @@ struct RouteCard: View {
 }
 
 extension RouteCard {
-    /// "North to Howard" for a bus ("Northbound" + its destination); just the destination for a train.
+    /// A bus's compass direction ("Northbound", Leo 2026-11-10: clearer than its last stop); a train's destination.
     static func heading(_ line: Line, kind: Kind, dest: String?) -> String {
-        let to = dest ?? line.dir
-        guard kind == .bus, line.dir.hasSuffix("bound"), dest != nil else { return to }
-        return "\(line.dir.dropLast(5)) to \(to)"
+        kind == .bus ? line.dir : dest ?? line.dir
     }
 }
 

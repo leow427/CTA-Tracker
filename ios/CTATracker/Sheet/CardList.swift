@@ -10,6 +10,10 @@ struct CardList: View {
     @State private var query = ""
     @State private var path: [DetailRoute] = []
     @State private var searching = false   // the search field has focus
+    /// The last search, computed off the keystroke (debounced) rather than in every body pass, with its query.
+    @State private var found: (query: String, results: StopSearch.Results)?
+    /// The search hit whose direction buttons are open.
+    @State private var expanded: String?
     @Namespace private var zoom   // a card grows into its stop detail (redesign spec 4)
 
     var body: some View {
@@ -31,6 +35,7 @@ struct CardList: View {
                                     if arrivals.unavailable { UnavailableBanner().padding(.horizontal, Theme.cardMargin) }
                                     content(now: context.date)
                                 }
+                                .animation(Theme.snappy, value: showingSearch)   // list ⇄ results cross-fade, no pop
                                 .padding(.bottom, Theme.Space.xl)
                                 .frame(maxWidth: .infinity, minHeight: metrics.full, alignment: .top)
                                 // Search results sit on solid navy so they read over the map (revision 3).
@@ -72,6 +77,7 @@ struct CardList: View {
                 .navigationDestination(for: DetailRoute.self) {
                     StopDetail(route: $0).navigationTransition(.zoom(sourceID: $0.source, in: zoom))
                 }
+                .task(id: "\(query)|\(searching)|\(model.filter)|\(model.favorites.count)") { await search() }
                 .task(id: searching) {   // focusing search scrolls the header up to the top (redesign spec 2)
                     guard searching else { return }
                     withAnimation(Theme.smooth) { reader.scrollTo(Self.top, anchor: .top) }
@@ -110,10 +116,8 @@ struct CardList: View {
 
     @ViewBuilder private func content(now: Date) -> some View {
         let slots = model.slots
-        if let search = model.search, showingSearch {
-            // All favorites match here, not just the ★ section's 3 (app spec 2).
-            searchResults(StopSearch.results(query, center: model.center, favorites: model.allFavoriteSlots,
-                                             kinds: model.filter.kinds, index: search), now: now)
+        if showingSearch {
+            if let found { searchResults(found.results, for: found.query, now: now) }
         } else if model.index == nil {
             EmptyState(title: "CTA data unavailable")
         } else {
@@ -143,17 +147,40 @@ struct CardList: View {
         .padding(.vertical, Theme.cardGap / 2)
     }
 
-    /// Search (app spec 3): favorites first, then matching stops, nearest first.
-    @ViewBuilder private func searchResults(_ r: StopSearch.Results, now: Date) -> some View {
+    /// Runs the search 0.12 s after the last keystroke (a new one cancels it), so typing never waits on a scan,
+    /// and swaps the results in with a fade.
+    private func search() async {
+        guard showingSearch, let index = model.search else { found = nil; expanded = nil; return }   // no stale hits next time
+        if found != nil { try? await Task.sleep(for: .milliseconds(120)) }
+        guard !Task.isCancelled else { return }
+        // All favorites match here, not just the ★ section's 3 (app spec 2).
+        let r = StopSearch.results(query, center: model.center, favorites: model.allFavoriteSlots,
+                                   kinds: model.filter.kinds, index: index)
+        withAnimation(Theme.snappy) { found = (query, r) }
+    }
+
+    /// Search (app spec 3): favorites first, then matching stops, nearest first. Tapping a stop opens big direction
+    /// buttons under it ("Toward O'Hare", "22 · Northbound"), each straight into that line and direction (Leo, 2026-11-10).
+    @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String, now: Date) -> some View {
         if !r.favorites.isEmpty { SectionHeader(title: "Favorites", symbol: "star.fill") }
-        ForEach(r.favorites) { link($0, now: now) }
+        ForEach(r.favorites) { link($0, now: now).transition(.opacity) }
         if !r.stops.isEmpty { SectionHeader(title: "Stops", symbol: "mappin") }
         ForEach(r.stops, id: \.stop.id) { hit in
-            NavigationLink(value: DetailRoute(stopID: hit.stop.id, tapped: nil, source: hit.stop.id)) {
-                StopRow(stop: hit.stop, meters: hit.meters)
+            VStack(spacing: 0) {
+                Button {
+                    searching = false   // drop the keyboard so the direction buttons show
+                    withAnimation(Theme.snappy) { expanded = expanded == hit.stop.id ? nil : hit.stop.id }
+                } label: {
+                    StopRow(stop: hit.stop, meters: hit.meters, open: expanded == hit.stop.id)
+                }
+                .buttonStyle(RowStyle())
+                .sensoryFeedback(.selection, trigger: expanded == hit.stop.id)
+                if expanded == hit.stop.id {
+                    DirectionButtons(stop: hit.stop).transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
-            .buttonStyle(RowStyle())
             .matchedTransitionSource(id: hit.stop.id, in: zoom)
+            .transition(.opacity)
         }
         if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
             EmptyState(title: "No stops or routes match “\(query)”")
@@ -259,6 +286,7 @@ struct SearchBar: View {
         .frame(height: Theme.searchHeight)
         .plate(Theme.headlight, rim: .white.opacity(0.35))
         .onChange(of: hasFocus) { focused = hasFocus }
+        .onChange(of: focused) { if !focused { hasFocus = false } }   // the list can drop the keyboard
     }
 }
 
@@ -315,6 +343,7 @@ struct SectionHeader: View {
 struct StopRow: View {
     let stop: Stop
     let meters: Double
+    var open = false   // its direction buttons are showing
 
     var body: some View {
         let lines = (stop.lines ?? []) + (stop.platforms ?? []).flatMap(\.lines)
@@ -341,7 +370,8 @@ struct StopRow: View {
             Spacer(minLength: 0)
             Text(Measurement(value: meters, unit: UnitLength.meters).formatted(.measurement(width: .abbreviated, usage: .road)))
                 .font(.subheadline.weight(.medium)).foregroundStyle(Theme.secondaryText).fixedSize()
-            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.secondaryText)
+            Image(systemName: "chevron.down").font(.caption.weight(.bold)).foregroundStyle(Theme.secondaryText)
+                .rotationEffect(.degrees(open ? 180 : 0))
         }
         .padding(.horizontal, Theme.cardMargin)
         .padding(.vertical, Theme.Space.l)
@@ -387,4 +417,40 @@ struct ListMetrics: Equatable {
 
 extension EnvironmentValues {
     @Entry var listMetrics = ListMetrics()
+}
+
+/// A search hit's directions as big buttons in their line's colors: "Toward O'Hare" for each platform of a station,
+/// "22 · Northbound" for each route at a bus stop. Each opens stop detail on that line and direction.
+struct DirectionButtons: View {
+    let stop: Stop
+
+    var body: some View {
+        let lines = stop.kind == .bus ? (stop.lines ?? []) : (stop.platforms ?? []).flatMap(\.lines)
+        VStack(spacing: Theme.Space.s) {
+            ForEach(lines, id: \.self) { line in
+                NavigationLink(value: DetailRoute(stopID: stop.id, tapped: line, source: stop.id)) {
+                    HStack(spacing: Theme.Space.m) {
+                        Image(systemName: "arrow.right.circle.fill").font(.title2)
+                        if stop.kind == .bus {
+                            Text(line.route).font(Theme.rounded(.title2, .heavy))
+                            Text(line.dir).font(Theme.rounded(.title3, .bold))
+                        } else {
+                            Text("Toward \(line.dir)").font(Theme.rounded(.title3, .heavy))
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.headline.weight(.bold))
+                    }
+                    .foregroundStyle(Color.cardText(line.route))
+                    .padding(.horizontal, Theme.Space.l)
+                    .frame(minHeight: Theme.mapButton + Theme.Space.m)
+                    .plate(Color.cardGradient(line.route), rim: Color.cardText(line.route).opacity(0.3), edge: 4, shape: .small)
+                    .contentShape(PixelShape.small)
+                }
+                .buttonStyle(PressableCard())
+                .accessibilityLabel("\(CardSpeech.lineName(line, kind: stop.kind)), \(stop.kind == .bus ? line.dir : "toward " + line.dir)")
+            }
+        }
+        .padding(.horizontal, Theme.cardMargin)
+        .padding(.bottom, Theme.Space.l)
+    }
 }

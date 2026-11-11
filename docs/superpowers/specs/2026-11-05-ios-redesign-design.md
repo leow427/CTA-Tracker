@@ -45,7 +45,9 @@ Leo's notes after using the app (Transit's stop page as the reference for the wa
 - **Search results** sit on a solid navy plate, so they read over the map.
 - **"1 minute"**, singular, wherever the unit is spelled out.
 - **Bus minutes use CTA's countdown.** Bus Tracker's `tmstmp` is when the bus last reported and has no seconds, so `prdtm − tmstmp` reads up to a minute or more late (checked live on 2026-11-10: about half of 50 Loop predictions were 1 min later than CTA's own `prdctdn`, one 5 min later). The app times a bus arrival as `fetched + prdctdn × 60 s + 30 s` (the 30 s centers the whole-minute countdown, so the card shows CTA's number on arrival); "DUE" stays `fetched`, and a negative countdown is dropped. Trains are unchanged: their `arrT − tmst` has seconds and matches CTA. The firmware still uses `prdtm − tmstmp`; base spec section 6.6's rule and the shared C++ change are a separate follow-up.
-- **Main page wash.** Behind the main list, the map gets a subtler wash in its own land color (`0x10224A`): clear at the top, 55% at 80% down, 80% at the bottom (Leo, 2026-11-10).
+- **Main page wash.** Behind the main list, the map gets a subtler wash in a darker shade of its navy (`0x050C1F`; in the map's own land color it vanished): clear in the top fifth, 60% at 75% down, 85% at the bottom (Leo, 2026-11-10).
+- **Search directions.** Tapping a search hit opens big buttons under it in the line's colors, one per direction: "Toward O'Hare" for each platform at a station, "22 · Northbound" for each route at a bus stop. Each opens stop detail on that line and direction. Opening one drops the keyboard. Search runs 0.12 s after the last keystroke and fades its results in (Leo, 2026-11-10: typing lagged and results popped in).
+- **Buses by compass direction.** Bus cards, the stop page header, and "At this stop" say "Southbound", not "South to Harrison" (Leo, 2026-11-10).
 - **Out of scope here:** live vehicles on the map, line taps.
 
 ## 1. Decisions

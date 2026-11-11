@@ -41,8 +41,8 @@ struct MapScreen: View {
         .onChange(of: following) { followFix() }
     }
 
-    /// Under the list, a subtle wash in the map's own land color: clear at the top, deepening to mostly opaque at the
-    /// bottom (Leo, 2026-11-10). Under stop detail, the line's dark shade instead: clear at the top, solid over the
+    /// Under the list, a subtle wash in a darker shade of the map's navy: clear in the top fifth, deepening to mostly
+    /// opaque at the bottom (Leo, 2026-11-10). Under stop detail, the line's dark shade instead: clear at the top, solid over the
     /// bottom 20% (revision 3).
     @ViewBuilder private var wash: some View {
         if let hero = model.detailHero, model.detailStop != nil {
@@ -52,10 +52,11 @@ struct MapScreen: View {
                 .transition(.opacity)
                 .animation(Theme.smooth, value: hero.line.route)
         } else {
-            let land = Color(rgb: DioramaMap.land)
-            LinearGradient(stops: [.init(color: land.opacity(0), location: 0),
-                                   .init(color: land.opacity(0.55), location: 0.8),
-                                   .init(color: land.opacity(0.8), location: 1)],
+            // The map's navy taken darker: in its own land color the wash vanished into the map.
+            let shade = Color(rgb: Self.listWash)
+            LinearGradient(stops: [.init(color: shade.opacity(0), location: 0.2),
+                                   .init(color: shade.opacity(0.6), location: 0.75),
+                                   .init(color: shade.opacity(0.85), location: 1)],
                            startPoint: .top, endPoint: .bottom)
                 .transition(.opacity)
         }
@@ -73,6 +74,8 @@ struct MapScreen: View {
     }
 
     static let busPinCount = 5
+    /// The main page's wash: the map's land navy, darker.
+    static let listWash: UInt32 = 0x050C1F
 
     /// The pet at the top left (its gear: Settings), saying where the map is in a speech bubble, and recenter.
     private var controls: some View {
