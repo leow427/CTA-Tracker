@@ -34,8 +34,11 @@ enum Theme {
     /// The pet avatar's backdrop.
     static let creamRGB: UInt32 = 0xF4ECC8
     static let cream = Color(rgb: creamRGB)
-    /// The live glyph off the line colors.
-    static let signal = Color(rgb: 0x34C759)
+    /// The live glyph's light green, on every card and tile (Leo 2026-11-10): 7.9:1 or better on every train card's
+    /// dark shade; on white bus surfaces it takes a gray halo (`Color.glyphHalo`).
+    static let live = Color(rgb: 0x7CF29A)
+    /// A scheduled (timetable) arrival's still glyph: at least 4.49:1 on every train card (Pink's top shade is the lowest; a glyph needs 3:1), haloed in gray on white.
+    static let scheduled = Color(rgb: 0x9AD0FF)
 
     /// SF Pro Rounded (redesign spec 5): heavy for route numbers and minutes, bold for destinations.
     static func rounded(_ style: Font.TextStyle, _ weight: Font.Weight) -> Font {
@@ -71,7 +74,7 @@ extension Color {
 
 /// A rectangle whose corners step in whole blocks, like the pet's pixel art (redesign revision 2).
 /// `steps` is how far each row of blocks at a corner is pulled in, in blocks; `bottom: false` squares the bottom.
-nonisolated struct PixelShape: InsettableShape {
+nonisolated struct PixelShape: InsettableShape, Equatable {
     var block: CGFloat = 4
     var steps: [CGFloat] = [3, 1, 1]
     var bottom = true
@@ -109,20 +112,120 @@ nonisolated struct PixelShape: InsettableShape {
 /// A raised pixel plate, like a game tile: a solid fill lit from the top, a rim, and a hard darker edge under it,
 /// so it sits up off the panel instead of lying flat.
 struct Plate: ViewModifier {
-    let fill: AnyShapeStyle
+    let fill: CardGradient
     var rim = Color.white.opacity(0.22)
     var rimWidth: CGFloat = 2
     var edge: CGFloat = 5
     var shape = PixelShape()
 
     func body(content: Content) -> some View {
-        content.background {
-            ZStack {
-                ZStack { shape.fill(fill); shape.fill(.black.opacity(0.45)) }.offset(y: edge)   // the plate's side
-                shape.fill(fill)
-                shape.fill(LinearGradient(colors: [.white.opacity(0.12), .clear], startPoint: .top, endPoint: .center))
-                shape.strokeBorder(rim, lineWidth: rimWidth)
+        content
+            .background {
+                PlateLayers(fill: fill, rim: rim, rimWidth: rimWidth, edge: edge, shape: shape)
+                    .padding(.bottom, -edge)   // the side hangs below the plate's frame
             }
+            // Touches land on the plate and its side, as they did when it was drawn in SwiftUI shapes.
+            .contentShape(PlateShape(shape: shape, edge: edge))
+    }
+}
+
+/// A plate's face and its side below it, for hit testing.
+nonisolated private struct PlateShape: Shape {
+    let shape: PixelShape
+    let edge: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = shape.path(in: rect)
+        path.addPath(shape.path(in: rect.offsetBy(dx: 0, dy: edge)))
+        return path
+    }
+}
+
+/// The plate as Core Animation layers, which the render server rasterizes once and keeps until the plate itself
+/// changes. Drawn in SwiftUI with the card, its gradients were rasterized again on the CPU whenever anything on the
+/// card changed: a blink, a minute, the list's clock.
+private struct PlateLayers: UIViewRepresentable {
+    let fill: CardGradient
+    let rim: Color
+    let rimWidth: CGFloat
+    let edge: CGFloat
+    let shape: PixelShape
+
+    func makeUIView(context: Context) -> PlateView { PlateView() }
+
+    func updateUIView(_ view: PlateView, context: Context) {
+        // The kit's colors are fixed sRGB, so they resolve the same in any environment.
+        func cg(_ color: Color) -> CGColor { color.resolve(in: EnvironmentValues()).cgColor }
+        view.style = PlateView.Style(top: cg(fill.top), bottom: cg(fill.bottom), rim: cg(rim), rimWidth: rimWidth,
+                                     edge: edge, shape: shape)
+    }
+
+    final class PlateView: UIView {
+        struct Style: Equatable {
+            let top, bottom, rim: CGColor
+            let rimWidth, edge: CGFloat
+            let shape: PixelShape
+        }
+
+        var style: Style? {
+            didSet { if style != oldValue { setNeedsLayout() } }
+        }
+
+        // The side (the fill, darkened), then the face (the fill, lit from the top), then the rim, as SwiftUI drew them.
+        private let side = CALayer(), sideFill = CAGradientLayer(), sideShade = CAShapeLayer(), sideMask = CAShapeLayer()
+        private let face = CALayer(), faceFill = CAGradientLayer(), light = CAGradientLayer(), faceMask = CAShapeLayer()
+        private let rimLayer = CAShapeLayer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            side.mask = sideMask
+            side.addSublayer(sideFill)
+            side.addSublayer(sideShade)
+            face.mask = faceMask
+            face.addSublayer(faceFill)
+            face.addSublayer(light)
+            for l in [side, face, rimLayer] { layer.addSublayer(l) }
+            sideShade.fillColor = UIColor.black.withAlphaComponent(0.45).cgColor
+            light.colors = [UIColor.white.withAlphaComponent(0.12).cgColor, UIColor.white.withAlphaComponent(0).cgColor]
+            light.endPoint = CGPoint(x: 0.5, y: 0.5)   // fades out by the plate's middle
+            rimLayer.fillColor = nil
+            layer.shouldRasterize = true   // composited once, reused until it changes
+        }
+
+        @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let style else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let scale = window?.screen.scale ?? traitCollection.displayScale
+            layer.rasterizationScale = scale
+            let plate = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - style.edge))
+            let path = style.shape.path(in: plate).cgPath
+            side.frame = plate.offsetBy(dx: 0, dy: style.edge)
+            face.frame = plate
+            rimLayer.frame = plate
+            for l in [sideFill, sideShade, sideMask, faceFill, light, faceMask] as [CALayer] { l.frame = plate }
+            for l in [side, face, rimLayer, sideFill, sideShade, sideMask, faceFill, light, faceMask] as [CALayer] {
+                l.contentsScale = scale
+            }
+            sideMask.path = path
+            sideShade.path = path
+            faceMask.path = path
+            sideFill.colors = [style.top, style.bottom]
+            faceFill.colors = [style.top, style.bottom]
+            // strokeBorder: a stroke inside the edge.
+            rimLayer.path = style.shape.inset(by: style.rimWidth / 2).path(in: plate).cgPath
+            rimLayer.lineWidth = style.rimWidth
+            rimLayer.strokeColor = style.rim
+            CATransaction.commit()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            setNeedsLayout()   // the screen's scale
         }
     }
 }
@@ -137,19 +240,92 @@ struct PressableCard: ButtonStyle {
 }
 
 extension View {
-    func plate(_ fill: some ShapeStyle = Theme.raised, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
+    func plate(_ fill: Color = Theme.raised, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
                shape: PixelShape = PixelShape()) -> some View {
-        modifier(Plate(fill: AnyShapeStyle(fill), rim: rim, rimWidth: rimWidth, edge: edge, shape: shape))
+        plate(CardGradient(top: fill, bottom: fill), rim: rim, rimWidth: rimWidth, edge: edge, shape: shape)
+    }
+
+    func plate(_ fill: CardGradient, rim: Color = .white.opacity(0.22), rimWidth: CGFloat = 2, edge: CGFloat = 5,
+               shape: PixelShape = PixelShape()) -> some View {
+        modifier(Plate(fill: fill, rim: rim, rimWidth: rimWidth, edge: edge, shape: shape))
     }
 }
 
 extension Color {
-    /// A line's card fill and its text (redesign revision 2).
-    static func card(_ route: String) -> Color { Color(rgb: LineColors.card(LineColors.accent(route))) }
-    static func cardText(_ route: String) -> Color { Color(rgb: LineColors.cardText(LineColors.accent(route))) }
-    /// A line's card fill: its lighter top shade down to its dark shade.
-    static func cardGradient(_ route: String) -> LinearGradient {
-        LinearGradient(colors: [Color(rgb: LineColors.cardTop(LineColors.accent(route))), card(route)],
-                       startPoint: .top, endPoint: .bottom)
+    /// A line's card fill and its text (redesign revision 2); a bus's are white and gray (Leo 2026-11-10).
+    static func card(_ route: String) -> Color {
+        isBus(route) ? Theme.busCard.bottom : Color(rgb: LineColors.card(LineColors.accent(route)))
     }
+    static func cardText(_ route: String) -> Color {
+        isBus(route) ? Theme.busText : Color(rgb: LineColors.cardText(LineColors.accent(route)))
+    }
+    /// A line's card fill: its lighter top shade down to its dark shade.
+    static func cardGradient(_ route: String) -> CardGradient {
+        isBus(route) ? Theme.busCard : CardGradient(top: Color(rgb: LineColors.cardTop(LineColors.accent(route))), bottom: card(route))
+    }
+    /// The light blue that outlines a bus's text, icons and plates; trains have none.
+    static func cardOutline(_ route: String) -> Color? { isBus(route) ? Theme.busOutline : nil }
+    /// The halo around the light green and blue glyphs on a white bus surface (its gray text); trains need none.
+    static func glyphHalo(_ route: String) -> Color? { isBus(route) ? Theme.busText : nil }
+
+    private static func isBus(_ route: String) -> Bool { LineColors.train(route) == nil }
+}
+
+/// Text with a solid outline (bus cards): the text drawn shifted 8 ways in the outline color, then itself on top.
+struct OutlinedText: TextRenderer {
+    let color: Color
+    var width: CGFloat = 2
+
+    var displayPadding: EdgeInsets { EdgeInsets(top: width, leading: width, bottom: width, trailing: width) }
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        let bounds = layout.reduce(CGRect.null) { $0.union($1.typographicBounds.rect) }
+            .insetBy(dx: -2 * width, dy: -2 * width)
+        ctx.drawLayer { halo in
+            for step in 0..<8 {
+                let angle = Double(step) * .pi / 4
+                var shifted = halo
+                shifted.translateBy(x: cos(angle) * width, y: sin(angle) * width)
+                for line in layout { shifted.draw(line) }
+            }
+            halo.blendMode = .sourceIn   // every shifted copy becomes the outline color
+            halo.fill(Path(bounds), with: .color(color))
+        }
+        for line in layout { ctx.draw(line) }
+    }
+}
+
+private struct OutlinedTextModifier: ViewModifier {
+    let color: Color?
+    func body(content: Content) -> some View {
+        if let color { content.textRenderer(OutlinedText(color: color)) } else { content }
+    }
+}
+
+/// Text drawn as it is, for text inside an outlined view that must stay plain (amber badges, banners, alert text).
+struct PlainText: TextRenderer {
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        for line in layout { ctx.draw(line) }
+    }
+}
+
+extension View {
+    /// Every Text inside outlined in `color` (a bus's light blue); nil leaves text as it is.
+    func outlinedText(_ color: Color?) -> some View { modifier(OutlinedTextModifier(color: color)) }
+
+    /// Text inside drawn plainly, even within `outlinedText`.
+    func plainText() -> some View { textRenderer(PlainText()) }
+}
+
+/// A plate's fill, from its top color down to its bottom one (the same for a solid plate).
+struct CardGradient: Equatable {
+    let top: Color
+    let bottom: Color
+}
+
+extension Theme {
+    /// Bus cards (Leo 2026-11-10): white, gray text, with the text, icons and card outlined in light blue.
+    static let busCard = CardGradient(top: Color(rgb: 0xFFFFFF), bottom: Color(rgb: 0xEEF3F7))
+    static let busText = Color(rgb: 0x5B6573)   // 5.29:1 on the card's bottom, 5.91:1 on white
+    static let busOutline = Color(rgb: 0x7FCBF2)
 }

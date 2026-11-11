@@ -64,6 +64,7 @@ struct UnavailableBanner: View {
             .padding(.horizontal, Theme.Space.l)
             .padding(.vertical, Theme.Space.m)
             .foregroundStyle(.white)
+            .plainText()   // white on navy, even on a bus stop's outlined page
             .plate(edge: 4, shape: .small)
             .padding(.top, Theme.Space.m)
             .accessibilityAddTraits(.isStaticText)

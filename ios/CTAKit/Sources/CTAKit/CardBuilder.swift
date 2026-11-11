@@ -39,6 +39,18 @@ public enum CardOrder {
             return a.offset < b.offset
         }.map(\.element)
     }
+
+    /// The first moment after `now` when `sorted` can order these cards differently, nil if never (until new data):
+    /// cards differ first by distance, so only cards at the same distance as another can swap, and only when one's
+    /// soonest arrival drops off. A hair past it, since the drop-off rule compares strictly.
+    public static func nextChange(after now: Date, _ slots: [Slot], predictions: [Prediction]) -> Date? {
+        let shared = Dictionary(grouping: slots, by: \.meters).filter { $0.value.count > 1 }.values.joined()
+        return shared.compactMap { slot in
+            slot.predictions(from: predictions, now: now).first
+                .map { $0.at.addingTimeInterval(Config.departedGraceSec + ArrivalFormat.changeLag) }
+                .flatMap { $0 > now ? $0 : nil }
+        }.min()
+    }
 }
 
 /// Arrivals by fetch ID, kept across failures (app spec 8: the last cards stay, dimmed, with their age).
@@ -91,15 +103,22 @@ public enum CardBuilder {
         let favs = resolved(favorites: favorites, center: center, index: index)
             .filter { kinds.contains($0.kind) }.prefix(Config.maxFavorites)
 
+        // Each distance once, and only the stops in the radius sorted: this runs on the main thread after every pan,
+        // and sorting all ~11k stops there was most of its cost. Same order as `StopIndex.byDistance`.
+        var nearestAny = Double.infinity
+        var candidates: [(stop: Stop, meters: Double)] = []
+        for stop in index.stops {
+            let meters = distance(center, stop)
+            nearestAny = min(nearestAny, meters)
+            if kinds.contains(stop.kind) { candidates.append((stop, meters)) }
+        }
         // Far from Chicago looks at every kind, and beats the fallback.
-        let all = index.byDistance(from: center)
-        guard let nearestAny = all.first?.meters, nearestAny <= Config.farFromChicagoM else {
+        guard nearestAny <= Config.farFromChicagoM else {
             return SlotList(favorites: Array(favs), nearby: [], farFromChicago: true)
         }
 
-        let sorted = all.filter { kinds.contains($0.stop.kind) }
-        let inRadius = sorted.prefix { $0.meters <= Config.cardRadiusM }
-        let shown = inRadius.isEmpty ? sorted.prefix(Config.fallbackStops) : inRadius
+        let inRadius = candidates.filter { $0.meters <= Config.cardRadiusM }.sorted(by: closer)
+        let shown = inRadius.isEmpty ? nearest(Config.fallbackStops, of: candidates) : inRadius
 
         // A favorite hides its line only when its own stop is listed (app spec 4.2).
         // Stops come nearest first, so the first slot seen for a line is its nearest.
@@ -128,6 +147,21 @@ public enum CardBuilder {
                 p.lines.map { Slot(line: $0, stopID: p.id, fetchID: stop.id, kind: .station, meters: meters) }
             }
         }
+    }
+
+    /// `StopIndex.byDistance`'s order: nearer first, then by ID.
+    private static func closer(_ a: (stop: Stop, meters: Double), _ b: (stop: Stop, meters: Double)) -> Bool {
+        a.meters != b.meters ? a.meters < b.meters : a.stop.id < b.stop.id
+    }
+
+    /// The `n` first of `list` in `closer` order, without sorting all of it (ties keep their order, like the sort).
+    private static func nearest(_ n: Int, of list: [(stop: Stop, meters: Double)]) -> [(stop: Stop, meters: Double)] {
+        var best: [(stop: Stop, meters: Double)] = []
+        for e in list where best.count < n || closer(e, best[best.count - 1]) {
+            best.insert(e, at: best.firstIndex { closer(e, $0) } ?? best.count)
+            if best.count > n { best.removeLast() }
+        }
+        return best
     }
 
     static func distance(_ center: CLLocationCoordinate2D, _ stop: Stop) -> Double {

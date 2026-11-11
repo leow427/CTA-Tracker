@@ -148,3 +148,130 @@ struct AlertTextTests {
                 == "the Loop \u{2018}L\u{2019} lines \u{2014} and \u{201C}more\u{201D} \u{2026}")
     }
 }
+
+/// Stop detail redraws only at `DetailGroups.nextChange`, so nothing it shows may change between two of them.
+struct DetailNextChangeTests {
+    // Just before night hours end (5:00 Chicago), so "No service now" flips during the run.
+    let now = chicago("2026-11-05T04:52:00")
+    let stop = Stop(id: "41320", name: "Belmont", lat: 41.9398, lon: -87.6533, kind: .station, lines: nil, platforms: [
+        Platform(id: "30255", lines: [Line(route: "Red", dir: "Howard")]),
+        Platform(id: "30256", lines: [Line(route: "Red", dir: "95th/Dan Ryan")])])
+
+    func p(_ seconds: Double, live: Bool = true, platform: String = "30255") -> Prediction {
+        Prediction(stopID: platform, route: "Red", dir: "", dest: "", at: now.addingTimeInterval(seconds), live: live, delayed: false)
+    }
+
+    /// Everything the page shows that depends on time, but the freshness line (which has its own 1 s clock): each
+    /// group's departures (up to 4), whether the data is stale, and night hours.
+    func shown(_ preds: [Prediction], fetched: Date?, at t: Date) -> String {
+        let groups = DetailGroups.groups(stop: stop, tapped: nil, predictions: preds, now: t).map { g in
+            g.arrivals.map { p in   // a tile's big text: live minutes, else Due or a clock time
+                let m = ArrivalFormat.minutes(until: p.at, now: t)
+                return p.live && m >= 1 ? "\(m)" : ArrivalFormat.label(p, now: t)
+            }.joined(separator: ",")
+        }
+        let stale = fetched.map { ArrivalFormat.freshness(fetched: $0, now: t) != .fresh } ?? false
+        let c = CTATime.chicago.dateComponents([.hour, .minute], from: t)
+        let night = CTATime.inNightHours(minuteOfDay: (c.hour ?? 0) * 60 + (c.minute ?? 0),
+                                         start: Config.nightStartMin, end: Config.nightEndMin)
+        return "\(groups) stale:\(stale) night:\(night)"
+    }
+
+    func next(_ t: Date, _ preds: [Prediction], _ fetched: Date?) -> Date {
+        DetailGroups.nextChange(after: t, stop: stop, predictions: preds, fetched: fetched)
+    }
+
+    @Test func nothingShownChangesBetweenChanges() {
+        // Six for one platform (only 4 show), and the other platform's few.
+        let preds = [p(-30), p(20.5), p(61), p(119.999), p(300), p(1_000.25, live: false), p(-59.9), p(1_100),
+                     p(45, platform: "30256"), p(500, platform: "30256")]
+        let fetched = now.addingTimeInterval(-37.3)
+        var t = now.addingTimeInterval(0.123)
+        var tick = next(t, preds, fetched)
+        var shownSince = shown(preds, fetched: fetched, at: t)
+        var changes = 0
+        // Step by 0.05 s for 20 minutes: inside each interval the page reads the same.
+        while t < now.addingTimeInterval(1_200) {
+            t = t.addingTimeInterval(0.05)
+            while t >= tick {   // two changes can fall within one step
+                shownSince = shown(preds, fetched: fetched, at: tick)
+                let after = next(tick, preds, fetched)
+                #expect(after > tick)
+                tick = after
+                changes += 1
+            }
+            #expect(shown(preds, fetched: fetched, at: t) == shownSince, "at \(t.timeIntervalSince(now))")
+        }
+        #expect(changes < 60)   // far fewer redraws than a 1 s clock's 1,200
+    }
+
+    @Test func landsJustPastEachBoundary() {
+        let tick = next(now, [p(150)], nil)
+        #expect(abs(tick.timeIntervalSince(now) - 30) < 0.01)   // 2 min → 1 min at 30 s
+        #expect(ArrivalFormat.minutes(until: now.addingTimeInterval(150), now: tick) == 1)
+        let drop = next(now.addingTimeInterval(170), [p(150)], nil)
+        #expect(abs(drop.timeIntervalSince(now) - 210) < 0.01)   // gone a minute after it was due
+        let stale = next(now, [], now.addingTimeInterval(-119.5))
+        #expect(abs(stale.timeIntervalSince(now) - 0.5) < 0.01)
+        #expect(ArrivalFormat.freshness(fetched: now.addingTimeInterval(-119.5), now: stale) != .fresh)
+        #expect(next(now, [], nil) == chicago("2026-11-05T05:00:00"))   // night hours end
+    }
+}
+
+/// A bus stop page's direction switch: the same route's nearest stop the other way.
+struct OppositeStopTests {
+    let n22 = Line(route: "22", dir: "Northbound"), s22 = Line(route: "22", dir: "Southbound")
+    let e77 = Line(route: "77", dir: "Eastbound"), w77 = Line(route: "77", dir: "Westbound")
+
+    /// A bus stop `meters` due north of the first one (`CardBuilderTests.north`).
+    func bus(_ id: String, _ meters: Double, _ lines: [Line]) -> Stop { CardBuilderTests.bus(id, meters, lines) }
+
+    @Test func eachDirectionHasItsOpposite() {
+        #expect(OppositeStop.direction(opposite: "Northbound") == "Southbound")
+        #expect(OppositeStop.direction(opposite: "Southbound") == "Northbound")
+        #expect(OppositeStop.direction(opposite: "Eastbound") == "Westbound")
+        #expect(OppositeStop.direction(opposite: "Westbound") == "Eastbound")
+        #expect(OppositeStop.direction(opposite: "Howard") == nil)   // a train destination
+    }
+
+    @Test func picksTheNearestStopServingTheRouteTheOtherWay() {
+        let here = bus("1", 0, [n22, e77])
+        let index = StopIndex(stops: [here, bus("far", 300, [s22]), bus("near", 30, [s22]), bus("other", 10, [w77]),
+                                      bus("same", 5, [n22])])
+        let found = OppositeStop.find(for: here, line: n22, in: index)
+        #expect(found?.stop.id == "near")
+        #expect(found?.line == s22)
+        #expect(OppositeStop.find(for: here, line: e77, in: index)?.stop.id == "other")
+    }
+
+    @Test func aStopServingBothWaysIsItsOwnOpposite() {
+        // Like Jackson & Austin Terminal on the 126: Eastbound is at this very stop, not 245 m away.
+        let here = bus("1", 0, [n22, s22])
+        let index = StopIndex(stops: [here, bus("across", 20, [s22])])
+        let found = OppositeStop.find(for: here, line: n22, in: index)
+        #expect(found?.stop.id == "1")
+        #expect(found?.line == s22)
+    }
+
+    @Test func tiesGoToTheLowerID() {
+        let here = bus("1", 0, [n22])
+        let index = StopIndex(stops: [here, bus("b", 40, [s22]), bus("a", 40, [s22])])
+        #expect(OppositeStop.find(for: here, line: n22, in: index)?.stop.id == "a")
+    }
+
+    @Test func noneInRange() {
+        let here = bus("1", 0, [n22])
+        let index = StopIndex(stops: [here, bus("far", OppositeStop.maxMeters + 1, [s22])])
+        #expect(OppositeStop.find(for: here, line: n22, in: index) == nil)
+        #expect(OppositeStop.find(for: here, line: n22, in: index, within: OppositeStop.maxMeters + 2)?.stop.id == "far")
+    }
+
+    @Test func aRouteRunningOneWayHasNone() {
+        let here = bus("1", 0, [n22])
+        let index = StopIndex(stops: [here, bus("2", 50, [n22]), bus("3", 60, [e77])])   // 22 only runs north here
+        #expect(OppositeStop.find(for: here, line: n22, in: index) == nil)
+        // And a station never switches this way.
+        let station = CardBuilderTests.station("s", 0, [Platform(id: "p", lines: [Line(route: "Red", dir: "Howard")])])
+        #expect(OppositeStop.find(for: station, line: n22, in: StopIndex(stops: [station, bus("4", 10, [s22])])) == nil)
+    }
+}

@@ -6,6 +6,7 @@ import SwiftUI
 struct MapScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
+    @Environment(\.scenePhase) private var scenePhase
     /// Our own follow state: only a real gesture clears it, and recenter sets it again.
     @State private var following = true
     /// Tilted 3D or flat 2D, kept between launches (redesign revision 3).
@@ -15,7 +16,8 @@ struct MapScreen: View {
         GeometryReader { geo in
             ZStack {
                 // The list covers the bottom at rest, so the camera centers in the part above it.
-                DioramaMap(following: $following, focus: model.detailStop, stops: model.stations + busPins, threeD: threeD,
+                DioramaMap(following: $following, focus: model.detailStop, stations: model.stations, busStops: busPins,
+                           threeD: threeD, puck: model.location.puck,
                            bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
                            onCenter: { model.center = $0 },   // after a pan the list follows the center of the visible map
                            onStopTap: { model.openStop = $0 })
@@ -32,11 +34,14 @@ struct MapScreen: View {
             if let hero = model.detailHero, model.detailStop != nil {
                 DetailHeroView(hero: hero).transition(.opacity)
             } else if model.detailStop == nil {
-                controls.transition(.opacity)
+                // Its own view, so arrivals updates (the pet's mood) don't rebuild the map. Pans still do: the bus
+                // pins follow the list's slots.
+                MapControls(following: $following, threeD: $threeD).transition(.opacity)
             }
         }
         .animation(Theme.snappy, value: model.detailStop == nil)
-        .onAppear { model.location.start() }
+        // Location (and the compass) run only in the foreground.
+        .onChange(of: scenePhase, initial: true) { model.location.setActive(scenePhase != .background) }
         .onChange(of: fixKey, initial: true) { followFix() }
         .onChange(of: following) { followFix() }
     }
@@ -44,20 +49,15 @@ struct MapScreen: View {
     /// Under the list, a subtle wash in a darker shade of the map's navy: clear in the top fifth, deepening to mostly
     /// opaque at the bottom (Leo, 2026-11-10). Under stop detail, the line's dark shade instead: clear at the top, solid over the
     /// bottom 20% (revision 3).
+    /// (Both are fixed sRGB colors, so they resolve the same in any environment.)
     @ViewBuilder private var wash: some View {
         if let hero = model.detailHero, model.detailStop != nil {
-            let shade = Color.card(hero.line.route)
-            LinearGradient(stops: [.init(color: shade.opacity(0), location: 0), .init(color: shade, location: 0.8)],
-                           startPoint: .top, endPoint: .bottom)
+            Wash(color: Color.card(hero.line.route).resolve(in: EnvironmentValues()), stops: [(0, 0), (1, 0.8)])
                 .transition(.opacity)
                 .animation(Theme.smooth, value: hero.line.route)
         } else {
             // The map's navy taken darker: in its own land color the wash vanished into the map.
-            let shade = Color(rgb: Self.listWash)
-            LinearGradient(stops: [.init(color: shade.opacity(0), location: 0.2),
-                                   .init(color: shade.opacity(0.6), location: 0.75),
-                                   .init(color: shade.opacity(0.85), location: 1)],
-                           startPoint: .top, endPoint: .bottom)
+            Wash(color: Color(rgb: Self.listWash).resolve(in: EnvironmentValues()), stops: [(0, 0.2), (0.6, 0.75), (0.85, 1)])
                 .transition(.opacity)
         }
     }
@@ -77,8 +77,26 @@ struct MapScreen: View {
     /// The main page's wash: the map's land navy, darker.
     static let listWash: UInt32 = 0x050C1F
 
-    /// The pet at the top left (its gear: Settings), saying where the map is in a speech bubble, and recenter.
-    private var controls: some View {
+    /// Changes with each new fix (the location service filters them to every 30 m).
+    private var fixKey: String {
+        model.location.coordinate.map { "\($0.latitude),\($0.longitude)" } ?? ""
+    }
+
+    /// While following (and no stop is open), the list centers on the user's fix.
+    private func followFix() {
+        guard following, model.detailStop == nil, let c = model.location.coordinate else { return }
+        model.center = c
+    }
+}
+
+/// The pet at the top left (its gear: Settings), saying where the map is in a speech bubble, and recenter.
+struct MapControls: View {
+    @Environment(AppModel.self) private var model
+    @Environment(ArrivalsStore.self) private var arrivals
+    @Binding var following: Bool
+    @Binding var threeD: Bool
+
+    var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.m) {
             PetAvatar(mood: petMood(now: .now)) { model.showSettings = true }
             NearLabel(center: model.center)
@@ -110,17 +128,6 @@ struct MapScreen: View {
              canHype: close.contains(slot.fetchID))
         }
         return MoodRules.deviceMood(stops, now: now, night: Night.now(now), hasLocation: model.location.coordinate != nil)
-    }
-
-    /// Changes with each new fix (the location service filters them to every 30 m).
-    private var fixKey: String {
-        model.location.coordinate.map { "\($0.latitude),\($0.longitude)" } ?? ""
-    }
-
-    /// While following (and no stop is open), the list centers on the user's fix.
-    private func followFix() {
-        guard following, model.detailStop == nil, let c = model.location.coordinate else { return }
-        model.center = c
     }
 }
 
@@ -210,8 +217,10 @@ struct DetailHeroView: View {
             // none: the wash's color names the line (revision 3).
             if hero.kind == .bus {
                 ZStack(alignment: .topLeading) {
-                    name.foregroundStyle(Color.card(hero.line.route)).offset(x: 6, y: 6)
+                    // A bus's shadow is its light-blue outline color, since its card is white.
+                    name.foregroundStyle(Color.cardOutline(hero.line.route) ?? Color.card(hero.line.route)).offset(x: 6, y: 6)
                     name.foregroundStyle(Color.cardText(hero.line.route))
+                        .outlinedText(Color.cardOutline(hero.line.route))
                 }
                 .lineLimit(1).minimumScaleFactor(0.4)
                 .allowsHitTesting(false)   // the map under it keeps panning
@@ -259,5 +268,45 @@ struct NearLabel: View {
         let marks = try? await CLGeocoder().reverseGeocodeLocation(CLLocation(latitude: c.latitude, longitude: c.longitude))
         guard let m = marks?.first else { return nil }
         return m.subLocality ?? m.thoroughfare ?? m.locality
+    }
+}
+
+/// A full-screen wash of one color down the screen at the given opacities, drawn by a CAGradientLayer so Core
+/// Animation composites it on the GPU: as a SwiftUI gradient it was re-rasterized on the CPU, screen-sized, along with
+/// the controls beside it. Animatable, so a change of line still blends from one color to the next.
+private struct Wash: View, Animatable {
+    var color: Color.Resolved
+    let stops: [(opacity: Float, location: Double)]
+
+    var animatableData: Color.Resolved.AnimatableData {
+        get { color.animatableData }
+        set { color.animatableData = newValue }
+    }
+
+    var body: some View {
+        GradientLayer(colors: stops.map { var c = color; c.opacity *= $0.opacity; return c.cgColor },
+                      locations: stops.map { NSNumber(value: $0.location) })
+    }
+}
+
+/// A top-to-bottom CAGradientLayer.
+private struct GradientLayer: UIViewRepresentable {
+    let colors: [CGColor]
+    let locations: [NSNumber]
+
+    final class GradientView: UIView {
+        override class var layerClass: AnyClass { CAGradientLayer.self }
+    }
+
+    func makeUIView(context: Context) -> GradientView {
+        let view = GradientView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: GradientView, context: Context) {
+        let layer = view.layer as! CAGradientLayer
+        layer.colors = colors
+        layer.locations = locations
     }
 }

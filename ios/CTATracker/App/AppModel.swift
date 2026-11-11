@@ -34,6 +34,8 @@ import SwiftUI
     var closeDetail = 0
     /// A stop icon tapped on the map; the list opens its detail and clears this.
     var openStop: String?
+    /// The line to open `openStop` on, when it isn't the listed card's (a bus page's direction switch).
+    var openLine: Line?
 
     init() {
         let url = Bundle.main.url(forResource: "stops", withExtension: "json")
@@ -91,45 +93,4 @@ struct DetailHero: Equatable {
     let line: Line
     let kind: Kind
     let stopID: String   // the group's platform or bus stop, which ★ saves
-}
-
-/// When In Use location, as SwiftUI-friendly state.
-@Observable final class LocationService: NSObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    private(set) var coordinate: CLLocationCoordinate2D?
-    private(set) var status: CLAuthorizationStatus = .notDetermined
-
-    var denied: Bool { status == .denied || status == .restricted }
-
-    override init() {
-        super.init()
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 30   // a new fix only after moving 30 m: the list doesn't rebuild on GPS jitter
-        status = manager.authorizationStatus
-    }
-
-    /// Asks once (first launch), then keeps the fix current while the app is in use.
-    func start() {
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        } else {
-            manager.startUpdatingLocation()
-        }
-    }
-
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        Task { @MainActor in
-            self.status = status
-            if status == .authorizedWhenInUse || status == .authorizedAlways { self.manager.startUpdatingLocation() }
-        }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let c = locations.last?.coordinate else { return }
-        Task { @MainActor in self.coordinate = c }
-    }
-
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
 }

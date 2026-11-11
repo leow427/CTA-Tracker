@@ -26,22 +26,38 @@ struct PixelText: View {
     var shrink = 0   // whole pixel scales to step down, for tight spots (ViewThatFits tries 0 first)
     @ScaledMetric private var points: CGFloat
 
-    init(_ text: String, points: CGFloat = 40, relativeTo style: Font.TextStyle = .largeTitle, shrink: Int = 0) {
+    var outline: Color? = nil
+
+    init(_ text: String, points: CGFloat = 40, relativeTo style: Font.TextStyle = .largeTitle, shrink: Int = 0,
+         outline: Color? = nil) {
         self.text = text
         self.shrink = shrink
+        self.outline = outline
         _points = ScaledMetric(wrappedValue: points, relativeTo: style)
     }
 
     var body: some View {
-        if let grid = PixelFont.grid(text), let image = PetSprites.image(grid: grid, palette: [0, 0xFFFFFF]) {
+        if let image = Self.image(text) {
             // Scaled by height, so "1" and "10:05" share one size.
-            PixelImage(image: image, points: 0, template: true,
-                       scale: max(1, PixelScale.scale(art: PixelFont.glyphHeight, points: points) - shrink))
+            let scale = max(1, PixelScale.scale(art: PixelFont.glyphHeight, points: points) - shrink)
+            PixelImage(image: image, points: 0, template: true, scale: scale)
+                .pixelOutline(outline, pixel: 2)   // a whole art pixel (7 pt) swamped the digits
                 .accessibilityLabel(text)
         } else {
             Text(text).pixelFont(points)
         }
     }
+
+    /// The text's pixel art, nil without glyphs, drawn once per text and kept: every card's minutes came through
+    /// here on each pass, each making a new image (only digits, "Due", and clock times ever do).
+    private static func image(_ text: String) -> CGImage? {
+        if let cached = images[text] { return cached }
+        let image = PixelFont.grid(text).flatMap { PetSprites.image(grid: $0, palette: [0, 0xFFFFFF]) }
+        images[text] = image
+        return image
+    }
+
+    private static var images: [String: CGImage?] = [:]
 }
 
 /// The pixel font's system fallback, snapped to its grid at every text size.
@@ -59,6 +75,21 @@ struct PixelFontModifier: ViewModifier {
 }
 
 extension View {
+    /// A one-art-pixel halo in `color` behind one-color pixel art, like the map icons' halo; nil draws none.
+    @ViewBuilder func pixelOutline(_ color: Color?, pixel: CGFloat) -> some View {
+        if let color {
+            background {
+                ForEach(0..<4, id: \.self) { i in
+                    self.foregroundStyle(color)
+                        .offset(x: [pixel, -pixel, 0, 0][i], y: [0, 0, pixel, -pixel][i])
+                        .accessibilityHidden(true)
+                }
+            }
+        } else {
+            self
+        }
+    }
+
     func pixelFont(_ points: CGFloat = 34, relativeTo style: Font.TextStyle = .largeTitle) -> some View {
         modifier(PixelFontModifier(points: points, relativeTo: style))
     }

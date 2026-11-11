@@ -19,20 +19,32 @@ struct StopDetail: View {
     @Environment(\.listMetrics) private var metrics
     @State private var selected: Line?
     @State private var shown = false   // rises in over the map (the list pushes it without a system transition)
+    /// A bus stop's twin across the street: the same route the other way (`OppositeStop`), found once per line.
+    @State private var opposite: (stop: Stop, line: Line)?
 
     var body: some View {
         if let stop = model.index?.stop(id: route.stopID) {
             // The group ★ saves: the tapped card's until another is picked (the order doesn't depend on arrivals).
             let chosen = selected ?? route.tapped ?? DetailGroups.groups(stop: stop, tapped: nil, predictions: [], now: .now).first?.line
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                content(stop, chosen: chosen, now: context.date)
+            // Redrawn only when something on it can change, not every second (the freshness line keeps its own clock).
+            TimelineView(schedule(stop)) {
+                content(stop, chosen: chosen, now: max($0.date, .now))   // as `Card` does
             }
             .toolbar(.hidden, for: .navigationBar)   // the red × over the map closes it
             .sensoryFeedback(.selection, trigger: chosen)   // set from the start, so only a group tap changes it
-            .onChange(of: chosen, initial: true) { hero(stop, chosen: chosen) }
+            .onChange(of: chosen, initial: true) {
+                hero(stop, chosen: chosen)
+                opposite = chosen.flatMap { line in model.index.flatMap { OppositeStop.find(for: stop, line: line, in: $0) } }
+            }
         } else {
             EmptyState(title: "No arrivals")
         }
+    }
+
+    /// Ticks when the page can next read differently (`DetailGroups.nextChange`).
+    private func schedule(_ stop: Stop) -> ChangeSchedule {
+        let (predictions, fetched) = (arrivals.predictions[stop.id] ?? [], arrivals.fetched[stop.id])
+        return ChangeSchedule { DetailGroups.nextChange(after: $0, stop: stop, predictions: predictions, fetched: fetched) }
     }
 
     /// Tells the map which line to draw big: the chosen group's line and its own stop (what ★ saves).
@@ -56,17 +68,30 @@ struct StopDetail: View {
             Color.clear.frame(height: max(0, (metrics.full * Theme.detailRest).rounded() - metrics.controlsBottom))
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 if let top {
-                    VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                        Label { Text(RouteCard.heading(top.line, kind: top.kind, dest: top.arrivals.first?.dest)) }
-                            icon: { Image(systemName: "arrow.right.circle.fill") }
-                            .font(Theme.rounded(.title, .heavy))
-                        Text(stop.name).font(Theme.rounded(.headline, .semibold))
+                    HStack(spacing: Theme.Space.s) {
+                        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                            Label { Text(RouteCard.heading(top.line, kind: top.kind, dest: top.arrivals.first?.dest)) }
+                                icon: { Text(Image(systemName: "arrow.right.circle.fill")) }   // Text, so a bus outlines it
+                                .font(Theme.rounded(.title, .heavy))
+                            Text(stop.name).font(Theme.rounded(.headline, .semibold))
+                        }
+                        .foregroundStyle(Color.cardText(top.line.route))
+                        .modifier(HeaderBacking(route: top.line.route, bus: top.kind == .bus))
+                        .accessibilityElement(children: .combine)
+                        // The color names a train's line on screen; VoiceOver needs it said.
+                        .accessibilityLabel("\(CardSpeech.lineName(top.line, kind: top.kind)) to \(top.arrivals.first?.dest ?? top.line.dir), \(stop.name)")
+                        // A bus stop serves one direction; its twin across the street serves the other.
+                        if let opposite, opposite.line.route == top.line.route {
+                            DirectionSwitch(route: top.line.route, to: opposite.line.dir) {
+                                if opposite.stop.id == stop.id {
+                                    // This stop serves both ways (a terminal): pick the other group, as a tap on it would.
+                                    withAnimation(Theme.snappy) { selected = opposite.line }
+                                } else {
+                                    (model.openLine, model.openStop) = (opposite.line, opposite.stop.id)
+                                }
+                            }
+                        }
                     }
-                    .foregroundStyle(Color.cardText(top.line.route))
-                    .shadow(color: .black.opacity(0.6), radius: 6)   // the wash is still thin up here, over the map
-                    .accessibilityElement(children: .combine)
-                    // The color names a train's line on screen; VoiceOver needs it said.
-                    .accessibilityLabel("\(CardSpeech.lineName(top.line, kind: top.kind)) to \(top.arrivals.first?.dest ?? top.line.dir), \(stop.name)")
                     DepartureRow(group: top, state: state, night: Night.now(now), now: now)
                     chips(group: top, stop: stop, failing: failing, now: now)
                 }
@@ -87,6 +112,7 @@ struct StopDetail: View {
                     }
                 }
             }
+            .outlinedText(Color.cardOutline(top?.line.route ?? ""))   // a bus stop's page matches its cards
             .padding(.horizontal, Theme.cardMargin)
             .padding(.top, Theme.Space.xl)
             .padding(.bottom, Theme.Space.xxl)
@@ -106,13 +132,15 @@ struct StopDetail: View {
             if group.arrivals.first?.delayed == true {
                 Label { Text("Delayed") } icon: { PixelImage(image: Glyphs.alert, points: 16, template: true) }
                     .font(Theme.rounded(.headline, .bold)).foregroundStyle(.black)
+                    .plainText()   // amber stays plain on a bus stop's page
                     .padding(.horizontal, Theme.Space.l).frame(height: Theme.mapButton + Theme.Space.xs)
                     .plate(Theme.amber, edge: 4, shape: .small)
             }
-            FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, now: now)
+            FreshnessLine(fetched: arrivals.fetched[stop.id], failing: failing, halo: Color.glyphHalo(group.line.route))
                 .foregroundStyle(Color.cardText(group.line.route))
                 .padding(.horizontal, Theme.Space.l).frame(height: Theme.mapButton + Theme.Space.xs)
-                .plate(Color.cardGradient(group.line.route), edge: 4, shape: .small)
+                .plate(Color.cardGradient(group.line.route), rim: Color.cardOutline(group.line.route) ?? .white.opacity(0.22),
+                       edge: 4, shape: .small)
         }
     }
 }
@@ -163,23 +191,30 @@ private struct DepartureTile: View {
         let m = ArrivalFormat.minutes(until: p.at, now: now)
         let minutes = p.live && m >= 1
         let text = Color.cardText(route)
+        let outline = Color.cardOutline(route)
         VStack(spacing: Theme.Space.xs) {
             HStack(alignment: .top, spacing: Theme.Space.xs) {
                 // 8× or 6× the 7-pixel digits; clock times step down 3 scales to fit the tile.
                 PixelText(minutes ? "\(m)" : ArrivalFormat.label(p, now: now), points: lead ? 56 : 42,
-                          shrink: minutes ? 0 : 3)
-                if p.live && !stale { PixelImage(image: Glyphs.live[0], points: 16, template: true).padding(.top, Theme.Space.s) }
+                          shrink: minutes ? 0 : 3, outline: outline)
+                // Light green when live (still on a tile; none once stale), blue when scheduled; haloed in gray on a
+                // white bus tile.
+                if !p.live || !stale {
+                    PixelImage(image: Glyphs.live[0], points: 16, template: true)
+                        .pixelOutline(Color.glyphHalo(route), pixel: 2)
+                        .foregroundStyle(p.live ? Theme.live : Theme.scheduled)
+                        .padding(.top, Theme.Space.s)
+                }
             }
             if minutes { Text(m == 1 ? "minute" : "minutes").font(Theme.rounded(.headline, .bold)) }
             Spacer(minLength: 0)
+            // Tags on solid color stay plain.
             if p.delayed {
-                Text("DELAYED").foregroundStyle(.black)
+                Text("DELAYED").foregroundStyle(.black).plainText()
                     .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
                     .background(Theme.amber, in: PixelShape.small)
             } else if !p.live {
-                Text("SCHEDULED").foregroundStyle(Color.card(route))
-                    .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
-                    .background(text, in: PixelShape.small)
+                ScheduledTag(route: route)
             }
         }
         .font(Theme.rounded(.caption, .heavy))
@@ -187,7 +222,7 @@ private struct DepartureTile: View {
         .padding(.vertical, Theme.Space.l)
         .padding(.horizontal, Theme.Space.s)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .plate(Color.cardGradient(route), rim: lead ? text : text.opacity(0.25), rimWidth: lead ? 3 : 2)
+        .plate(Color.cardGradient(route), rim: outline ?? (lead ? text : text.opacity(0.25)), rimWidth: lead ? 3 : 2)
         .opacity(stale ? 0.6 : 1)
         .accessibilityElement(children: .combine)
     }
@@ -215,8 +250,13 @@ private struct LineCard: View {
                 let m = ArrivalFormat.minutes(until: next.at, now: now)
                 let live = next.live && m >= 1
                 VStack(alignment: .trailing, spacing: Theme.Space.xs) {
-                    PixelText(live ? "\(m)" : ArrivalFormat.label(next, now: now), points: 28, shrink: live ? 0 : 1)
+                    HStack(alignment: .top, spacing: Theme.Space.xs) {
+                        PixelText(live ? "\(m)" : ArrivalFormat.label(next, now: now), points: 28, shrink: live ? 0 : 1,
+                                  outline: Color.cardOutline(group.line.route))
+                        if !next.live { StillGlyph(halo: Color.glyphHalo(group.line.route)) }   // as on the cards
+                    }
                     if live { Text("min").font(Theme.rounded(.subheadline, .bold)) }
+                    if !next.live { ScheduledTag(route: group.line.route) }
                 }
             } else {
                 Text(state.unknown || (state.stale && state.loaded) ? "—" : night ? "No service" : "None")
@@ -225,27 +265,50 @@ private struct LineCard: View {
         }
         .foregroundStyle(Color.cardText(group.line.route))
         .padding(Theme.Space.l)
-        .plate(Color.cardGradient(group.line.route), rim: Color.cardText(group.line.route).opacity(0.25))
+        .plate(Color.cardGradient(group.line.route),
+               rim: Color.cardOutline(group.line.route) ?? Color.cardText(group.line.route).opacity(0.25))
         .contentShape(PixelShape())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([CardSpeech.lineName(group.line, kind: group.kind) + " to " + (next?.dest ?? group.line.dir),
-                             next.map { ArrivalFormat.label($0, now: now) } ?? (night ? "No service now" : "No arrivals")]
+                             next.map { ArrivalFormat.label($0, now: now) + ($0.live ? "" : ", scheduled") }
+                                 ?? (night ? "No service now" : "No arrivals")]
             .joined(separator: ", "))
     }
 }
 
-/// "Live · updated 12 s ago" (app spec 5.1), or the data's age once it's stale.
+/// "Live · updated 12 s ago" (app spec 5.1), or the data's age once it's stale. The one part of the page that
+/// changes every second, so the only one on a per-second clock: it ticks as each whole second of age passes, so it
+/// turns stale in the same millisecond as the tiles (`DetailGroups.nextChange`).
 private struct FreshnessLine: View {
     let fetched: Date?
     let failing: Bool   // this stop's kind is failing; the banner below says so
-    let now: Date
+    var halo: Color? = nil   // a bus's gray, so the light-green glyph reads on white
 
     var body: some View {
+        TimelineView(schedule) { line(now: max($0.date, .now)) }   // as `Card` does
+    }
+
+    private var schedule: ChangeSchedule {
+        guard let fetched else { return .never }
+        return ChangeSchedule { t in
+            // A hair past each whole second of age, like `nextChange`, since staleness compares strictly; from a minute
+            // on the text counts minutes, so a hair past each whole minute (the dim and stale ages are whole minutes).
+            let age = t.timeIntervalSince(fetched)
+            let step: TimeInterval = age < 59 ? 1 : 60
+            return fetched.addingTimeInterval(((age / step).rounded(.down) + 1) * step + 0.001)
+        }
+    }
+
+    private func line(now: Date) -> some View {
         HStack(spacing: Theme.Space.xs) {
             if let fetched {
                 let age = max(0, Int(now.timeIntervalSince(fetched)))
                 let fresh = ArrivalFormat.freshness(fetched: fetched, now: now) == .fresh
-                if fresh { PixelImage(image: Glyphs.live[0], points: 16, template: true).foregroundStyle(Theme.signal) }
+                if fresh {
+                    PixelImage(image: Glyphs.live[0], points: 16, template: true)
+                        .pixelOutline(halo, pixel: 2)
+                        .foregroundStyle(Theme.live)
+                }
                 Text(fresh ? "Live · updated \(Self.ago(age))" : "Updated \(Self.ago(age))")
             } else {
                 if !failing { Text("Updating…") }   // when failing, the banner says it once
@@ -256,6 +319,48 @@ private struct FreshnessLine: View {
 
     static func ago(_ seconds: Int) -> String {
         seconds < 60 ? "\(seconds) s ago" : "\(seconds / 60) min ago"
+    }
+}
+
+/// A bus header sits on a white bus plate, so its gray reads over the map (the wash is still thin up here); a train's
+/// light text keeps its soft shadow instead.
+private struct HeaderBacking: ViewModifier {
+    let route: String
+    let bus: Bool
+
+    func body(content: Content) -> some View {
+        if bus {
+            content
+                .padding(Theme.Space.l)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .plate(Color.cardGradient(route), rim: Color.cardOutline(route) ?? .clear, rimWidth: 3)
+        } else {
+            content.shadow(color: .black.opacity(0.6), radius: 6)
+        }
+    }
+}
+
+/// Switches a bus stop page to the same route the other way, at the stop across the street (Leo 2026-11-10): a bus
+/// plate button like ★, its arrows along the route's axis.
+private struct DirectionSwitch: View {
+    let route: String
+    let to: String   // "Northbound"
+    let action: () -> Void
+    @State private var taps = 0
+
+    var body: some View {
+        let vertical = to == "Northbound" || to == "Southbound"
+        Button { taps += 1; action() } label: {
+            Image(systemName: vertical ? "arrow.up.arrow.down" : "arrow.left.arrow.right")
+                .font(Theme.mapSymbol)
+                .foregroundStyle(Color.cardText(route))
+                .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
+                .plate(Color.cardGradient(route), rim: Color.cardOutline(route) ?? .white.opacity(0.22), edge: 4,
+                       shape: .small)
+        }
+        .buttonStyle(PressableCard())
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)   // as ★
+        .accessibilityLabel("Switch to \(to)")
     }
 }
 
@@ -298,11 +403,12 @@ private struct AlertsRow: View {
             Button { withAnimation(Theme.snappy) { open.toggle() } } label: {
                 HStack(spacing: Theme.Space.s) {
                     PixelImage(image: Glyphs.alert, points: 16, template: true)
+                        .pixelOutline(Color.cardOutline(route), pixel: CGFloat(PixelScale.scale(art: Glyphs.alert.width, points: 16)))
                     Text(alerts.count == 1 ? alerts[0].headline : "\(alerts.count) service alerts")
                         .font(.subheadline.weight(.semibold)).lineLimit(2)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                    Text(Image(systemName: "chevron.down")).font(.caption.weight(.bold))   // Text, so a bus outlines it
                         .rotationEffect(.degrees(open ? 180 : 0))
                 }
                 .contentShape(.rect)   // the whole row opens it, not just its text
@@ -314,12 +420,13 @@ private struct AlertsRow: View {
                         Text(a.headline).font(.subheadline.weight(.bold))
                         Text(AlertsWeather.plainText(a.fullText.isEmpty ? a.shortText : a.fullText)).font(.subheadline)
                     }
+                    .plainText()   // paragraphs read better without the bus outline
                 }
             }
         }
         .foregroundStyle(Color.cardText(route))
         .padding(Theme.Space.l)
         // The line's shade, not amber: amber is only for the Delayed badge (app spec 4.6); the pixel ⚠ carries the warning.
-        .plate(Color.cardGradient(route), edge: 4, shape: .small)
+        .plate(Color.cardGradient(route), rim: Color.cardOutline(route) ?? .white.opacity(0.22), edge: 4, shape: .small)
     }
 }

@@ -31,6 +31,15 @@ public enum DetailGroups {
             return x.line.dir < y.line.dir
         }
     }
+
+    /// The first moment after `now` when stop detail's page (all but its per-second freshness line) can read
+    /// differently: a shown arrival's minutes, a drop-off, the data turning stale, or night hours
+    /// (`ArrivalFormat.nextChange`). The page shows no data age in minutes, so those don't count.
+    public static func nextChange(after now: Date, stop: Stop, predictions: [Prediction], fetched: Date?) -> Date {
+        let cards = CardBuilder.slots(of: stop, meters: 0).map { slot in predictions.filter(slot.matches) }
+        return ArrivalFormat.nextChange(after: now, cards: cards, shownPerCard: perGroup, fetched: fetched.map { [$0] } ?? [],
+                                        ageMinutes: false)
+    }
 }
 
 /// Search (app spec 3): favorites first, then stops and routes matching the name or route number:
@@ -99,5 +108,37 @@ public enum StopSearch {
         if kind == .bus { return normalized(line.route) == q }
         let name = normalized(LineColors.train(line.route)?.name ?? line.route)
         return normalized(line.route) == q || name.hasPrefix(q)
+    }
+}
+
+/// A bus stop usually serves one direction of a route; the other direction stops across the street. This finds that
+/// stop, so a bus stop page can switch direction the way a station's page switches platforms (Leo 2026-11-10).
+public enum OppositeStop {
+    /// How far to look (Leo 2026-11-10): across the street and a little along it, about 5 minutes' walk. App-only, so
+    /// not in `Config` (the firmware's mirror).
+    public static let maxMeters: Double = 400
+
+    /// The compass opposite of a bus direction, nil for anything else.
+    public static func direction(opposite dir: String) -> String? {
+        ["Northbound": "Southbound", "Southbound": "Northbound", "Eastbound": "Westbound", "Westbound": "Eastbound"][dir]
+    }
+
+    /// The nearest bus stop within `within` meters serving `line`'s route the other way, with that line: `stop`
+    /// itself (0 m) when it serves both ways, as a terminal often does; else ties go to the lower ID. Nil when there's
+    /// none, or the direction has no opposite.
+    public static func find(for stop: Stop, line: Line, in index: StopIndex,
+                            within: Double = maxMeters) -> (stop: Stop, line: Line)? {
+        guard stop.kind == .bus, let other = direction(opposite: line.dir) else { return nil }
+        let want = Line(route: line.route, dir: other)
+        if (stop.lines ?? []).contains(want) { return (stop, want) }
+        let here = CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon)
+        var best: (stop: Stop, meters: Double)?
+        for other in index.stops where other.kind == .bus && other.id != stop.id && (other.lines ?? []).contains(want) {
+            let meters = StopIndex.meters(here, CLLocationCoordinate2D(latitude: other.lat, longitude: other.lon))
+            guard meters <= within else { continue }
+            if let b = best, b.meters < meters || (b.meters == meters && b.stop.id < other.id) { continue }
+            best = (other, meters)
+        }
+        return best.map { ($0.stop, want) }
     }
 }

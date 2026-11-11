@@ -9,10 +9,13 @@ struct DioramaMap: View {
     @Binding var following: Bool
     /// The open stop: the camera flies to it, and clearing it restores the camera from before.
     let focus: Stop?
-    /// Every station plus the listed bus stops, drawn as pixel icons.
-    let stops: [Stop]
+    /// Every station, and the listed bus stops, drawn as pixel icons.
+    let stations: [Stop]
+    let busStops: [Stop]
     /// Tilted with 3D buildings, or flat and top-down (redesign revision 3).
     let threeD: Bool
+    /// The puck's fixes and heading, from the app's one location manager (`LocationService`).
+    let puck: LocationDataModel
     /// How much of the map's bottom is covered, so the camera centers in the part left visible. Applied on each
     /// camera move: it changes only when detail opens or closes, and both move the camera.
     let bottomInset: CGFloat
@@ -49,9 +52,10 @@ struct DioramaMap: View {
                     .lineEmissiveStrength(1)
                     .lineOcclusionOpacity(0.35)
                     .slot(.middle)
-                ForEvery(StopIcons.images(stops, displayScale: displayScale), id: \.id) { $0.image }
-                GeoJSONSource(id: "stations").data(.featureCollection(features(.station)))
-                GeoJSONSource(id: "buses").data(.featureCollection(features(.bus)))
+                let art = stationArt()
+                ForEvery(art.icons + StopIcons.images(busStops, displayScale: displayScale), id: \.id) { $0.image }
+                GeoJSONSource(id: "stations").data(.featureCollection(art.features))
+                GeoJSONSource(id: "buses").data(.featureCollection(features(busStops)))
                 // Crowded stations (the Loop zoomed out) drop instead of piling up, the open one last.
                 stopLayer("stations").iconAllowOverlap(false).symbolSortKey(Exp(.get) { "rank" })
                 // The few listed bus stops always show, even beside a station, without pushing stations out.
@@ -59,7 +63,9 @@ struct DioramaMap: View {
                 TapInteraction(.layer("stations")) { feature, _ in tapped(feature) }
                 TapInteraction(.layer("buses")) { feature, _ in tapped(feature) }
             }
-            .mapStyle(Self.navyStyle(threeD: threeD))
+            .mapStyle(threeD ? Self.navy3D : Self.navy2D)
+            .locationDataModel(puck)
+            .frameRate(range: 30...60, preferred: 60)   // at most 60 fps: 120 on ProMotion heated the phone
             .ornamentOptions(OrnamentOptions(
                 scaleBar: ScaleBarViewOptions(visibility: .hidden),
                 compass: CompassViewOptions(visibility: .hidden),
@@ -119,15 +125,27 @@ struct DioramaMap: View {
         }
     }
 
-    /// The stops of one kind as points with their id, icon, and rank (the open stop first in collisions).
-    private func features(_ kind: Kind) -> FeatureCollection {
-        FeatureCollection(features: stops.filter { $0.kind == kind }.map { stop in
+    /// Stops as points with their id, icon, and rank (the open stop first in collisions).
+    private func features(_ stops: [Stop]) -> FeatureCollection {
+        FeatureCollection(features: stops.map { stop in
             var f = Feature(geometry: .point(Point(CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon))))
             f.properties = ["id": .string(stop.id), "icon": .string(StopIcons.id(stop)),
                             "rank": .number(stop.id == focus?.id ? 0 : 1)]
             return f
         })
     }
+
+    /// The stations' icons and features, made again only when the stations, the open stop, or the screen scale change:
+    /// the map's body runs on every change to the list's bus stops, and the ~150 stations rarely change.
+    private func stationArt() -> (icons: [(id: String, image: StyleImage)], features: FeatureCollection) {
+        if let c = Self.stationCache, c.stations == stations, c.focus == focus?.id, c.scale == displayScale { return c.art }
+        let art = (StopIcons.images(stations, displayScale: displayScale), features(stations))
+        Self.stationCache = (stations, focus?.id, displayScale, art)
+        return art
+    }
+
+    private static var stationCache: (stations: [Stop], focus: String?, scale: CGFloat,
+                                      art: (icons: [(id: String, image: StyleImage)], features: FeatureCollection))?
 
     private func tapped(_ feature: FeaturesetFeature) -> Bool {
         if case .string(let id)? = feature.properties["id"] { onStopTap(id) }
@@ -145,6 +163,10 @@ struct DioramaMap: View {
     }
 
     // MARK: - Static style pieces
+
+    /// Made once: the map's body runs often, and the style needn't be rebuilt each time.
+    static let navy3D = navyStyle(threeD: true)
+    static let navy2D = navyStyle(threeD: false)
 
     /// Dark navy Chicago (Transit-style): Standard's night light over navy land, roads, water, and buildings,
     /// still in 3D, so the L lines and the list's colors carry the brightness.

@@ -19,11 +19,14 @@ struct CardList: View {
         @Bindable var model = model
         GeometryReader { geo in
             let metrics = ListMetrics(geo)
+            // The search bar's bottom edge once it's pinned under the controls.
+            let pin = metrics.controlsBottom + Theme.searchHeight + Theme.Space.s
             NavigationStack(path: $path) {
                 ScrollViewReader { reader in
                 ScrollView {
-                    // One clock for every card, outside the lazy stack, so cards are built only as they scroll in.
-                    TimelineView(.periodic(from: .now, by: 15)) { context in
+                    // The order's clock, outside the lazy stack, so cards are built only as they scroll in. Each card
+                    // keeps its own clock (`Card`), so a minute ticking over redraws that card alone.
+                    TimelineView(orderSchedule) { context in
                         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                             // The open map above the resting list. A spacer, not a content margin: pinned
                             // headers stick at the margin's edge, and this one should stick under the controls.
@@ -34,7 +37,7 @@ struct CardList: View {
                                 // The cards float over the map; MapScreen fades it to navy toward the bottom.
                                 VStack(spacing: 0) {
                                     if arrivals.unavailable { UnavailableBanner().padding(.horizontal, Theme.cardMargin) }
-                                    content(now: context.date)
+                                    content(now: max(context.date, .now))   // as `Card` does
                                 }
                                 .animation(Theme.snappy, value: showingSearch)   // list ⇄ results cross-fade, no pop
                                 .padding(.bottom, Theme.Space.xl)
@@ -43,12 +46,7 @@ struct CardList: View {
                                 .background { if showingSearch { Theme.navy } }
                                 // With no panel behind the pinned search bar, cards end at its bottom edge, so none
                                 // peeks through its pixel corners.
-                                .mask(alignment: .top) {
-                                    GeometryReader { g in
-                                        let cut = model.listTop + Theme.searchHeight + Theme.Space.s - g.frame(in: .global).minY
-                                        VStack(spacing: 0) { Color.clear.frame(height: max(0, cut)); Color.black }
-                                    }
-                                }
+                                .modifier(ClipAbove(y: pin))
                             } header: {
                                 header(filter: $model.filter)
                                     // The list's top edge on screen: touches above it go to the map (PassThroughHost).
@@ -59,16 +57,14 @@ struct CardList: View {
                         }
                         // Always tall enough to pin the header, even with a short list or few search results.
                         .frame(minHeight: metrics.full + metrics.restTop, alignment: .top)
+                        // Hidden under stop detail, the cards' clocks stop; back on screen they read the time anew.
+                        .environment(\.cardClocksPaused, !path.isEmpty)
                     }
                 }
-                // Cards scrolled past the pinned header disappear under the top controls, not behind them.
-                .mask {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: metrics.controlsBottom)   // where the header pins
-                        Color.black
-                    }
-                    .ignoresSafeArea()
-                }
+                // Cards scrolled past the pinned header disappear under the top controls, not behind them. The
+                // safe-area padding below puts this view's top edge where the header pins, so a clip there does what
+                // an alpha mask did, without its offscreen pass.
+                .clipShape(BelowTop())
                 // Detail floats over the map with no page behind it, so the list fades away while it's open
                 // (and stays hidden under a back swipe) instead of showing through.
                 .opacity(path.isEmpty ? 1 : 0)
@@ -124,29 +120,27 @@ struct CardList: View {
     @ViewBuilder private func content(now: Date) -> some View {
         let slots = model.slots
         if showingSearch {
-            if let found { searchResults(found.results, for: found.query, now: now) }
+            if let found { searchResults(found.results, for: found.query) }
         } else if model.index == nil {
             EmptyState(title: "CTA data unavailable")
         } else {
             if !slots.favorites.isEmpty { SectionHeader(title: "Favorites", symbol: "star.fill") }
-            ForEach(slots.favorites) { link($0, now: now) }
+            ForEach(slots.favorites) { link($0) }
             if model.location.denied {
                 LocationOff()
             } else if slots.farFromChicago {
                 EmptyState(title: "No CTA stops near here")
             } else {
                 if !slots.favorites.isEmpty && !slots.nearby.isEmpty { SectionHeader(title: "Nearby", symbol: "location.fill") }
-                ForEach(CardOrder.sorted(slots.nearby, predictions: allPredictions(slots.nearby), now: now)) {
-                    link($0, now: now)
-                }
+                ForEach(CardOrder.sorted(slots.nearby, predictions: allPredictions(slots.nearby), now: now)) { link($0) }
             }
         }
     }
 
     /// A card that opens its stop's detail, pressing down on touch.
-    private func link(_ slot: Slot, now: Date) -> some View {
+    private func link(_ slot: Slot) -> some View {
         Button { show([DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)]) } label: {
-            Card(slot: slot, now: now)
+            Card(slot: slot)
         }
         .buttonStyle(PressableCard())
         .padding(.horizontal, Theme.cardMargin)
@@ -170,9 +164,9 @@ struct CardList: View {
 
     /// Search (app spec 3): favorites first, then matching stops, nearest first. Tapping a stop opens big direction
     /// buttons under it ("Toward O'Hare", "22 · Northbound"), each straight into that line and direction (Leo, 2026-11-10).
-    @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String, now: Date) -> some View {
+    @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String) -> some View {
         if !r.favorites.isEmpty { SectionHeader(title: "Favorites", symbol: "star.fill") }
-        ForEach(r.favorites) { link($0, now: now).transition(.opacity) }
+        ForEach(r.favorites) { link($0).transition(.opacity) }
         if !r.stops.isEmpty { SectionHeader(title: "Stops", symbol: "mappin") }
         ForEach(r.stops, id: \.stop.id) { hit in
             VStack(spacing: 0) {
@@ -196,15 +190,17 @@ struct CardList: View {
         }
     }
 
-    /// A stop icon tapped on the map opens its detail, on the listed card's line when it has one (revision 3).
+    /// A stop icon tapped on the map opens its detail, on the listed card's line when it has one (revision 3); a bus
+    /// page's direction switch opens the other stop on its own line.
     private func openTapped() {
         guard let id = model.openStop else { return }
-        model.openStop = nil
+        let line = model.openLine
+        (model.openStop, model.openLine) = (nil, nil)
         guard path.last?.stopID != id else { return }   // already open
         // Only cards on screen count: with location off, nearby is hidden.
         let shown = model.slots.favorites + (model.location.denied ? [] : model.slots.nearby)
-        let listed = shown.first { $0.fetchID == id }
-        let route = DetailRoute(stopID: id, tapped: listed?.line, source: listed?.id ?? id)
+        let listed = shown.first { $0.fetchID == id && (line == nil || $0.line == line) }
+        let route = DetailRoute(stopID: id, tapped: line ?? listed?.line, source: listed?.id ?? id)
         if path.last != route { show([route]) }
     }
 
@@ -223,6 +219,15 @@ struct CardList: View {
         // page before the old one disappears, which would erase the new page's hero.
         if path.isEmpty { model.detailHero = nil }
         track()
+    }
+
+    /// The list itself redraws only when the nearby cards' order can change (a soonest arrival dropping off), and not
+    /// at all under stop detail.
+    private var orderSchedule: ChangeSchedule {
+        guard path.isEmpty, !showingSearch, !model.location.denied else { return .never }
+        let nearby = model.slots.nearby
+        let predictions = allPredictions(nearby)
+        return ChangeSchedule { CardOrder.nextChange(after: $0, nearby, predictions: predictions) }
     }
 
     private func allPredictions(_ slots: [Slot]) -> [Prediction] {
@@ -245,14 +250,58 @@ struct CardList: View {
     }
 }
 
-/// A RouteCard fed from the store, a gray placeholder until its stop's first fetch lands.
+/// Hides the part of a view above `y` on screen with a rectangular clip that follows the scroll, rather than an
+/// alpha mask (an offscreen pass, rebuilt every scroll frame). It changes only while something is above `y`.
+private struct ClipAbove: ViewModifier {
+    let y: CGFloat
+    @State private var cut: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .clipShape(TopCut(cut: cut))
+            .onGeometryChange(for: CGFloat.self) { max(0, y - $0.frame(in: .global).minY) } action: { cut = $0 }
+    }
+}
+
+/// A view's frame without its top `cut` points.
+nonisolated private struct TopCut: Shape {
+    let cut: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX, y: rect.minY + cut, width: rect.width, height: max(0, rect.height - cut)))
+    }
+}
+
+/// Everything below a view's top edge, reaching past its sides and bottom: the cards still run on under the home
+/// indicator.
+nonisolated private struct BelowTop: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX - rect.width, y: rect.minY, width: rect.width * 3, height: rect.height * 2))
+    }
+}
+
+/// A RouteCard fed from the store, a gray placeholder until its stop's first fetch lands. It keeps its own clock,
+/// ticking only when something it shows can change (`ArrivalFormat.nextChange`), so the rest of the list sits still.
 struct Card: View {
     let slot: Slot
-    let now: Date
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
+    @Environment(\.cardClocksPaused) private var paused
 
     var body: some View {
+        // The later of the tick and the clock: after new data the timeline can still hold its last tick's date.
+        TimelineView(schedule) { card(now: max($0.date, .now)) }
+    }
+
+    private var schedule: ChangeSchedule {
+        guard !paused else { return .never }
+        let mine = [(arrivals.predictions[slot.fetchID] ?? []).filter(slot.matches)]
+        let fetched = arrivals.fetched[slot.fetchID].map { [$0] } ?? []
+        // A card shows its next arrival and 2 later ones.
+        return ChangeSchedule { ArrivalFormat.nextChange(after: $0, cards: mine, shownPerCard: 3, fetched: fetched) }
+    }
+
+    @ViewBuilder private func card(now: Date) -> some View {
         let loaded = arrivals.fetched[slot.fetchID] != nil
         let predictions = arrivals.cardPredictions(slot, now: now)
         let freshness = arrivals.freshness(slot, now: now)
@@ -434,6 +483,8 @@ struct ListMetrics: Equatable {
 
 extension EnvironmentValues {
     @Entry var listMetrics = ListMetrics()
+    /// The list is hidden under stop detail, so its cards stop their clocks.
+    @Entry var cardClocksPaused = false
 }
 
 /// A search hit's directions as big buttons in their line's colors: "Toward O'Hare" for each platform of a station,
@@ -451,7 +502,7 @@ struct DirectionButtons: View {
             ForEach(lines, id: \.self) { line in
                 Button { open(DetailRoute(stopID: stop.id, tapped: line, source: stop.id)) } label: {
                     HStack(spacing: Theme.Space.m) {
-                        Image(systemName: "arrow.right.circle.fill").font(.title2)
+                        Text(Image(systemName: "arrow.right.circle.fill")).font(.title2)   // Text, so a bus outlines it
                         if stop.kind == .bus {
                             Text(line.route).font(Theme.rounded(.title2, .heavy))
                             Text(line.dir).font(Theme.rounded(.title3, .bold))
@@ -459,12 +510,14 @@ struct DirectionButtons: View {
                             Text("Toward \(line.dir)").font(Theme.rounded(.title3, .heavy))
                         }
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.headline.weight(.bold))
+                        Text(Image(systemName: "chevron.right")).font(.headline.weight(.bold))
                     }
                     .foregroundStyle(Color.cardText(line.route))
                     .padding(.horizontal, Theme.Space.l)
                     .frame(minHeight: Theme.mapButton + Theme.Space.m)
-                    .plate(Color.cardGradient(line.route), rim: Color.cardText(line.route).opacity(0.3), edge: 4, shape: .small)
+                    .outlinedText(Color.cardOutline(line.route))
+                    .plate(Color.cardGradient(line.route), rim: Color.cardOutline(line.route) ?? Color.cardText(line.route).opacity(0.3),
+                           edge: 4, shape: .small)
                     .contentShape(PixelShape.small)
                 }
                 .buttonStyle(PressableCard())
@@ -473,5 +526,18 @@ struct DirectionButtons: View {
         }
         .padding(.horizontal, Theme.cardMargin)
         .padding(.bottom, Theme.Space.l)
+    }
+}
+
+/// Ticks at `next`'s dates: a view redraws only when what it shows can change, instead of on a fixed clock. A nil
+/// date ends the ticks until the view's inputs change.
+nonisolated struct ChangeSchedule: TimelineSchedule {
+    let next: @Sendable (Date) -> Date?
+
+    /// No ticks after the first draw.
+    static let never = ChangeSchedule { _ in nil }
+
+    func entries(from start: Date, mode: TimelineScheduleMode) -> some Sequence<Date> {
+        sequence(first: start) { [next] in next($0) }
     }
 }
