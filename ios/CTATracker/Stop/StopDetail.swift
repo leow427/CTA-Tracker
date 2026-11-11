@@ -2,7 +2,7 @@ import CTAKit
 import SwiftUI
 
 /// What the list pushes for a stop: the stop (a station or bus stop ID), the card that was tapped, if any,
-/// and the view it zooms out of (a card's or a search row's id).
+/// and what opened it (a card's or a search row's id).
 struct DetailRoute: Hashable {
     let stopID: String
     let tapped: Line?
@@ -18,6 +18,7 @@ struct StopDetail: View {
     @Environment(ArrivalsStore.self) private var arrivals
     @Environment(\.listMetrics) private var metrics
     @State private var selected: Line?
+    @State private var shown = false   // rises in over the map (the list pushes it without a system transition)
 
     var body: some View {
         if let stop = model.index?.stop(id: route.stopID) {
@@ -94,6 +95,9 @@ struct StopDetail: View {
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { model.detailTop = $0 }
         }
         .containerBackground(.clear, for: .navigation)
+        .opacity(shown ? 1 : 0)
+        .offset(y: shown ? 0 : Theme.Space.xxl * 2)
+        .onAppear { withAnimation(Theme.smooth) { shown = true } }
     }
 
     /// Delayed and how fresh the data is, as chips (★ is over the map).

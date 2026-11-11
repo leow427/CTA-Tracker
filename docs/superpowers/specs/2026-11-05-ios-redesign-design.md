@@ -48,6 +48,7 @@ Leo's notes after using the app (Transit's stop page as the reference for the wa
 - **Main page wash.** Behind the main list, the map gets a subtler wash in a darker shade of its navy (`0x050C1F`; in the map's own land color it vanished): clear in the top fifth, 60% at 75% down, 85% at the bottom (Leo, 2026-11-10).
 - **Search directions.** Tapping a search hit opens big buttons under it in the line's colors, one per direction: "Toward O'Hare" for each platform at a station, "22 · Northbound" for each route at a bus stop. Each opens stop detail on that line and direction. Opening one drops the keyboard. Search runs 0.12 s after the last keystroke and fades its results in (Leo, 2026-11-10: typing lagged and results popped in).
 - **Buses by compass direction.** Bus cards, the stop page header, and "At this stop" say "Southbound", not "South to Harrison" (Leo, 2026-11-10).
+- **Opening detail without the zoom.** With the page clear over the map, the zoom transition showed the shrunken list through it for a second, then snapped it away (Leo, 2026-11-10: "the UI breaks when selecting a stop"). Detail now opens with no system transition: the list fades out and the page rises in over the map as the camera flies; closing fades the list back in. The direction buttons fade in place under their hit. New search results start scrolled to the top, and a bus stop's direction buttons are in route-number order.
 - **Out of scope here:** live vehicles on the map, line taps.
 
 ## 1. Decisions

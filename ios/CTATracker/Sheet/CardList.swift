@@ -14,7 +14,6 @@ struct CardList: View {
     @State private var found: (query: String, results: StopSearch.Results)?
     /// The search hit whose direction buttons are open.
     @State private var expanded: String?
-    @Namespace private var zoom   // a card grows into its stop detail (redesign spec 4)
 
     var body: some View {
         @Bindable var model = model
@@ -28,7 +27,9 @@ struct CardList: View {
                         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                             // The open map above the resting list. A spacer, not a content margin: pinned
                             // headers stick at the margin's edge, and this one should stick under the controls.
-                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom)
+                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom - 1)
+                            // Scrolled to the top, this pins the search bar with the first result right under it.
+                            Color.clear.frame(height: 1).id(Self.top)
                             Section {
                                 // The cards float over the map; MapScreen fades it to navy toward the bottom.
                                 VStack(spacing: 0) {
@@ -50,7 +51,6 @@ struct CardList: View {
                                 }
                             } header: {
                                 header(filter: $model.filter)
-                                    .id(Self.top)   // search focus scrolls this to the top
                                     // The list's top edge on screen: touches above it go to the map (PassThroughHost).
                                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: {
                                         model.listTop = $0
@@ -69,19 +69,26 @@ struct CardList: View {
                     }
                     .ignoresSafeArea()
                 }
+                // Detail floats over the map with no page behind it, so the list fades away while it's open
+                // (and stays hidden under a back swipe) instead of showing through.
+                .opacity(path.isEmpty ? 1 : 0)
+                .animation(Theme.snappy, value: path.isEmpty)
                 .scrollDismissesKeyboard(.immediately)
                 .refreshable { await arrivals.refresh() }
                 .safeAreaPadding(.top, metrics.controlsBottom - metrics.safeTop)
                 .toolbar(.hidden, for: .navigationBar)
                 .containerBackground(.clear, for: .navigation)
                 .navigationDestination(for: DetailRoute.self) {
-                    StopDetail(route: $0).navigationTransition(.zoom(sourceID: $0.source, in: zoom))
+                    StopDetail(route: $0)
                 }
-                .task(id: "\(query)|\(searching)|\(model.filter)|\(model.favorites.count)") { await search() }
+                // Keyed on what's shown, not focus: dropping the keyboard to open a hit's directions mustn't re-run the search.
+                .task(id: "\(query)|\(showingSearch)|\(model.filter)|\(model.favorites.count)") { await search() }
                 .task(id: searching) {   // focusing search scrolls the header up to the top (redesign spec 2)
                     guard searching else { return }
                     withAnimation(Theme.smooth) { reader.scrollTo(Self.top, anchor: .top) }
                 }
+                // New results start at the top, even if the list under them was scrolled down.
+                .onChange(of: found?.query) { if found != nil { reader.scrollTo(Self.top, anchor: .top) } }
                 }
             }
             .environment(\.listMetrics, metrics)
@@ -92,7 +99,7 @@ struct CardList: View {
         .onChange(of: model.slots) { track() }
         .onChange(of: model.location.denied) { track() }
         .onChange(of: path) { opened() }
-        .onChange(of: model.closeDetail) { if !path.isEmpty { path.removeLast() } }   // the red × over the map
+        .onChange(of: model.closeDetail) { if !path.isEmpty { show(Array(path.dropLast())) } }   // the red × over the map
         .onChange(of: model.openStop) { openTapped() }
         // Polls only while the list is on screen: the app is active and nothing covers it (app spec 4.4).
         .onChange(of: scenePhase, initial: true) { updatePolling() }
@@ -138,11 +145,10 @@ struct CardList: View {
 
     /// A card that opens its stop's detail, pressing down on touch.
     private func link(_ slot: Slot, now: Date) -> some View {
-        NavigationLink(value: DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)) {
+        Button { show([DetailRoute(stopID: slot.fetchID, tapped: slot.line, source: slot.id)]) } label: {
             Card(slot: slot, now: now)
         }
         .buttonStyle(PressableCard())
-        .matchedTransitionSource(id: slot.id, in: zoom)
         .padding(.horizontal, Theme.cardMargin)
         .padding(.vertical, Theme.cardGap / 2)
     }
@@ -176,10 +182,10 @@ struct CardList: View {
                 .buttonStyle(RowStyle())
                 .sensoryFeedback(.selection, trigger: expanded == hit.stop.id)
                 if expanded == hit.stop.id {
-                    DirectionButtons(stop: hit.stop).transition(.opacity.combined(with: .move(edge: .top)))
+                    // A fade in place: a move slid them in from the list's top, over the rows above.
+                    DirectionButtons(stop: hit.stop) { show([$0]) }.transition(.opacity)
                 }
             }
-            .matchedTransitionSource(id: hit.stop.id, in: zoom)
             .transition(.opacity)
         }
         if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -196,7 +202,15 @@ struct CardList: View {
         let shown = model.slots.favorites + (model.location.denied ? [] : model.slots.nearby)
         let listed = shown.first { $0.fetchID == id }
         let route = DetailRoute(stopID: id, tapped: listed?.line, source: listed?.id ?? id)
-        if path.last != route { path = [route] }
+        if path.last != route { show([route]) }
+    }
+
+    /// Pushes or pops detail without the system's slide or zoom (Leo, 2026-11-10: both showed the list through the
+    /// clear detail page, then snapped it away): the list fades (above) and detail rises in over the map.
+    private func show(_ routes: [DetailRoute]) {
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { path = routes }
     }
 
     /// Opening detail: the map centers on the stop, and only that stop is polled.
@@ -423,12 +437,16 @@ extension EnvironmentValues {
 /// "22 · Northbound" for each route at a bus stop. Each opens stop detail on that line and direction.
 struct DirectionButtons: View {
     let stop: Stop
+    let open: (DetailRoute) -> Void
 
     var body: some View {
-        let lines = stop.kind == .bus ? (stop.lines ?? []) : (stop.platforms ?? []).flatMap(\.lines)
+        // A bus stop's routes in number order (3, 4, 26, 143, J14); a station's platforms as the data lists them.
+        let lines = stop.kind == .bus
+            ? (stop.lines ?? []).sorted { $0.route.localizedStandardCompare($1.route) == .orderedAscending }
+            : (stop.platforms ?? []).flatMap(\.lines)
         VStack(spacing: Theme.Space.s) {
             ForEach(lines, id: \.self) { line in
-                NavigationLink(value: DetailRoute(stopID: stop.id, tapped: line, source: stop.id)) {
+                Button { open(DetailRoute(stopID: stop.id, tapped: line, source: stop.id)) } label: {
                     HStack(spacing: Theme.Space.m) {
                         Image(systemName: "arrow.right.circle.fill").font(.title2)
                         if stop.kind == .bus {

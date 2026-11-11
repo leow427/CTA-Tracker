@@ -21,7 +21,7 @@ struct MapScreen: View {
                            onStopTap: { model.openStop = $0 })
                 wash.allowsHitTesting(false)
                 // Its own hosting controller, so the environment is passed in.
-                PassThroughHost(openAbove: model.detailStop == nil ? model.listTop : model.detailTop) {
+                PassThroughHost(openAbove: { [model] in model.detailStop == nil ? model.listTop : model.detailTop }) {
                     CardList().environment(model).environment(arrivals)
                 }
             }
