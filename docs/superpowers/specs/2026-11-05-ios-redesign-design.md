@@ -33,6 +33,20 @@ Leo's verdict on the navy build: the rows and the stop page looked flat, and the
 - **Pixel type.** Minutes use the pixel digits again, like a departure board; clock times step down to fit. Route names stay SF Rounded heavy. The detail's huge route name has a hard pixel drop shadow in the line's dark shade.
 - **The pet.** Leo's train (a blue L car front with a face on its door), redrawn as a 32×32 sprite in `Glyphs`. Its face shows the mood from the devices' rules over the listed cards: happy (closed smiling eyes, heart), hyped (> < eyes, open mouth, excitement lines), worried (brows, wavy mouth, sweat drop), sad (T_T with tears), and sleepy (closed eyes, Zz). It sits at the top left, 3× on a cream pixel tile, bobbing one art pixel twice a second (still under Reduce Motion), with a yellow gear badge for Settings, and "says" the Near place in a cream pixel speech bubble.
 
+### Revision 3: line-washed stop page, pixel stops, accurate buses (2026-11-10)
+
+Leo's notes after using the app (Transit's stop page as the reference for the wash). This overrides the stop detail and map stops above.
+
+- **Stop page wash.** The navy page behind stop detail is replaced by one full-screen gradient in the line's dark card shade (`LineColors.card`): solid over the bottom 20% of the screen, fading to clear over the top 80%, so the map shows through above the tiles. Buses use the bus blue's card shade. The departure tiles, chips, alerts, and "At this stop" cards sit on it unchanged.
+- **No line names on trains.** The color names the line, so train cards and the stop page drop "Red", "Blue", and so on. A train card leads with its stop name, then "→ destination", with minutes on the right (as on the handheld). The stop page's header over the map is "→ destination" with the stop name under it. Buses keep their route number ("66") on cards and the stop page.
+- **Pixel stop icons.** The map shows every L station as a 16×16 pixel train glyph and the listed bus stops as a 16×16 pixel bus glyph, drawn at a whole-number scale with no smoothing. A station on one line is its line's color. A station on several lines is a cream train with a row of line-color pixels under it, one per line, in `LineColors.trains` order. Bus icons use the bus blue. The icons are one Mapbox symbol layer (images registered once), not view annotations, so ~150 icons stay cheap.
+- **Tapping a stop icon** opens that stop's detail, the same page a card opens, on its first group (nearest card first when the stop is listed).
+- **2D / 3D.** A round map button under recenter switches between the tilted 3D map (pitch 55°, 3D buildings) and a flat top-down 2D map (pitch 0, no 3D buildings). The choice is kept between launches. It animates like the other camera moves, and jumps under Reduce Motion.
+- **Search results** sit on a solid navy plate, so they read over the map.
+- **"1 minute"**, singular, wherever the unit is spelled out.
+- **Bus minutes use CTA's countdown.** Bus Tracker's `tmstmp` is when the bus last reported and has no seconds, so `prdtm − tmstmp` reads up to a minute or more late (checked live on 2026-11-10: about half of 50 Loop predictions were 1 min later than CTA's own `prdctdn`, one 5 min later). The app times a bus arrival as `fetched + prdctdn × 60 s + 30 s` (the 30 s centers the whole-minute countdown, so the card shows CTA's number on arrival); "DUE" stays `fetched`, and a negative countdown is dropped. Trains are unchanged: their `arrT − tmst` has seconds and matches CTA. The firmware still uses `prdtm − tmstmp`; base spec section 6.6's rule and the shared C++ change are a separate follow-up.
+- **Out of scope here:** live vehicles on the map, line taps, the main list's background (it stays navy).
+
 ## 1. Decisions
 
 | Topic | Decision |
