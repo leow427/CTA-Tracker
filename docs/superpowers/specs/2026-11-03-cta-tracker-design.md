@@ -30,7 +30,7 @@ The demo passes when all of these work:
 |---|---|---|
 | Dock: 3 stop sections, LED approach rows, pet, stop picker | Live Activity "leave now" countdown | Partner sharing / relay server |
 | Handheld: pet, nearby Trains/Buses tabs, stop detail | Pet journal (weekly moods, "trains caught") | Tamagotchi care (feeding, neglect) |
-| App: map + route cards, stop detail, favorites | Siri / Shortcuts ("When's my train?") | Countdown or approach view on the handheld |
+| App: map + route cards, stop detail, favorites | Siri / Shortcuts ("When's my train?") | Approach view on the handheld |
 | App: Wi-Fi setup, dock stops, BLE relay | Firmware updates over BLE | Any backend server |
 | App extras: pet name + colors, device settings, widgets, find my handheld, drawn train lines, live tracking for the selected line, pet in the "Near" label | Live navigation | Dead-front OLED and custom ESP32 PCB from the old notes |
 | | GPS module on the handheld as a backup location source | Device-hosted Wi-Fi setup page |
@@ -38,6 +38,7 @@ The demo passes when all of these work:
 | | Raise-to-wake on the handheld (IMU) | |
 | | Map screen on the handheld: the L lines drawn from `train_shapes.json`, nearby stops, live trains (mockup in `docs/ideas/`) | |
 | | 3 handhelds paired at once | |
+| | Countdown on the handheld: follow one arrival and count down to it (design to come) | |
 
 The app extras are built after the core path works (dock live, handheld live, app setup and relay). If time runs short they slip first.
 
@@ -50,9 +51,9 @@ The hardware is decided. This section only lists what the software depends on.
 **Dock**
 
 - Board: Waveshare ESP32-S3-Touch-LCD-4.3 (800×480, 5-point capacitive touch). Used in portrait (480×800).
-- Route board: 3 rows × 7 NeoPixels = 21 LEDs, driven from one free GPIO through an SN74AHCT125 level shifter. The pin is defined as `LED_DATA_PIN` in `firmware/dock/include/pins.h` once wired.
+- Route board: 3 rows × 7 NeoPixels = 21 LEDs, driven from one free GPIO through an SN74AHCT125 level shifter. The pin is defined as `LED_DATA_PIN` in `firmware/dock/include/pins.h` once wired. It's a custom PCB; its design files are kept outside this repo. The LEDs form one chain: row 1 left to right (front view), then row 2, then row 3, so row r, position i (both from 0) is LED index 7·r + i. Which end of a row is the picked stop is up to the firmware.
 - Power: 5 V ≥3 A from a USB-C PD module. LED brightness is capped in firmware by one constant (`LED_MAX_BRIGHTNESS`).
-- 3 upright USB-C plugs charge handhelds. They carry VBUS and GND only, so no data passes through the dock.
+- 1 upright USB-C plug charges the handheld. It carries VBUS and GND only, so no data passes through the dock.
 - Front panel: laser-cut acrylic at 60°, in a 3D-printed body.
 
 **Handheld (one built for the demo)**
