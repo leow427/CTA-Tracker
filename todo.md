@@ -2,13 +2,13 @@
 
 ## Bugs
 
-_None open._
+_None open. Bugs are labelled B1, B2, … in order of importance._
 
 ## Features
 
-Ranked by priority of implementation (do 1 first).
+Ranked by importance, most important first (do F1 first). Labels: F = feature, B = bug.
 
-### 1. Save at least 5 Wi-Fi networks on the handheld; join the strongest
+### F1. Save at least 5 Wi-Fi networks on the handheld; join the strongest
 
 Today the handheld knows one network (`WIFI_SSID` / `WIFI_PASS` in `firmware/secrets.h`), so it only gets
 live data in one place.
@@ -22,7 +22,7 @@ live data in one place.
 **Why first:** without it the handheld is offline anywhere but one network, which matters more than how
 it looks.
 
-### 2. Tap Trackie to see why he feels that way
+### F2. Tap Trackie to see why he feels that way
 
 The user can tap Trackie and see the reason for his current mood (Sleepy, Sad, Worried, Happy, Hyped).
 Right now it isn't clear why he's happy or sad.
@@ -38,10 +38,10 @@ current theme, which matches the app since 2026-11-11 (white bus cards, light gr
 
 ---
 
-Items 3–10 came from the 2026-11-11 dock brainstorm. They all come after the core dock (spec §7) works, and
+F3–F10 came from the 2026-11-11 dock brainstorm. They all come after the core dock (spec §7) works, and
 dock firmware isn't started yet. Each one needs a short design approved before it's built.
 
-### 3. "Leave in N min" on the dock, with weather
+### F3. "Leave in N min" on the dock, with weather
 
 Show when to walk out the door, not when the vehicle arrives.
 
@@ -53,27 +53,27 @@ Show when to walk out the door, not when the vehicle arrives.
   until it's time to leave.
 
 **Why third:** it answers the question people actually have when they look at the dock, using data the
-dock already pulls. Items 7 and 10 build on it.
+dock already pulls. F7 and F10 build on it.
 
-### 4. Bunching alerts
-
-- When 2 or more vehicles on the same route and direction reach a picked stop within about 2 min of
-  each other and are followed by a long gap, say so in one line: "3 buses together, then a 22 min gap."
-- The gap and spacing thresholds are constants.
-
-**Why fourth:** cheap. It only reads the predictions the dock already has, and the LED row already
-shows the bunch.
-
-### 5. Disruption takeover
+### F4. Disruption takeover
 
 - When a picked line has a major alert (shuttle buses, reroute, suspended service), that stop's
   section turns into a plain-language card plus the nearest alternative from the bundled GTFS data,
   e.g. "Red Line down at Belmont. The 77 bus is 4 min away."
 - Decide which alerts count as major (CTA alerts carry severity and impact fields).
 
-**Why fifth:** the moment the dock matters most is when your usual line breaks.
+**Why fourth:** the moment the dock matters most is when your usual line breaks.
 
-### 6. Divvy fallback
+### F5. Bunching alerts
+
+- When 2 or more vehicles on the same route and direction reach a picked stop within about 2 min of
+  each other and are followed by a long gap, say so in one line: "3 buses together, then a 22 min gap."
+- The gap and spacing thresholds are constants.
+
+**Why fifth:** cheap, but less urgent than a broken line. It only reads the predictions the dock already
+has, and the LED row already shows the bunch.
+
+### F6. Divvy fallback
 
 - Read Divvy's open GBFS feeds (station information + station status; no API key) and find the
   station nearest each picked stop.
@@ -82,18 +82,18 @@ shows the bunch.
 
 **Why sixth:** a real alternative for very little work.
 
-### 7. Countdown on the handheld (spec §2 stretch)
+### F7. Countdown on the handheld (spec §2 stretch)
 
 - Follow one arrival and count down to it on the handheld.
 - Start it from the handheld's stop detail view first. Starting it by tapping an arrival on the dock
   comes later, since that needs a new dock-to-handheld message.
-- Count down to the leave time when item 3 exists, otherwise to the arrival.
-- Track the same vehicle; if its prediction vanishes, say so (ties into item 8).
+- Count down to the leave time when F3 exists, otherwise to the arrival.
+- Track the same vehicle; if its prediction vanishes, say so (ties into F8).
 
 **Why seventh:** it hands the dock's answer to your pocket, but it needs design work and the handheld's
 core flow comes first.
 
-### 8. Ghost-bus detection
+### F8. Ghost-bus detection
 
 - Track vehicle IDs (bus `vid`, train run number) in the predictions for each picked stop. A vehicle
   that drops out before it's due counts as a ghost.
@@ -103,19 +103,19 @@ core flow comes first.
 **Why eighth:** the most novel item, but it only looks good after days of data. Start logging as soon as
 the dock polls live, even before the screen shows any of it.
 
-### 9. Best time to leave, learned on the dock
+### F9. Best time to leave, learned on the dock
 
 - For each picked stop and each 5-minute leave slot, log the wait you'd have had. After about a week,
   show e.g. "Leave 8:10: about 2 min wait. Leave 8:15: about 9."
 - Count a vehicle as arrived when its prediction reaches due or vanishes within a minute of it.
-- Share the log with item 8 and with the pet journal stretch goal. Check the flash budget.
+- Share the log with F8 and with the pet journal stretch goal. Check the flash budget.
 
-**Why ninth:** needs a week of data and the same logging as item 8.
+**Why ninth:** needs a week of data and the same logging as F8.
 
-### 10. LED-only ambient mode
+### F10. LED-only ambient mode
 
 - The screen sleeps after a few idle minutes (or on a schedule); a touch wakes it.
-- The LEDs carry the information alone, getting brighter as leave time nears (needs item 3).
+- The LEDs carry the information alone, getting brighter as leave time nears (needs F3).
 - Night hours still turn the LEDs off.
 
 **Why tenth:** saves power and is calmer, but it's polish on top of the rest.
