@@ -35,3 +35,87 @@ Right now it isn't clear why he's happy or sad.
 **Why second:** it needs some design work first (input, layout, wording). Build it in the handheld's
 current theme, which matches the app since 2026-11-11 (white bus cards, light green live glyph; see
 `docs/handheld-ui.md`).
+
+---
+
+Items 3–10 came from the 2026-11-11 dock brainstorm. They all come after the core dock (spec §7) works, and
+dock firmware isn't started yet. Each one needs a short design approved before it's built.
+
+### 3. "Leave in N min" on the dock, with weather
+
+Show when to walk out the door, not when the vehicle arrives.
+
+- Give each picked stop a walk time, set on the dock or in the app and saved in flash with the pick.
+- Show only arrivals you can still catch. The headline for each section is "Leave in N min", then
+  "Leave now". Drop arrivals you can no longer make.
+- The stop's LED row pulses when it's time to leave.
+- Rain or snow adds a minute of walk time (one constant). Below a cold threshold, show "Wait inside"
+  until it's time to leave.
+
+**Why third:** it answers the question people actually have when they look at the dock, using data the
+dock already pulls. Items 7 and 10 build on it.
+
+### 4. Bunching alerts
+
+- When 2 or more vehicles on the same route and direction reach a picked stop within about 2 min of
+  each other and are followed by a long gap, say so in one line: "3 buses together, then a 22 min gap."
+- The gap and spacing thresholds are constants.
+
+**Why fourth:** cheap. It only reads the predictions the dock already has, and the LED row already
+shows the bunch.
+
+### 5. Disruption takeover
+
+- When a picked line has a major alert (shuttle buses, reroute, suspended service), that stop's
+  section turns into a plain-language card plus the nearest alternative from the bundled GTFS data,
+  e.g. "Red Line down at Belmont. The 77 bus is 4 min away."
+- Decide which alerts count as major (CTA alerts carry severity and impact fields).
+
+**Why fifth:** the moment the dock matters most is when your usual line breaks.
+
+### 6. Divvy fallback
+
+- Read Divvy's open GBFS feeds (station information + station status; no API key) and find the
+  station nearest each picked stop.
+- When the next catchable arrival is far off (a constant), show "3 e-bikes at the corner".
+- Poll slowly (every couple of minutes). Check Divvy's data license for the attribution it needs.
+
+**Why sixth:** a real alternative for very little work.
+
+### 7. Countdown on the handheld (spec §2 stretch)
+
+- Follow one arrival and count down to it on the handheld.
+- Start it from the handheld's stop detail view first. Starting it by tapping an arrival on the dock
+  comes later, since that needs a new dock-to-handheld message.
+- Count down to the leave time when item 3 exists, otherwise to the arrival.
+- Track the same vehicle; if its prediction vanishes, say so (ties into item 8).
+
+**Why seventh:** it hands the dock's answer to your pocket, but it needs design work and the handheld's
+core flow comes first.
+
+### 8. Ghost-bus detection
+
+- Track vehicle IDs (bus `vid`, train run number) in the predictions for each picked stop. A vehicle
+  that drops out before it's due counts as a ghost.
+- Mark arrivals as solid or shaky by the route's ghost rate today, and show "lost N buses today".
+- Keep counts in RAM with a daily summary in flash.
+
+**Why eighth:** the most novel item, but it only looks good after days of data. Start logging as soon as
+the dock polls live, even before the screen shows any of it.
+
+### 9. Best time to leave, learned on the dock
+
+- For each picked stop and each 5-minute leave slot, log the wait you'd have had. After about a week,
+  show e.g. "Leave 8:10: about 2 min wait. Leave 8:15: about 9."
+- Count a vehicle as arrived when its prediction reaches due or vanishes within a minute of it.
+- Share the log with item 8 and with the pet journal stretch goal. Check the flash budget.
+
+**Why ninth:** needs a week of data and the same logging as item 8.
+
+### 10. LED-only ambient mode
+
+- The screen sleeps after a few idle minutes (or on a schedule); a touch wakes it.
+- The LEDs carry the information alone, getting brighter as leave time nears (needs item 3).
+- Night hours still turn the LEDs off.
+
+**Why tenth:** saves power and is calmer, but it's polish on top of the rest.
