@@ -173,7 +173,7 @@ Each picked stop has a row of 7 LEDs. LEDs 1–6 are the 6 stops before the pick
 
 ### 6.5 Line colors
 
-The CTA's published line colors are used for train cards, LEDs, and badges: Red, Blue, Brown, Green, Orange, Pink, Purple, Yellow. All buses share one color. The Blue Line uses a deeper blue (`0x2F7BFF`) than the CTA's published `0x00A1DE`, which read too light on the cards; the bus cards on the handheld and in the app take the lighter blue (Leo, 2026-11-09). The values live in one table in the shared library and its Swift mirror.
+The CTA's published line colors are used for train cards, LEDs, and badges: Red, Blue, Brown, Green, Orange, Pink, Purple, Yellow. All buses share one color. The Blue Line uses a deeper blue (`0x2F7BFF`) than the CTA's published `0x00A1DE`, which read too light on the cards; bus cards on the handheld and in the app are white with gray text and a light blue outline (redesign revision 4; Leo, 2026-11-10). The values live in one table in the shared library and its Swift mirror.
 
 ### 6.6 Polling and time
 

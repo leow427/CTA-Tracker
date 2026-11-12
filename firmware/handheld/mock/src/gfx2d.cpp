@@ -376,23 +376,95 @@ float Canvas::text(const Font* f, const char* t, float x, float y, uint32_t rgb,
     return w;
 }
 
+// textOutlined's row ring: up to 5 rows (r <= 2) of a glyph's horizontal spread.
+static constexpr int kOutlineW = 256;
+static uint8_t gOutlineRows[5][kOutlineW];   // drawing runs on one task
+
+float Canvas::textOutlined(const Font* f, const char* t, float x, float y, uint32_t rgb, uint32_t outline, int r,
+                           Align al, Base base) {
+    const Timed timed(Prim::Text);
+    const float w = measure(f, t);
+    const float k = alpha;
+    r = mini(r, 2);
+    if (r > 0 && k > 0) {
+        float pen = al == Align::Left ? x : al == Align::Center ? x - w / 2 : x - w;
+        const float by = base == Base::Top ? y + f->top : base == Base::Middle ? y + f->middle : y;
+        const int byi = static_cast<int>(lroundf(by)) + oy;
+        const uint32_t k256 = k >= 1 ? 256 : static_cast<uint32_t>(k * 256 + 0.5f);
+        const uint16_t c565 = to565(outline), ce = enc(c565);
+        const uint32_t cs = spread(c565);
+        // Faded, the outline leaves out the text's own pixels, so the text over it shows the card, not the outline,
+        // as the app fades the finished card. Opaque, the text covers them anyway, so they're skipped.
+        const bool faded = k < 1;
+        for (const char* s = t; *s;) {
+            const Glyph* g = glyphFor(f, nextCp(s));
+            if (!g) continue;
+            const int gx = static_cast<int>(lroundf(pen)) + g->x + ox, gy = byi + g->y;
+            pen += g->adv16 / 16.f;
+            if (outside(gx - r, gy - r, gx + g->w + r, gy + g->h + r)) continue;
+            const uint8_t* bits = f->bits + g->off;
+            const int gw = g->w, gh = g->h, n = gw + 2 * r;
+            const int i0 = maxi(-r, cx0_ - gx), i1 = mini(gw + r, cx1_ - gx);
+            const int j0 = maxi(-r, cy0_ - gy), j1 = mini(gh + r, cy1_ - gy);
+            if (n > kOutlineW || i0 >= i1 || j0 >= j1) continue;
+            // The spread is separable: each glyph row's max over [i - r, i, i + r] (kept for rows j - r ... j + r in a
+            // ring), then the max of three of those rows.
+            const int R = 2 * r + 1;
+            auto hrow = [&](int sj) {
+                uint8_t* out = gOutlineRows[(sj % R + R) % R];
+                if (sj < 0 || sj >= gh) { memset(out, 0, n); return; }
+                const uint8_t* row = bits + sj * gw;
+                for (int q = 0; q < n; ++q) {
+                    const int i = q - r;
+                    uint8_t m = i >= 0 && i < gw ? row[i] : 0;
+                    if (i - r >= 0 && i - r < gw && row[i - r] > m) m = row[i - r];
+                    if (i + r >= 0 && i + r < gw && row[i + r] > m) m = row[i + r];
+                    out[q] = m;
+                }
+            };
+            for (int sj = j0 - r; sj < j0 + r; ++sj) hrow(sj);
+            for (int j = j0; j < j1; ++j) {
+                hrow(j + r);
+                const uint8_t* up = gOutlineRows[((j - r) % R + R) % R];
+                const uint8_t* mid = gOutlineRows[(j % R + R) % R];
+                const uint8_t* dn = gOutlineRows[((j + r) % R + R) % R];
+                const uint8_t* own = j >= 0 && j < gh ? bits + j * gw : nullptr;
+                uint16_t* p = &at(gx + i0, gy + j);
+                for (int i = i0; i < i1; ++i, p += sx_) {
+                    const uint32_t o = own && i >= 0 && i < gw ? own[i] : 0;
+                    if (o == 255 && !faded) continue;
+                    uint32_t c = mid[i + r];
+                    if (up[i + r] > c) c = up[i + r];
+                    if (dn[i + r] > c) c = dn[i + r];
+                    if (faded) c = c > o ? c - o : 0;
+                    if (!c) continue;
+                    const uint32_t a32 = (c * k256 * 32 + 32768) >> 16;
+                    if (a32 >= 32) *p = ce;
+                    else if (a32) *p = enc(unspread(lerpS(spread(dec(*p)), cs, a32)));
+                }
+            }
+        }
+    }
+    return text(f, t, x, y, rgb, al, base);
+}
+
 int Canvas::pixelWidth(const char* t, int s) {
     int w = 0;
     for (int i = 0; t[i]; ++i) w += static_cast<int>(strlen(pf(t[i]).rows[0])) + (i ? 1 : 0);
     return w * s;
 }
 
-int Canvas::pixelText(const char* t, float x, int y, int s, uint32_t rgb, Align al) {
+int Canvas::pixelText(const char* t, float x, int y, int s, uint32_t rgb, Align al, int grow) {
     const Timed timed(Prim::Digits);
     const int w = pixelWidth(t, s);
     int cx = static_cast<int>(lroundf(al == Align::Center ? x - w / 2.f : al == Align::Right ? x - w : x));
-    if (outside(cx + ox, y + oy, cx + ox + w, y + oy + 7 * s)) return w;
+    if (outside(cx + ox - grow, y + oy - grow, cx + ox + w + grow, y + oy + 7 * s + grow)) return w;
     for (int k = 0; t[k]; ++k) {
         const PG& g = pf(t[k]);
         const int gw = static_cast<int>(strlen(g.rows[0]));
         for (int r = 0; r < 7; ++r)
             for (int c = 0; c < gw; ++c)
-                if (g.rows[r][c] == '#') fillRect(cx + c * s, y + r * s, s, s, rgb);
+                if (g.rows[r][c] == '#') fillRect(cx + c * s - grow, y + r * s - grow, s + 2 * grow, s + 2 * grow, rgb);
         cx += (gw + 1) * s;
     }
     return w;

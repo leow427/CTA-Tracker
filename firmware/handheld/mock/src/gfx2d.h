@@ -77,10 +77,15 @@ public:
     static const char* fit(const Font* f, const char* text, float maxW, char* out, size_t cap);
     float text(const Font* f, const char* text, float x, float y, uint32_t rgb, Align al = Align::Left,
                Base base = Base::Top, float a = 1.f);
+    // Text over a solid r px outline in `outline` (the app's OutlinedText, on bus cards): the glyphs' coverage spread
+    // r px every way, drawn once under the text.
+    float textOutlined(const Font* f, const char* text, float x, float y, uint32_t rgb, uint32_t outline, int r,
+                       Align al = Align::Left, Base base = Base::Top);
 
     // The app's 5×7 pixel digits ("0"–"9", ":", "D", "u", "e", " "). y is the top. Returns the width.
     static int pixelWidth(const char* text, int s);
-    int pixelText(const char* text, float x, int y, int s, uint32_t rgb, Align al = Align::Left);
+    // grow: each pixel drawn that much bigger every way (the digits' outline, drawn under them).
+    int pixelText(const char* text, float x, int y, int s, uint32_t rgb, Align al = Align::Left, int grow = 0);
 
     // Pixel art from rows of characters: any char other than '.' is drawn in rgb.
     void ink(const char* const* rows, int nRows, int x, int y, int s, uint32_t rgb, float a = 1.f);

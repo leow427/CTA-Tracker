@@ -22,19 +22,7 @@ live data in one place.
 **Why first:** without it the handheld is offline anywhere but one network, which matters more than how
 it looks.
 
-### 2. Handheld UI matches the app's theme
-
-Some handheld colors don't match the iOS app:
-
-- **Bus cards** are still the old bus blue (`kBusCard = 0x00A1DE` in
-  `firmware/handheld/mock/src/ui.cpp`). The app now draws buses white (redesign revision 4).
-- **The blinking live mark** (`liveGlyph` in `ui.cpp`) uses a different color from the app's live glyph.
-- Go through the rest of the handheld screens against the app and list any other mismatches.
-
-**Why second:** it's a small, well-scoped change. Feature 3 adds new handheld UI, so the palette should be
-settled before that UI is built, or it will need restyling.
-
-### 3. Tap Trackie to see why he feels that way
+### 2. Tap Trackie to see why he feels that way
 
 The user can tap Trackie and see the reason for his current mood (Sleepy, Sad, Worried, Happy, Hyped).
 Right now it isn't clear why he's happy or sad.
@@ -44,5 +32,6 @@ Right now it isn't clear why he's happy or sad.
   `firmware/lib/cta/src/cta_types.h`; sprites in `firmware/lib/pet/`).
 - Decide how the tap is made on the handheld and how the reason is shown and dismissed.
 
-**Why third:** it needs some design work first (input, layout, wording), and it should be built in the
-final theme from feature 2.
+**Why second:** it needs some design work first (input, layout, wording). Build it in the handheld's
+current theme, which matches the app since 2026-11-11 (white bus cards, light green live glyph; see
+`docs/handheld-ui.md`).

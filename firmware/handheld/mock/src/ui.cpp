@@ -21,7 +21,12 @@ using mock::Model;
 using mock::Scenario;
 
 constexpr int CARD_H = 96, ROW = kRow, FOCUS = 206;
-constexpr uint32_t kBusCard = 0x00A1DE;   // the app's bus blue for cards (LineColors.busAccent); the LEDs use cta::kBusColor
+// Bus cards as the app draws them (Theme.busCard, redesign revision 4): white down to a pale gray, gray text, and
+// the text, icons and rim outlined in light blue. The LEDs keep cta::kBusColor.
+constexpr uint32_t kBusTop = 0xFFFFFF, kBusCard = 0xEEF3F7, kBusText = 0x5B6573, kBusOutline = 0x7FCBF2;
+// The arrival glyph (Theme.live / Theme.scheduled): light green when live, held still in light blue when scheduled,
+// on every card and tile; on a white bus surface it wears a one-art-pixel halo in the bus's gray.
+constexpr uint32_t kLiveInk = 0x7CF29A, kSchedInk = 0x9AD0FF;
 constexpr uint16_t kKey = 0x0001;         // transparent in the card scratch buffer
 
 const Font* F(int w, int s) { return Canvas::font(w, s); }
@@ -45,20 +50,47 @@ uint32_t lifted(uint32_t rgb, uint32_t bg, double min, int from) {
     for (int s = from; s <= 10; ++s) { const uint32_t m = mix(rgb, s / 10.0); if (contrast(m, bg) >= min) return m; }
     return 0xFFFFFF;
 }
-struct Theme { char route[8]; uint32_t accent, top, card, text; };
+// outline: a bus's light blue around its text, icons and plates (0: none, trains); halo: the gray around the live
+// glyph on a bus's white (0: none).
+struct Theme { char route[8]; bool bus; uint32_t accent, top, card, text, outline, halo; };
 const Theme& th(const char* route, bool bus) {
     static Theme cache[32];
     static int n = 0;
     for (int i = 0; i < n; ++i)
-        if (strcmp(cache[i].route, route) == 0) return cache[i];
+        if (cache[i].bus == bus && strcmp(cache[i].route, route) == 0) return cache[i];
     Theme& t = cache[n < 32 ? n++ : 31];
     snprintf(t.route, sizeof(t.route), "%s", route);
-    const uint32_t a = bus ? kBusCard : cta::lineColor(route);
+    t.bus = bus;
+    if (bus) {
+        t.accent = kBusOutline;
+        t.top = kBusTop; t.card = kBusCard; t.text = kBusText; t.outline = kBusOutline; t.halo = kBusText;
+        return t;
+    }
+    const uint32_t a = cta::lineColor(route);
     t.accent = a;
     t.top = shaded(a, 0.09, 0.95);
     t.card = shaded(a, 0.04, 0.85);
     t.text = lifted(a, t.top, 4.5, 3);
+    t.outline = t.halo = 0;
     return t;
+}
+
+// ---------- text and icons in a card's colors, outlined on a bus (the app's OutlinedText) ----------
+// The text in the card's text color, on a bus over a light blue outline: 2 px on big text, 1 px under 20 px (as the
+// app thins it on small gray letters).
+float cardText(Canvas& cv, const Font* f, const char* s, float x, float y, const Theme& t, Align al = Align::Left,
+               Base b = Base::Top) {
+    if (!t.outline) return cv.text(f, s, x, y, t.text, al, b);
+    return cv.textOutlined(f, s, x, y, t.text, t.outline, f->size >= 20 ? 2 : 1, al, b);
+}
+// The pixel digits, likewise, with the app's 2 px outline: every pixel 2 px bigger each way, under them.
+int cardDigits(Canvas& cv, const char* s, float x, int y, int scale, const Theme& t, Align al = Align::Left) {
+    if (t.outline) cv.pixelText(s, x, y, scale, t.outline, al, 2);
+    return cv.pixelText(s, x, y, scale, t.text, al);
+}
+void cardArrow(Canvas& cv, float cx, float cy, float r, const Theme& t) {
+    if (t.outline) cv.fillCircle(cx, cy, r + 1.5f, t.outline);
+    cv.arrowCircle(cx, cy, r, t.text, t.card);
 }
 
 // ---------- glyphs ----------
@@ -84,8 +116,21 @@ void icon(Canvas& cv, const char* name, float cx, float cy, int s, uint32_t rgb)
             cv.ink(ic.rows, h, static_cast<int>(lroundf(cx - w * s / 2.f)), static_cast<int>(lroundf(cy - h * s / 2.f)), s, rgb);
         }
 }
-void liveGlyph(Canvas& cv, int x, int y, uint32_t rgb, bool blinks, uint32_t ms) {
-    cv.ink(kLive[blinks && (ms / 500) % 2 ? 1 : 0], 8, x, y, 2, rgb);
+// Pixel art with, when ring isn't 0, a one-art-pixel outline: the art shifted 4 ways in ring behind it (the app's
+// pixelOutline).
+void inkRing(Canvas& cv, const char* const* rows, int n, int x, int y, int s, uint32_t rgb, uint32_t ring) {
+    if (ring) {
+        cv.ink(rows, n, x + s, y, s, ring);
+        cv.ink(rows, n, x - s, y, s, ring);
+        cv.ink(rows, n, x, y + s, s, ring);
+        cv.ink(rows, n, x, y - s, s, ring);
+    }
+    cv.ink(rows, n, x, y, s, rgb);
+}
+// The arrival glyph: light green when live (blinking while fresh), held still in light blue when scheduled; halo is
+// the theme's (gray on a bus's white).
+void liveGlyph(Canvas& cv, int x, int y, bool live, bool blinks, uint32_t ms, uint32_t halo) {
+    inkRing(cv, kLive[live && blinks && (ms / 500) % 2 ? 1 : 0], 8, x, y, 2, live ? kLiveInk : kSchedInk, halo);
 }
 float chordHalf(float y) { const float d = fabsf(y - C); return d >= C ? 0 : sqrtf(C * C - d * d); }
 
@@ -143,6 +188,8 @@ CardView viewOf(const Card& c, bool bus, const Model& m) {
 float compassBadge(Canvas& cv, char letter, float x, float cy, int size, const Theme& t) {
     if (!letter) return 0;
     const uint8_t steps[1] = {1};
+    if (t.outline)
+        cv.fillPixelShape(static_cast<int>(x) - 1, static_cast<int>(cy) - size / 2 - 1, size + 2, size + 2, 2, steps, 1, t.outline);
     cv.fillPixelShape(static_cast<int>(x), static_cast<int>(cy) - size / 2, size, size, 2, steps, 1, t.text);
     const char str[2] = {letter, 0};
     cv.text(F(900, size >= 24 ? 18 : 16), str, x + size / 2.f, cy + 0.5f, t.card, Align::Center, Base::Middle);
@@ -154,21 +201,30 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
     const float saved = cv.alpha;
     if (c.stale) cv.alpha *= 0.55f;
     PlateStyle ps;
-    ps.fill = t.top; ps.fill2 = t.card; ps.rim = t.text; ps.rimAlpha = 0.25f;
+    ps.fill = t.top; ps.fill2 = t.card;
+    if (t.outline) { ps.rim = t.outline; ps.rimAlpha = 1; ps.rimW = 3; }
+    else { ps.rim = t.text; ps.rimAlpha = 0.25f; }
     cv.plate(x, y, w, h, ps);
     char buf[48];
     const int R = x + w - 14;
     int rightW;
-    if (c.sched) rightW = cv.pixelText(c.clock, R, y + 34, 3, t.text, Align::Right);
-    else {
+    if (c.sched) {   // the clock time with the still blue glyph, and SCHEDULED under it (the app's ScheduledTag)
+        const int dw = Canvas::pixelWidth(c.clock, 3), dx = R - 20 - dw;
+        cardDigits(cv, c.clock, dx, y + 20, 3, t);
+        liveGlyph(cv, R - 16, y + 16, false, false, ms, t.halo);
+        const float tw = Canvas::measure(F(900, 11), "SCHEDULED") + 12;
+        const float tx = fminf(dx + dw / 2.f - tw / 2, R - tw);
+        cv.chip("SCHEDULED", static_cast<int>(tx), y + 50, t.text, t.card);
+        rightW = static_cast<int>(fmaxf(dw + 20, R - tx));
+    } else {
         const bool due = c.min <= 1;
         const int s = due ? 4 : 5;
         char big[8];
         snprintf(big, sizeof(big), due ? "Due" : "%d", c.min);
         const int dw = Canvas::pixelWidth(big, s), dx = R - 20 - dw;
-        cv.pixelText(big, dx, y + (due ? 28 : 16), s, t.text);
-        if (glyph || c.stale) liveGlyph(cv, R - 16, y + 16, t.text, !c.stale, ms);
-        if (!due) cv.text(F(800, 12), "minutes", dx + dw / 2.f, y + 58, t.text, Align::Center);
+        cardDigits(cv, big, dx, y + (due ? 28 : 16), s, t);
+        if (glyph || c.stale) liveGlyph(cv, R - 16, y + 16, true, !c.stale, ms, t.halo);
+        if (!due) cardText(cv, F(800, 12), "minutes", dx + dw / 2.f, y + 58, t, Align::Center);
         rightW = dw + 20;
     }
     const int L = x + 16;
@@ -186,22 +242,24 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
         const Font* fName = F(900, 34);
         const float badgeW = c.compass ? 24 + 8 : 0;
         const char* name = Canvas::fit(fName, c.route, maxW - badgeW - (c.alert ? 26 : 0), buf, sizeof(buf));
-        const float nw = cv.text(fName, name, L, y + 4, t.text);
+        const float nw = cardText(cv, fName, name, L, y + 4, t);
         const float bw = compassBadge(cv, c.compass, L + nw + 10, y + 24, 24, t);
-        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + bw), y + 16, 1, t.text);
-        cv.arrowCircle(L + 8, y + 59, 8, t.text, t.card);
+        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(L + nw + 8 + bw), y + 16, 1, t.text, t.outline);
+        cardArrow(cv, L + 8, y + 59, 8, t);
         // With the letter beside the number, "South to Harlem" says only where it goes: "To Harlem".
         const char* head = c.heading;
         char hb[40];
         if (c.compass)
             if (const char* to = strstr(c.heading, " to ")) { snprintf(hb, sizeof(hb), "To %s", to + 4); head = hb; }
         const Font* fHead = F(900, 16);
-        cv.text(fHead, Canvas::fit(fHead, head, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t.text);
+        cardText(cv, fHead, Canvas::fit(fHead, head, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t);
         int sx = L;
         if (c.delayed) sx += cv.chip("Delayed", L, y + 72, col::amber, 0x000000) + 6;
         const Font* fStop = F(800, 13);
-        const char* stop = Canvas::fit(fStop, c.stop, maxW + rightW - (sx - L) - c.nPips * kPipStep - 4, buf, sizeof(buf));
-        pips(sx + cv.text(fStop, stop, sx, y + 73, t.text) + 8, y + 74);
+        // A scheduled time's tag reaches down beside the stop, so the stop stops short of it.
+        const float stopW = (c.sched ? maxW : maxW + rightW) - (sx - L) - c.nPips * kPipStep - 4;
+        const char* stop = Canvas::fit(fStop, c.stop, stopW, buf, sizeof(buf));
+        pips(sx + cardText(cv, fStop, stop, sx, y + 73, t) + 8, y + 74);
     } else {       // a train's color names its line, so the stop leads, large, then where it goes
         const float pipW = c.nPips ? c.nPips * kPipStep : 0;
         const float badgeW = c.compass ? 20 + 8 : 0;
@@ -211,15 +269,15 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
         for (int size : kSmaller)
             if (Canvas::measure(fName, c.stop) > nameW) fName = F(900, size);
         const int ny = 15 + (24 - fName->size) * 2 / 3;
-        const float nw = cv.text(fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), L, y + ny, t.text);
+        const float nw = cardText(cv, fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), L, y + ny, t);
         const float bw = compassBadge(cv, c.compass, L + nw + 8, y + 29, 20, t);
         pips(L + nw + 8 + bw, y + 22);
-        if (c.alert) cv.ink(kAlert, 16, static_cast<int>(L + nw + 8 + bw + pipW), y + 21, 1, t.text);
+        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(L + nw + 8 + bw + pipW), y + 21, 1, t.text, t.outline);
         int hx = L;
         if (c.delayed) hx += cv.chip("Delayed", L, y + 58, col::amber, 0x000000) + 6;
-        cv.arrowCircle(hx + 8, y + 67, 8, t.text, t.card);
+        cardArrow(cv, hx + 8, y + 67, 8, t);
         const Font* fHead = F(900, 16);
-        cv.text(fHead, Canvas::fit(fHead, c.heading, maxW - (hx - L) - 22, buf, sizeof(buf)), hx + 22, y + 57, t.text);
+        cardText(cv, fHead, Canvas::fit(fHead, c.heading, maxW - (hx - L) - 22, buf, sizeof(buf)), hx + 22, y + 57, t);
     }
     cv.alpha = saved;
 }
@@ -470,7 +528,7 @@ void drawStops(Canvas& cv, const App& a, const Model& m, uint32_t ms, Tab tab, u
         if (moving) cv.blitNearest(img, 340, CARD_H + 6, kKey, C, sl.bcy, scale, sl.al, true);
         else cv.blitScaled(img, 340, CARD_H + 6, kKey, C, sl.bcy, scale, sl.al, true);
         if (!v.sched && !v.stale)   // the blinking live mark, drawn over the cached card
-            liveGlyph(cv, sl.markX, sl.markY, th(v.route, v.bus).text, true, ms);
+            liveGlyph(cv, sl.markX, sl.markY, true, true, ms, th(v.route, v.bus).halo);
     }
     cv.resetClip();
     cv.alpha = savedAlpha;
@@ -504,13 +562,19 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
         static const int kTitle[] = {84, 76, 68, 60, 52, 44};
         const Font* ft = F(900, 44);
         for (int size : kTitle) { ft = F(900, size); if (Canvas::measure(ft, hero->rec.route) <= 2 * chordHalf(58 - s) - 70) break; }
-        cv.text(ft, hero->rec.route, C + 5, 24 + 5, t.card, Align::Center);
-        cv.text(ft, hero->rec.route, C, 24, t.text, Align::Center);
-        cv.text(F(800, 17), hero->rec.name, C, 118, col::mist, Align::Center);
+        // As the app's map header: the light blue shadow, the gray number outlined in light blue.
+        cv.text(ft, hero->rec.route, C + 5, 24 + 5, t.outline, Align::Center);
+        cardText(cv, ft, hero->rec.route, C, 24, t, Align::Center);
+        // The stop and where it goes on a white bus plate, as the app backs a bus page's header (its gray needs it).
         const Font* fh = F(900, 21);
         const float hw = fminf(260, Canvas::measure(fh, hero->heading)), hx = C - (hw + 28) / 2;
-        cv.arrowCircle(hx + 10, 154, 10, t.text, col::navy);
-        cv.text(fh, Canvas::fit(fh, hero->heading, 260, buf, sizeof(buf)), hx + 28, 142, t.text);
+        const int pw = static_cast<int>(fmaxf(hw + 28, Canvas::measure(F(800, 17), hero->rec.name)) + 32);
+        PlateStyle hp;
+        hp.fill = t.top; hp.fill2 = t.card; hp.rim = t.outline; hp.rimAlpha = 1; hp.rimW = 3;
+        cv.plate(static_cast<int>(C - pw / 2.f), 108, pw, 66, hp);
+        cardText(cv, F(800, 17), hero->rec.name, C, 116, t, Align::Center);
+        cardArrow(cv, hx + 10, 152, 10, t);
+        cardText(cv, fh, Canvas::fit(fh, hero->heading, 260, buf, sizeof(buf)), hx + 28, 140, t);
     } else {
         // a train's color names its line, so the stop is the title, with the same drop shadow, then where it goes
         static const int kTitle[] = {68, 60, 52, 44, 34};
@@ -540,17 +604,20 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
         const float saved = cv.alpha;
         if (stale) cv.alpha *= 0.6f;
         PlateStyle ps;
-        ps.fill = t.top; ps.fill2 = t.card; ps.rim = t.text; ps.rimAlpha = lead ? 1.f : 0.25f; ps.rimW = lead ? 3 : 2;
+        ps.fill = t.top; ps.fill2 = t.card; ps.rimW = lead ? 3 : 2;
+        if (t.outline) { ps.rim = t.outline; ps.rimAlpha = 1; }
+        else { ps.rim = t.text; ps.rimAlpha = lead ? 1.f : 0.25f; }
         cv.plate(x, ty, tw, th2, ps);
         char big[8];
         if (sched) mock::clockText(m.now, mins, big, sizeof(big));
         else snprintf(big, sizeof(big), mins <= 1 ? "Due" : "%d", mins);
         const int sc = sched ? 3 : mins <= 1 ? 4 : lead ? 6 : 5;
-        const int dw = Canvas::pixelWidth(big, sc), gw = live && !stale ? 20 : 0;
+        // The glyph: light green while live and fresh (still on a tile), blue when scheduled, none once stale.
+        const int dw = Canvas::pixelWidth(big, sc), gw = sched || !stale ? 20 : 0;
         const int gx = static_cast<int>(lroundf(cx - (dw + gw) / 2.f));
-        cv.pixelText(big, gx, ty + 16 + (lead || sched ? 0 : 4), sc, t.text);
-        if (gw) liveGlyph(cv, gx + dw + 4, ty + 16, t.text, true, ms);
-        if (!sched && mins > 1) cv.text(F(800, 12), "minutes", cx, ty + 64, t.text, Align::Center);
+        cardDigits(cv, big, gx, ty + 16 + (lead || sched ? 0 : 4), sc, t);
+        if (gw) liveGlyph(cv, gx + dw + 4, ty + 16, live, false, ms, t.halo);
+        if (!sched && mins > 1) cardText(cv, F(800, 12), "minutes", cx, ty + 64, t, Align::Center);
         if (hero->rec.arrivals[i].delayed || (i > 0 && hero->delayMin)) {
             const float w = Canvas::measure(F(900, 11), "DELAYED") + 12;
             cv.chip("DELAYED", static_cast<int>(cx - w / 2), ty + th2 - 28, col::amber, 0x000000);
@@ -566,19 +633,22 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
     if (stale) snprintf(fresh, sizeof(fresh), "Updated %d min ago", static_cast<int>((m.now - hero->rec.ts) / 60));
     else snprintf(fresh, sizeof(fresh), "Live \xC2\xB7 updated %d s ago", static_cast<int>(m.now - hero->rec.ts));
     const float fw = Canvas::measure(F(800, 13), fresh) + (stale ? 24 : 46);
+    // Both on the line's plate in its text color, as the app's chips and alert row (amber is only for Delayed).
     PlateStyle sp = smallPlate();
     sp.edge = 4;
+    sp.fill = t.top; sp.fill2 = t.card;
+    if (t.outline) { sp.rim = t.outline; sp.rimAlpha = 1; }
     cv.plate(static_cast<int>(C - fw / 2), y, static_cast<int>(fw), 32, sp);
-    if (!stale) liveGlyph(cv, static_cast<int>(C - fw / 2 + 12), y + 8, col::signal, false, ms);
-    cv.text(F(800, 13), fresh, C - fw / 2 + (stale ? 12 : 34), y + 17, stale ? col::amber : col::white, Align::Left, Base::Middle);
+    if (!stale) liveGlyph(cv, static_cast<int>(C - fw / 2 + 12), y + 8, true, false, ms, t.halo);
+    cardText(cv, F(800, 13), fresh, C - fw / 2 + (stale ? 12 : 34), y + 17, t, Align::Left, Base::Middle);
     y += 48;
     if (hero->rec.alert) {
         cv.plate(C - 150, y, 300, 40, sp);
-        cv.ink(kAlert, 16, C - 136, y + 12, 1, col::white);
+        inkRing(cv, kAlert, 16, C - 136, y + 12, 1, t.text, t.outline);
         char msg[48];
         if (bus) snprintf(msg, sizeof(msg), "Service alert on the %s", hero->rec.route);
         else snprintf(msg, sizeof(msg), "Service alert on the %s Line", mock::lineName(hero->rec.route));
-        cv.text(F(800, 14), Canvas::fit(F(800, 14), msg, 240, buf, sizeof(buf)), C - 112, y + 21, col::white, Align::Left, Base::Middle);
+        cardText(cv, F(800, 14), Canvas::fit(F(800, 14), msg, 240, buf, sizeof(buf)), C - 112, y + 21, t, Align::Left, Base::Middle);
         y += 56;
     }
     // the stop's other lines and directions, as cards in their colors
@@ -587,7 +657,7 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
         for (int i = 0; i < m.nTrains; ++i) {
             const Card& g = m.trains[i];
             if (g.station != hero->station || &g == hero) continue;
-            if (!header) { cv.text(F(900, 12), "AT THIS STOP", C, y, col::mist, Align::Center); y += 24; header = true; }
+            if (!header) { cv.text(F(900, 12), "AT THIS STOP", C, y, t.text, Align::Center); y += 24; header = true; }
             const Theme& gt = th(g.rec.route, false);
             const float top = y - s;
             const int half = static_cast<int>(fmaxf(120, fminf(160, fminf(chordHalf(top), chordHalf(top + 77)) - 16)));
@@ -602,8 +672,18 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
             if (g.sched) mock::clockText(m.now, mins, big, sizeof(big));
             else snprintf(big, sizeof(big), mins <= 1 ? "Due" : "%d", mins);
             const int R = x + w - 16;
-            const int dw = cv.pixelText(big, R, y + (g.sched ? 22 : 14), g.sched ? 3 : 4, gt.text, Align::Right);
-            if (!g.sched && mins > 1) cv.text(F(800, 12), "min", R - dw / 2.f, y + 46, gt.text, Align::Center);
+            int dw;   // the arrival block's width
+            if (g.sched) {   // as the app's line cards: the time, the still blue glyph, SCHEDULED under them
+                const int cw = Canvas::pixelWidth(big, 3);
+                cv.pixelText(big, R - 20 - cw, y + 14, 3, gt.text);
+                liveGlyph(cv, R - 16, y + 12, false, false, ms, 0);
+                const int tw = static_cast<int>(Canvas::measure(F(900, 11), "SCHEDULED")) + 12;
+                cv.chip("SCHEDULED", R - tw, y + 42, gt.text, gt.card);
+                dw = cw + 20 > tw ? cw + 20 : tw;
+            } else {
+                dw = cv.pixelText(big, R, y + 14, 4, gt.text, Align::Right);
+                if (mins > 1) cv.text(F(800, 12), "min", R - dw / 2.f, y + 46, gt.text, Align::Center);
+            }
             cv.arrowCircle(x + 25, y + 36, 9, gt.text, gt.card);
             cv.text(F(900, 21), Canvas::fit(F(900, 21), g.heading, w - dw - 72, buf, sizeof(buf)), x + 41, y + 22, gt.text);
             if (g.rec.arrivals[0].delayed) cv.chip("Delayed", x + w - dw - 96, y + 10, col::amber, 0x000000);
@@ -806,7 +886,10 @@ uint32_t restKey(const App& a, const Model& m, uint32_t ms, Mark* marks, int max
         mix(&live, sizeof(live));
         if (!live) continue;
         if (nMarks == maxMarks) { nMarks = 0; return 0; }
-        marks[nMarks++] = {static_cast<int16_t>(sl.markX + ox), static_cast<int16_t>(sl.markY + oy), 16, 16};
+        // The mark is 16 px; a bus's gray halo reaches one art pixel (2 px) past it all round.
+        const int r = th(v.route, v.bus).halo ? 2 : 0;
+        marks[nMarks++] = {static_cast<int16_t>(sl.markX + ox - r), static_cast<int16_t>(sl.markY + oy - r),
+                           static_cast<int16_t>(16 + 2 * r), static_cast<int16_t>(16 + 2 * r)};
     }
     return h | 1;
 }
