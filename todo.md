@@ -82,15 +82,18 @@ Right now it isn't clear why he's happy or sad.
 current theme, which matches the app since 2026-11-11 (white bus cards, light green live glyph; see
 `docs/handheld-ui.md`).
 
-### F3. Tap a departure in the iOS app to see that train or bus on the map
+### F3. Trains and buses on the iOS map: a stop shows its line's vehicles, a tap focuses one
 
 Today, tapping a card (e.g. the Red Line at a station) opens stop detail with the next few arrivals as minute
-tiles. Tapping one of those tiles should follow that one vehicle.
+tiles, and the map shows no vehicles.
 
-- Tapping a tile picks that train or bus. The map zooms to it and draws it where it is now, and the page says
-  where it is in plain words, e.g. "At Fullerton" or "Between Belmont and Wellington, 3 stops away".
-- Keep it updated while it's open (the positions feeds refresh about every minute); tapping it again, or another
-  tile, changes or clears the pick.
+- Opening a stop shows every train (or bus) on that line on the map, where each is now: tap the Red Line at
+  Belmont and the map shows all the Red Line trains.
+- Tapping a departure tile, or a vehicle on the map, focuses that one: the map zooms to it, it stands out from
+  the rest, and the page says where it is in plain words, e.g. "At Fullerton" or "Between Belmont and
+  Wellington, 3 stops away".
+- Keep them updated while the stop is open (the positions feeds refresh about every minute); tapping the focused
+  one again clears the focus and shows the whole line, and tapping another moves the focus.
 - Data: `Prediction` doesn't carry the vehicle yet. Keep the run number (`rn`) from Train Tracker arrivals and
   the vehicle ID (`vid`) from Bus Tracker predictions, then find that vehicle in `ttpositions` / `getvehicles`.
   CTAKit already parses both feeds into `Vehicle` (`TrainParse`, `BusParse`); the app doesn't fetch them yet.
@@ -104,7 +107,7 @@ Every card in the iOS app shows which kind it is in its bottom-right corner: a s
 (`tram.fill.tunnel`) on train cards and a bus (`bus.fill`) on bus cards (SF Symbols, `RouteCard.swift`). Draw
 pixel-art versions of those two symbols and use them as the map's stop icons, replacing the pixel train front
 and pixel bus in `ios/CTATracker/Map/StopIcons.swift`, so the map matches the cards but stays pixel art like
-the rest of the map. F3's vehicle on the map uses them too.
+the rest of the map. F3's vehicles on the map use them too.
 
 - Draw them as grids like the current icons (whole art pixels, nearest-neighbor scaling, app spec 4.6), in the
   line's card colors, with the one-pixel white halo so they read on the navy map.
