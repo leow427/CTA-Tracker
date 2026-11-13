@@ -237,6 +237,7 @@ QueueHandle_t touchEvents;   // touchf::Event
 // only this task touches the bus: it reads the AXP2101 once a second and hands the state over under pwLock.
 portMUX_TYPE pwLock = portMUX_INITIALIZER_UNLOCKED;
 power::State pwShared;
+volatile bool offReq = false;   // serial "O": this task turns the board off
 #endif
 
 void touchTask(void*) {
@@ -252,6 +253,7 @@ void touchTask(void*) {
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(8));
 #ifdef HANDHELD_LIVE
+        if (offReq && !power::off()) { offReq = false; Serial.println("power: no power chip, so no off"); }
         if (++tick % 125 == 0) {
             const power::State p = power::read();
             portENTER_CRITICAL(&pwLock);
@@ -359,7 +361,8 @@ void profile(uint32_t ms) {
 
 // In screen coordinates: "d x y" (down), "m x y" (move), "u x y" (up), "c" (debug cycle), "a" (auto-scroll 6 s),
 // "p" (profile), "s" (frame stats now), "t" (touch log on/off: every sample, and what each release did). Live build:
-// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app over BLE.
+// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app over BLE; "O", the
+// board off (against burn-in on a board left plugged in).
 void pollSerial(uint32_t ms) {
     static char line[640];
     static int n = 0;
@@ -371,6 +374,11 @@ void pollSerial(uint32_t ms) {
 #ifdef HANDHELD_LIVE
         if (line[0] == 'N' && line[1] == ' ') {
             Serial.println(live::setNearby(line + 2, len - 2) ? "nearby: ok" : "nearby: rejected");
+            continue;
+        }
+        if (line[0] == 'O') {   // the board off, by whichever task owns the I2C bus
+            if (touchOk) offReq = true;
+            else if (!power::off()) Serial.println("power: no power chip, so no off");
             continue;
         }
 #else
@@ -402,11 +410,13 @@ void setup() {
 #else
     Serial.setTxBufferSize(1024);   // a burst of lines (the frame stats are three writes) fits while the host reads
 #endif
-    // Never wait on USB serial. Plugged into a computer with nothing reading the port, the host stops taking data,
-    // and each print would block its task for up to 2 s (20 tries of the 100 ms default): the frame loop's stats line
-    // froze the screen for seconds on the first frame after a pause, and every 10 s while scrolling. Output nobody
-    // reads is dropped instead.
-    Serial.setTxTimeoutMs(0);
+    // Barely wait on USB serial. Plugged into a computer with nothing reading the port, the host stops taking data,
+    // and with the 100 ms default a print blocks its task (on core 3.3 up to 2 s, 20 tries: the frame loop's stats
+    // line froze the screen for seconds on the first frame after a pause, and every 10 s while scrolling). After 5 ms
+    // without progress the core calls the port disconnected and drops output nobody reads until the host reads
+    // again. Not 0: core 3.2 then waits forever (its retry count starts at the timeout and wraps), which froze the
+    // loop from boot until the port was opened.
+    Serial.setTxTimeoutMs(5);
     Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
     Serial.begin(115200);
     cpuclk::begin();   // before the network task, which holds full speed through each request
@@ -437,6 +447,14 @@ void setup() {
                   static_cast<int>(esp_reset_reason()));
     Serial.printf("touch: %s, cpu %u MHz, internal free %u, psram free %u\n", touchOk ? "ok" : "failed",
                   getCpuFrequencyMhz(), heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
+    Serial.printf("sdk: arduino %s, esp-idf %s, code runs from %s, data cache line %d B\n", ESP_ARDUINO_VERSION_STR,
+                  esp_get_idf_version(),
+#ifdef CONFIG_SPIRAM_XIP_FROM_PSRAM
+                  "PSRAM (XIP)",
+#else
+                  "flash",
+#endif
+                  CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE);
     startUnix = buildUnix();
     startMs = millis();
 #ifdef HANDHELD_LIVE
@@ -605,7 +623,8 @@ void loop() {
     if (ms - statT > 10000 || statsReq) {
         statsReq = false;
         const uint32_t f = frames ? frames : 1;
-        // One write, so the line arrives whole or not at all (prints don't wait for room; see setup()).
+        // One write, so the line arrives whole or not at all while the host reads (prints wait at most 5 ms; see
+        // setup()).
         static char line[384];
         int k = snprintf(line, sizeof(line), "fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); ",
                          frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W);

@@ -8,8 +8,10 @@ The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) run
 ## Run it
 
 ```bash
-cd firmware/handheld/mock && pio run -t upload
+cd firmware/handheld/mock && ~/.platformio/penv/bin/pio run -t upload
 ```
+
+Use PlatformIO's own `pio` (above), not Homebrew's: the pinned platform runs `python -m pip`, and Homebrew's Python has no pip. With the dock plugged in too, add `--upload-port` with the handheld's port: the dock's serial chip is also a `/dev/cu.usbmodem…`.
 
 That's the live build. It needs `firmware/secrets.h` (git-ignored; template `firmware/secrets.example.h`) with the two CTA keys and a Wi-Fi network:
 
@@ -18,7 +20,18 @@ That's the live build. It needs `firmware/secrets.h` (git-ignored; template `fir
 #define WIFI_PASS "its password"
 ```
 
-For the mock: `pio run -e mock -t upload`.
+For the mock: `~/.platformio/penv/bin/pio run -e mock -t upload`.
+
+## Toolchain
+
+The handheld is pinned to the dock's core (`platformio.ini`; spec §11, both boards on one core): arduino-esp32 3.2.0 (ESP-IDF 5.4.1) with Espressif's prebuilt "high_perf" SDK libraries, in the dock's PlatformIO folder (`~/.platformio-dock`), so it's installed once. Against the stock pioarduino core it replaced (3.3.11, ESP-IDF 5.5.5), the SDK is built with `-O2` instead of `-Os`, code and read-only data run from PSRAM (XIP) instead of flash, data cache lines are 64 bytes instead of 32, and Wi-Fi and lwIP buffers go in PSRAM when they can. The boot log says which SDK is running: `sdk: arduino 3.2.0, esp-idf v5.4.1…, code runs from PSRAM (XIP), data cache line 64 B`.
+
+Core 3.2 differs from 3.3 in four places the handheld works around (each is commented where it's handled):
+
+- **TLS:** closing a connection also forgets the CA bundle, so later full handshakes fail for want of a trusted root (verification stays on). On the board every HTTPS request failed, the first one included. `Tls::stop()` attaches it again (`src/live.cpp`).
+- **USB serial:** a send timeout of 0 makes a print wait forever once the host stops taking data (the retry count starts at the timeout and wraps): flashed and left plugged in with no monitor, the loop froze 20 s after boot. The handheld uses 5 ms (below).
+- **Wi-Fi:** `WiFi.disconnect()` does nothing until the board is associated, so a join that ran out its 20 s would carry on. The join loop calls `esp_wifi_disconnect()` itself.
+- **Wi-Fi events:** the Arduino event list has no lock, so the disconnect logger registers on ESP-IDF's event loop instead of `WiFi.onEvent`. Its handler only notes the reason (that task's 2 KB stack is too small for `printf`); the network task logs it.
 
 ## The live build
 
@@ -38,12 +51,12 @@ For the mock: `pio run -e mock -t upload`.
 - **Home card.** Fresh data first, then a close stop (one that may hype), then the soonest.
 - **Why Wi-Fi didn't join.** The log says `net: disconnected, reason N` (the driver's reason: 15 or 204 is a wrong password, 201 the network out of reach) and, after a failed try, whether the network is in reach and on which channel. The ESP32-S3 has 2.4 GHz only.
 - **Clock.** NTP servers are given by IP address: while SNTP's own name lookup is pending (as on a network that blocks NTP), an HTTPS request's DNS lookup tripped an lwIP assert and rebooted the board (core 3.3, 2026-11-09). SNTP starts again when Wi-Fi comes up (its first request goes out before there's a link, and lwIP waits 15 s to try again). Until NTP answers, the clock comes from the train API's HTTP `Date` header: from the first station's own response, sent as soon as Wi-Fi is up, so the stops load without waiting for the clock; with no nearby list yet, from a bare request after 10 s without NTP. Retried every 30 s.
-- **Slow networks.** A join gets 20 s (a campus network took about 12). The log has every disconnect reason (at most one a second) and the reset reason at boot.
+- **Slow networks.** A join gets 20 s (a campus network took about 12). The log has the latest disconnect reason (at most one a second) and the reset reason at boot.
 - **Blocked MAC.** A router can stop answering the board's own MAC (one did, 2026-11-09, after a reboot loop: no error, just no reply). `WIFI_MAC` in `secrets.h` (see `secrets.example.h`) sets a replacement. That network then took 1–2.5 min after a first join to pass traffic; requests time out until it does.
 - **Wi-Fi out of reach.** Joining backs off from 15 s to 5 min, so the radio isn't scanning nonstop away from home; a tap on the dim screen (a wake) retries at once.
 - **I2C.** The power chip shares the touch controller's bus, and both drivers read `Wire`'s buffer outside its lock, so only the touch task uses the bus: it reads the AXP2101 once a second and hands the state to the loop.
 - **Before data.** The clock shows `--:--` until NTP syncs, and the weather stays hidden until Open-Meteo answers.
-- **Internal RAM.** Wi-Fi and each TLS connection need about 100 KB of internal RAM between them, so the live build keeps the model, the card scratch, and the parsers' buffers in PSRAM. Measured on the board (2026-11-09): about 103 KB internal free with no connection open, about 57 KB while the train connection is kept open, and a low of about 30 KB during a handshake (a TLS connection takes about 45–50 KB), under the foundation plan's 40 KB floor; BLE will need some of it back. Scratch in PSRAM cost the Stops list 0.7 ms a frame while scrolling (27.5 vs 26.8 ms; 23 fps either way).
+- **Internal RAM.** Wi-Fi and each TLS connection need about 100 KB of internal RAM between them, so the live build keeps the model, the card scratch, and the parsers' buffers in PSRAM. Measured on the board (2026-11-09): about 103 KB internal free with no connection open, about 57 KB while the train connection is kept open, and a low of about 30 KB during a handshake (a TLS connection takes about 45–50 KB), under the foundation plan's 40 KB floor; BLE will need some of it back. On core 3.2 high_perf (see Toolchain) the Wi-Fi and lwIP buffers live in PSRAM, and the lowest point over a whole stress test is about 44 KB (2026-11-13; `docs/power/log.md`). Scratch in PSRAM cost the Stops list 0.7 ms a frame while scrolling (27.5 vs 26.8 ms; 23 fps either way).
 
 ## Using it
 
@@ -102,6 +115,8 @@ Measured on the device (240 MHz), drawing time per frame:
 | Detail, scrolling | 20 ms | 42 fps |
 | Transitions (both screens drawn) | 27–32 ms | 18–20 fps |
 
+The table is from core 3.3. The same firmware on core 3.2 high_perf (see Toolchain), measured back to back on the board with the mock build (2026-11-12, two runs each, within 1%): Home 9.2 → 7.8 ms a frame, Stops scrolling 25.7 → 19.9 ms (37.8 → 49.4 fps), Stops at rest 36.4 → 35.0 ms, Detail 12.0 → 11.0 ms, a whole frame drawn into PSRAM 22.0 → 16.4 ms. The row hash is unchanged (2.0 ms).
+
 What made the difference:
 
 - **No `-Os`.** The framework adds `-Os` after `build_flags`, which silently overrode `-O2`: tiny helpers became calls in pixel loops. `platformio.ini` unflags it.
@@ -125,7 +140,7 @@ What made the difference:
 - **Touch mapping.** The touch panel reads a half turn from the display, so a touch at (tx, ty) is screen point (465 − ty, tx).
 - **Bus colour.** Bus cards use the app's bus blue (`0x00A1DE`, `LineColors.busAccent`), not `cta::kBusColor`, which the LEDs use.
 - **Card cache.** The list draws cards from a cache of 32 rendered cards in PSRAM (2.2 MB, keys included), enough for both tabs at once; 16 didn't hold 12 trains and 5 buses, so switching tabs re-rendered cards mid-transition. A card renders straight into the entry it replaces. Cards scale with nearest sampling while moving and smoothly at rest. While the list moves or slides in a transition, any cached width of a card will do (the exact one first), so a slide doesn't stop to render cards; at rest each card is drawn at its exact width (the frame a slide ends on renders any it lacks). A card whose content changed (its minutes, say) is rendered whenever it's next drawn. Re-rendering every card every frame ran under 1 fps.
-- **Serial never waits.** Plugged into a computer with nothing reading the port, the host stops taking data, and the core's default would block each print for up to 2 s; the frame stats line froze the screen that long after every pause. Prints don't wait (`Serial.setTxTimeoutMs(0)`): output nobody reads is dropped, and a 1 KB buffer (4 KB with the power log) holds a burst while the host reads.
+- **Serial barely waits.** Plugged into a computer with nothing reading the port, the host stops taking data, and with the core's 100 ms default each print blocks (on core 3.3 for up to 2 s; the frame stats line froze the screen that long after every pause). Prints wait at most 5 ms (`Serial.setTxTimeoutMs(5)`): after that the core counts the port as disconnected and drops output nobody reads, until the host reads again. A 1 KB buffer (4 KB with the power log) holds a burst while the host reads. Not 0: on core 3.2 that waits forever (see Toolchain).
 - **Serial (115200).**
 
   | Command | What it does |
@@ -136,3 +151,4 @@ What made the difference:
   | `p` | Profile the current screen: per strip, hash, the same frame drawn whole into PSRAM, and time per drawing primitive |
   | `s` | Print the frame stats now and start a new window (they also print every 10 s) |
   | `t` | Touch log on or off: every touch event (`T d\|m\|u x y ms`) and what each release did (`G …`) |
+  | `O` | Live build: turn the board off. The AXP2101 cuts every rail, screen included, so a board left plugged in can't burn in. Tried with USB in and no battery (2026-11-13): it stayed off, and its USB port went away (flashing needs it on again). The PWR button should turn it back on (not tried yet) |
