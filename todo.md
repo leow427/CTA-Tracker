@@ -98,11 +98,18 @@ tiles. Tapping one of those tiles should follow that one vehicle.
 
 **Why third:** it answers "where is my train right now?" with data the app can already parse.
 
-### F4. Use the cards' train and bus icons on the iOS map
+### F4. Pixel versions of the cards' train and bus symbols on the iOS map
 
-Replace the map's current stop icons (`ios/CTATracker/Map/StopIcons.swift`: the pixel train front in its line
-color and the pixel bus) with the train and bus icons the cards use, so the map and the cards match. F3's
-vehicle on the map uses the same icon.
+Every card in the iOS app shows which kind it is in its bottom-right corner: a subway in its tunnel
+(`tram.fill.tunnel`) on train cards and a bus (`bus.fill`) on bus cards (SF Symbols, `RouteCard.swift`). Draw
+pixel-art versions of those two symbols and use them as the map's stop icons, replacing the pixel train front
+and pixel bus in `ios/CTATracker/Map/StopIcons.swift`, so the map matches the cards but stays pixel art like
+the rest of the map. F3's vehicle on the map uses them too.
+
+- Draw them as grids like the current icons (whole art pixels, nearest-neighbor scaling, app spec 4.6), in the
+  line's card colors, with the one-pixel white halo so they read on the navy map.
+- Decide how a station on several lines shows its lines (today a cream icon with a strip of line colors).
+- Keep icons the same size as today, and keep the open stop ranked first when icons collide.
 
 **Why fourth:** small, and it makes the map read like the rest of the app.
 
