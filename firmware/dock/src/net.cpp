@@ -4,10 +4,12 @@
 #include <HTTPClient.h>
 #include <NetworkClientSecure.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 #include <esp_mac.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcpip.h>
+#include <mbedtls/ssl.h>
 #include <string.h>
 #include <sys/time.h>
 #include <new>
@@ -163,8 +165,16 @@ bool resolve(const char* host, IPAddress& out) {
 // ---------- one HTTPS connection, kept open between requests to the same host ----------
 // The train API's certificate chain is ECDSA, checked in software: a full handshake there takes about 2 s, so the
 // train requests of a poll pass share one connection. Only one is open at a time (about 45 KB of internal RAM).
+//
+// A connection that has to be opened again resumes the host's last TLS session when the server agrees (the handheld's
+// live.cpp, 2026-11-10): the handshake then skips the certificate checks and the key exchange, and takes about a round
+// trip instead of seconds of core 0's time. The train API's connection is reopened whenever a request to another host
+// closed it (every poll pass, and every train request of the stress test's network burst). A server that declines just
+// runs a full handshake. Certificates are checked in full on every handshake that doesn't resume, and a session is only
+// ever offered back to the host it came from (dock performance analysis, round 3).
 class Tls : public NetworkClientSecure {
 public:
+    mbedtls_ssl_context* ssl() { return &sslclient->ssl_ctx; }   // NetworkClientSecure keeps it protected
     void stop() override {
         NetworkClientSecure::stop();
         _stillinPlainStart = false;
@@ -184,6 +194,32 @@ struct Conn {
 Conn* conn;
 constexpr uint32_t kIdleCloseMs = 60000;
 constexpr int kMaxBody = 256 * 1024;   // the largest response read without a length (PSRAM)
+
+// The last session with each host, serialized in PSRAM: it holds the session's master secret, so it never leaves RAM
+// and is never logged.
+struct Session {
+    char host[48];
+    uint8_t* data;   // kSessionMax bytes in PSRAM, allocated on first use
+    size_t len;      // 0: none
+};
+constexpr int kSessions = 4;           // one per host: trains, alerts, weather, location (buses' don't fit, below)
+constexpr size_t kSessionMax = 4096;   // a session with the server's certificate: about 1.2-1.3 KB for those hosts
+constexpr uint32_t kQuickFailMs = 3000;   // a resuming handshake that fails faster was refused, not lost (openConn)
+Session* sessions;   // kSessions, zeroed, in PSRAM (start()): none of it takes internal RAM; null, no resuming
+int nextSession = 0;
+
+Session* sessionFor(const char* host, bool add) {
+    if (!sessions) return nullptr;
+    for (int k = 0; k < kSessions; ++k)
+        if (sessions[k].data && strcmp(sessions[k].host, host) == 0) return &sessions[k];
+    if (!add) return nullptr;
+    Session& s = sessions[nextSession++ % kSessions];
+    if (!s.data) s.data = static_cast<uint8_t*>(heap_caps_malloc(kSessionMax, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!s.data) return nullptr;
+    snprintf(s.host, sizeof(s.host), "%s", host);
+    s.len = 0;
+    return &s;
+}
 
 void hostOf(const char* url, char* out, size_t cap) {
     const char* h = strstr(url, "://");
@@ -236,9 +272,59 @@ bool readBody(String& out) {
     return false;
 }
 
+enum class Open : uint8_t { Ok, Failed, FailedResuming };
+
+// Opens conn to host:443: DNS, TCP, then the TLS handshake, resuming the host's last session if there is one. The
+// timeouts are the ones connect() had (TCP, then the handshake). kind is for the perf log, as in fetch().
+Open openConn(const char* host, char kind) {
+    IPAddress ip;
+    if (!resolve(host, ip)) return Open::Failed;
+    conn->tls.setPlainStart();   // the TCP connection and the TLS setup now, the handshake below
+    if (!conn->tls.connect(ip, 443, host, nullptr, nullptr, nullptr)) return Open::Failed;
+    Session* s = sessionFor(host, false);
+    bool offered = false;
+    mbedtls_time_t offeredStart = 0;
+    if (s && s->len) {
+        mbedtls_ssl_session saved;
+        mbedtls_ssl_session_init(&saved);
+        if (mbedtls_ssl_session_load(&saved, s->data, s->len) == 0 && mbedtls_ssl_set_session(conn->tls.ssl(), &saved) == 0) {
+            offered = true;
+            offeredStart = saved.MBEDTLS_PRIVATE(start);
+        }
+        mbedtls_ssl_session_free(&saved);
+    }
+    const uint32_t t0 = millis();
+    if (!conn->tls.startTLS()) {   // the handshake failed (and the client stopped)
+        if (s) s->len = 0;         // perhaps over the offered session: the next try starts fresh
+        // A server that refuses the session answers at once; a handshake that timed out (lost replies) would only
+        // time out again, so it isn't tried twice.
+        return offered && millis() - t0 < kQuickFailMs ? Open::FailedResuming : Open::Failed;
+    }
+    // Keep the session, straight from the connection (no copy in internal RAM); a resumed one may have brought a new
+    // ticket. A session too big for its slot isn't kept: the bus API's tickets are about 4 KB, so its handshakes stay
+    // full ones (RSA, about 0.5 s). A resumed session keeps its first handshake's start time; a full handshake starts
+    // a new one.
+    const mbedtls_ssl_session* now = conn->tls.ssl()->MBEDTLS_PRIVATE(session);
+    const bool resumed = now && offered && now->MBEDTLS_PRIVATE(start) == offeredStart;
+    size_t n = 0;
+    if (now && mbedtls_ssl_session_save(now, nullptr, 0, &n) == MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL && n <= kSessionMax) {
+        if (!s) s = sessionFor(host, true);
+        if (s) s->len = mbedtls_ssl_session_save(now, s->data, kSessionMax, &n) == 0 ? n : 0;
+    } else if (s) {
+        s->len = 0;   // the old one is no use now
+    }
+#ifdef PERF_LOG
+    perf::event("tls,%c,%s", kind, resumed ? "resumed" : "full");
+#else
+    (void)kind;
+    (void)resumed;
+#endif
+    return Open::Ok;
+}
+
 // GETs url into body (unless null). Returns the HTTP status or a negative HTTPClient error. Never logs the URL (it
-// carries keys). keep: leave the connection open for the next request to the same host.
-int fetchNow(const char* url, String* body, bool keep) {
+// carries keys). keep: leave the connection open for the next request to the same host. kind is for the perf log.
+int fetchNow(const char* url, String* body, bool keep, char kind) {
     conn->date = 0;
     char host[sizeof(conn->host)];
     hostOf(url, host, sizeof(host));
@@ -246,15 +332,22 @@ int fetchNow(const char* url, String* body, bool keep) {
         closeConn();
         snprintf(conn->host, sizeof(conn->host), "%s", host);
     }
+    bool fullRetried = false;
     for (int attempt = 0;; ++attempt) {
+        // begin() first: it drops a connected client whose host differs from the last request's, so it has to run
+        // before openConn() makes a new connection. GET() then finds the connection open and sends on it.
         conn->http.setReuse(true);
         if (!conn->http.begin(conn->tls, url)) return -1;
         const bool reused = conn->tls.connected();
         if (!reused) {
-            IPAddress ip;
-            if (!resolve(host, ip) || !conn->tls.connect(ip, 443, host, nullptr, nullptr, nullptr)) {
+            const Open o = openConn(host, kind);
+            if (o != Open::Ok) {
                 closeConn();
                 snprintf(conn->host, sizeof(conn->host), "%s", host);
+                if (o == Open::FailedResuming && !fullRetried) {   // once more, with a full handshake
+                    fullRetried = true;
+                    continue;
+                }
                 return HTTPC_ERROR_CONNECTION_REFUSED;
             }
         }
@@ -290,11 +383,11 @@ int fetch(const char* url, String* body, bool keep) {
     const char kind = kindOf(url, body != nullptr);
     perf::reqStart(kind);
     const uint32_t t0 = millis();
-    const int code = fetchNow(url, body, keep);
+    const int code = fetchNow(url, body, keep, kind);
     perf::reqEnd(kind, code, body ? body->length() : 0, millis() - t0);
     return code;
 #else
-    return fetchNow(url, body, keep);
+    return fetchNow(url, body, keep, 0);
 #endif
 }
 
@@ -816,6 +909,7 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
     lists = new (ps_malloc(sizeof(dock::PickerLists))) dock::PickerLists();
     busRecs = static_cast<cta::StopRecord*>(ps_malloc(sizeof(cta::StopRecord) * kMaxBusRecs));
     busVehicles = static_cast<cta::BusVehicle*>(ps_malloc(sizeof(cta::BusVehicle) * kMaxBuses));
+    sessions = static_cast<Session*>(ps_calloc(kSessions, sizeof(Session)));   // none: every handshake a full one
     if (!published || !building || !pubLists || !lists || !busRecs || !busVehicles) {
         Serial.println("net: out of memory");
         return;
