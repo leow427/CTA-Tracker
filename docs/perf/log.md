@@ -103,3 +103,38 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 4. Lesson, same as the handheld's round 3: on this chip, splitting one memory-bound job across both cores doesn't pay; PSRAM bandwidth is shared. Round 3 should make each core's own work smaller.
 5. The pieces that don't touch the copy (faded lines blended once, 32-bit line starts, no sleep after a frame) are worth salvaging on their own.
 6. Boot came out faster in the r2 runs (every stop loaded 8.3 vs 11.0 s), but nothing in round 2 touched the network: that's the network's own variation.
+
+## Round 3: cheaper map and fade drawing, a tighter copy, no sleep after a frame, resumed TLS (2026-11-13)
+
+- **Change:** four independent commits from worker 3, on round 1's firmware (one review round by a fresh Opus reviewer at xhigh found one Should fix, a missing test at the 32/64-bit line switch, added; nothing else).
+  - `675a553` drawing: round 2's single-core pieces (a line's first step in 32 bits; faded lines blended once a pixel; opaque lines write their lead pixels directly), an exact inline rounding in place of `lroundf`, faded fills (`blendRect`) worked out once per rectangle (the picker's bottom fade), each map vehicle one call per colour (map frames 610 → 284 recorded calls), track points projected once and shifted by the pan.
+  - `96cafd2` copy: each 64-byte band row written as 16 word stores, no `memcpy` call per row.
+  - `807783f` loop: no 2 ms sleep after a pass that showed a frame.
+  - `f9bb1be` network: TLS sessions resumed per host (4 PSRAM slots of 4 KB), as the handheld does; bus sessions are bigger than a slot and stay full. A new `E,tls,<kind>,resumed|full` event.
+  - Byte-identical on the laptop (1014 preview frames plus a 1246-frame map and picker sweep), fuzzed and mutation-tested.
+- **Runs, interleaved:** `ref1b-1`, `r3-1`, `ref1b-2`, `r3-2`, then `r3-3`, `ref1b-3` (ref1b = round 1's firmware `b6f68bc`). Report: `reports/r3.html`, table: `reports/r3.md`. About 36 of 166 TLS connections a run resumed.
+
+| Phase | Frame ms ref1b → r3 | Draw ms | FPS dragging | Drag ms | Request ms | Busy c0 % | Temp °C |
+|---|---|---|---|---|---|---|---|
+| 1 Idle | 21 → 21 | 5 → 6 | – | – | 546 → **441** | 9 → 7 | 36.1 → 36.2 |
+| 2 Screen churn | 37 → 37 | 14 → 14 | – | – | 572 → **462** | 12 → 9 | 36.3 → 36.4 |
+| 3 Map pan | 84 → **76** | 48 → **40** | 11.4 → **12.9** | 85 → **78** | 632 → **407** | 11 → **8** | 37.5 → 37.5 |
+| 4 Picker scroll | 54 → 56 | 23 → 22 | 17.1 → 17.1 | 56 → 58 | 601 → **432** | 10 → 7 | 38.1 → 38.1 |
+| 5 Network burst | 30 → 30 | 12 → 12 | – | – | 894 → **593** | 29 → **18** | 38.0 → 37.6 |
+| 6 Mixed | 60 → 60 | 30 → **27** | 14.3 → 15.0 | 70 → 68 | 885 → **625** | 31 → **22** | 38.9 → 38.4 |
+| 7 Cool-down | 22 → 22 | 7 → 7 | – | – | 536 → **368** | 9 → 6 | 37.4 → 37.1 |
+
+**Result: passes** (pending Leo's look at the panel). 15 better beyond noise. Three flagged worse, none of them real:
+- the panel wait in phases 4 and 6 (+2–3 ms) is a part of a frame, not a score: frames now start without the 2 ms sleep, so they wait longer for the same panel step; the picker's frame time and fps are unchanged
+- the picker list load in churn (500 → 835 ms) is one slow run (1406 ms; the others 561 and 537). Round 1's own firmware did the same once (1990 ms in `r1-2`): the bus host's full handshakes vary, and round 3 doesn't change them.
+- The burst's tap time looked worse after two runs (one run at 35 ms); a third pair brought it back to 26 vs 26 ms, within noise.
+
+No late panel frames, no restarts, lowest free internal RAM 49 → 50 KB, no resets, failed requests 1 vs 2 over three runs.
+
+**Findings**
+
+1. **Resumed TLS sessions made every request 19–36% faster** and cut core 0's load in the burst from 29% to 18%: a resumed handshake skips the train API's ECDSA chain check.
+2. **The map pan gained 13% (11.4 → 12.9 fps)** but didn't reach 17: about a third of its frames now make the 58.6 ms step. Its frames are still 40 ms of drawing plus 18 ms of copying plus the wait.
+3. **The copy didn't get cheaper** (18.2 → 18.1 ms): the word stores cost the same as `memcpy`. The time is in PSRAM itself (each 64-byte line is probably read before it's written), not in the loop.
+4. **The picker stays at 17 fps**: draw 22 + copy 18 is 40 ms, far from the 29.3 ms needed for 34.
+5. **Heat**: no phase is warmer beyond noise; core 0 is cooler in every phase with requests.
