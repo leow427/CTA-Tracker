@@ -45,3 +45,34 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 4. **Frame times are steady between runs** (within about 6 ms in every phase; map pan within 11 ms), so a real speed-up shows clearly.
 5. **Temperature drifts run to run** as the board warms: idle 34.2, 36.3, 36.6 °C in the three runs, back to back. Its noise is about 2.4 °C, so every comparison from here runs interleaved (reference, change, reference, change), and heat is judged phase for phase.
 6. Requests take 530–920 ms, and a bus route list 500–1170 ms.
+
+## Round 1: record each frame once, draw only the bands that changed (2026-11-13)
+
+- **Change:** `b6f68bc` (worker 1; one review round by a fresh Opus reviewer at xhigh found no Blocker or Should fix).
+  - Each frame's drawing calls are recorded once (`ui::Recording`, `firmware/lib/gfx`), then played band by band: only the calls that reach a band run there, so the screens' code runs once a frame instead of 25 times.
+  - Each band gets a hash of the calls that reach it, and each of the two frame buffers remembers what it holds: a band whose hash matches isn't drawn or copied. At rest, Trackie's bob and the blinks alternate in step with the two buffers, so most frames at rest draw nothing.
+  - Faster plates (only the visible part of the shadow, interiors filled two pixels per store) and line segments (no 64-bit division per step), same pixels.
+  - A frame that can't be recorded (a blit, over 4096 calls) is drawn exactly as before. A new last column, `drawn`, counts bands drawn.
+  - Checked pixel-identical on the laptop: 1014 raw frames (26 states × 13 variations, both mountings, both paths) byte-identical to the base, a 70-frame two-buffer sequence, the handheld's previews unchanged, 300 random scenes in native tests, mutation tests.
+- **Why:** the baseline spent 70 ms of every frame redrawing the whole screen, even for a bob, and 94 ms on the map.
+- **Runs, interleaved:** `ref0-1`, `r1-1`, `ref0-2`, `r1-2` (ref0 = the baseline firmware `68778ad`, rebuilt in a scratch worktree). Report: `reports/r1.html`, table: `reports/r1.md`.
+
+| Phase | Frame ms ref0 → r1 | FPS dragging | Tap ms (max) | Drag ms | Busy c1 % | Temp °C |
+|---|---|---|---|---|---|---|
+| 1 Idle | 91 → **20** | – | – | – | 22 → **7.5** | 36.4 → 36.4 |
+| 2 Screen churn | 74 → **37** | – | 88 (144) → **61 (92)** | – | 26 → **14** | 36.9 → 36.6 |
+| 3 Map pan | 137 → **84** | 7.1 → **11.4** | 144 → **85** | 139 → **85** | 84 → **71** | 38.0 → 37.7 |
+| 4 Picker scroll | 83 → **54** | 11.4 → **17.1** | 85 → **56** | 85 → **56** | 66 → 69 | 38.4 → 38.4 |
+| 5 Network burst | 104 → **28** | – | 105 (130) → **25 (38)** | – | 30 → **11** | 38.6 → 38.2 |
+| 6 Mixed | 98 → **60** | 9.2 → **14.3** | 100 (158) → **66 (95)** | 113 → **70** | 56 → **47** | 39.2 → 38.9 |
+| 7 Cool-down | 93 → **20** | – | – | – | 22 → **7.6** | 37.8 → 37.4 |
+
+**Result: passes** (pending Leo's look at the panel). 53 scores better beyond noise. The only one flagged worse is a part of a frame, not a score: the picker's copy per frame rose 1.4 ms (17.1 → 18.5), while its whole frame got 29 ms shorter. Requests, list loads and boot times within noise; no late panel frames, no restarts, lowest free internal RAM unchanged (51 KB), no resets.
+
+**Findings**
+
+1. **Frames at rest are nearly free now**: about 5 ms of drawing (recording) and 1 ms of copying, so idle core 1 drops from 22% to 7.5% busy.
+2. **Temperature didn't move beyond noise** even with core 1 two-thirds less busy at idle: the chip's temperature follows the board warming through the night more than the CPU's load. Heat is judged phase for phase between interleaved runs.
+3. **Frame rate moves in panel steps** (a frame ends at the panel frame after the switch, 29.3 ms each: 34, 17, 11.4, 8.5 fps). The map pan now sits at 84 ms, just over the 58.6 ms needed for 17 fps; the picker sits at 54 ms, well over the 29.3 ms needed for 34 fps.
+4. **The copy into PSRAM (17–18 ms) and the panel wait (13–19 ms) are now as big as the drawing** on moving frames. That's round 2's target, with the map's 46 ms of drawing.
+5. Leo should look at the panel for any 32-row strip that lags or doesn't update (bob, clock minute, blink glyphs, the poke bubble, greyed cards when Wi-Fi drops, map pan and recenter, picker scroll, a real pick, the night veil), and for tearing.
