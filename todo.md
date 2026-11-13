@@ -23,30 +23,32 @@ Not diagnosed yet. Leads to check first:
 Check Waveshare's and Espressif's examples and FAQs for this panel before custom fixes. Done when scrolling
 looks even on the board; record what the cause was here.
 
-### B2. Dock screen is choppy: 5–10 fps, aim for 24–30 (open investigation)
+### B2. Dock screen is still choppy: map 13 fps, picker 17 fps, aim for 24–30 (open)
 
-The dock's screen updates at about 5–10 frames a second, so panning the map and scrolling lists look choppy.
-The goal is at least 24–30 fps if the board allows it.
+The dock's screen was at 5–10 frames a second; the goal is at least 24–30 fps if the board allows it.
 
-The dock performance work (branch `claude/dock-screen-firmware-optimization-122ba8`, not merged) measured a
-baseline on 2026-11-12/13 (`docs/perf/log.md` on that branch): the map pans at 7 fps and the picker scrolls at
-11 fps. Drawing is most of each frame (a full 480×800 software redraw, 70–93 ms), plus 6–25 ms copying into
-the PSRAM frame buffer and 15–24 ms waiting for the panel. Round 1 there (draw only the bands that changed)
-isn't measured or merged yet.
+The first perf pass is on main (merged `68f177c`, 2026-11-13; rounds 1 and 3 kept, round 2 reverted and kept on
+branch `dock-perf-r2`). It took the map pan from 7.1 to 12.9 fps and the picker scroll from 11.4 to 17.1 fps;
+taps reach the screen 32–72% sooner and a frame at rest costs 21 ms instead of 91. Every number and run is in
+`docs/perf/summary.md` and `docs/perf/log.md`.
 
-To find out:
+Still to do:
 
-- What round 1 gains, then whether 24–30 fps is reachable at all: a frame has about 33–40 ms, so drawing,
-  copying and waiting all have to shrink, not just drawing.
-- Cheaper drawing: scroll by moving pixels already drawn and drawing only the newly shown rows, cache the map
-  instead of redrawing it, and skip full redraws for small changes (Trackie's bob).
-- Cheaper copies: draw straight into the frame buffer, or use DMA / the second core for the copy.
-- Panel limits: the RGB panel's pixel clock and refresh rate, and Waveshare's and Espressif's guidance for
-  this board (bounce buffers, `esp_lcd` RGB settings). Panel timing was left alone in the perf work because it
-  fixed tearing, so any change there must keep the screen tear-free.
+- **Look at the real panel.** The firmware matches the old frames byte for byte on the laptop, but nobody has
+  watched the panel since: Trackie's bob, the clock, the blink glyphs, the poke bubble, cards greying when Wi-Fi
+  drops, the map (pan, recenter, faded lines, vehicles), the picker (scroll, fade, a real pick), the night veil,
+  and no tearing or 32-row strip that lags. The summary has the checklist.
+- **The copy into the PSRAM frame buffer (18 ms a moving frame) is the wall now.** A second core (round 2) and a
+  tighter loop (round 3) didn't help; the time is in PSRAM itself. The likely way through is GDMA into the frame
+  buffer with careful cache handling, and it's the only way the picker reaches 34 fps.
+- **The map to 17 fps** needs about 18 ms off its 76 ms frame: profile a pan on the board (serial `g`), then one
+  recorded call per line shape instead of per segment.
+- **Panel setup** (the `bb_invalidate_cache` flag, pixel clock, bounce buffers) may speed up all drawing, but it
+  was left alone because it fixed tearing: Leo's call, and any change must stay tear-free.
 
-Done when map pans and list scrolls measure at least 24 fps with the perf tools (`tools/dock_perf_run.py`),
-or when it's clear why that can't be reached and what the best rate is.
+Frame rate moves in panel steps of 29.3 ms (34, 17, 11.4 fps), so 24 fps really means making the 34 fps step
+(about 29 ms a frame) or settling for 17. Done when map pans and list scrolls measure at least 24 fps with
+`tools/dock_perf_run.py`, or when it's clear why not and what the best rate is.
 
 ## Features
 
