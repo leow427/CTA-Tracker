@@ -12,8 +12,9 @@ bool begin();
 // old one is free to draw into. draw is called once, on a canvas that records the frame (ui::Recording), which is
 // then played band by band, only into the bands the hidden buffer doesn't already hold (bands.h); a frame that can't
 // be recorded calls draw once per band of portrait rows, on a canvas clipped to it, as do the diagnostic pattern and
-// single-buffer modes. draw must draw the same frame each time it's called.
-void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
+// single-buffer modes. draw must draw the same frame each time it's called. True when the frame went to the panel and
+// render waited for the panel to take it (the loop then needn't sleep before its next pass).
+bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
 
 // Restarts the panel (deletes and recreates it with the same timing; the screen is black for a moment until the next
 // frame). A refill that runs late can leave the panel's bounce buffers out of step with its DMA for good (stale

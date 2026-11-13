@@ -300,13 +300,13 @@ bool beginHere() {
     return true;
 }
 
-void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
-    if (!panel || !band) return;
+bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
+    if (!panel || !band) return false;
     if (recoverWanted && autoRecover) {
         recoverWanted = false;
         recover();
     }
-    if (frozen) return;
+    if (frozen) return false;
     if (diagMode == Diag::Freeze || diagMode == Diag::Pattern) frozen = true;   // this frame (or the pattern) stays
     if (diagMode == Diag::Single) {
         // Straight into the buffer the panel is scanning, no swap: what a single-buffered panel would show.
@@ -317,7 +317,7 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
             dock::copyBand(band, fbs[front], y0, kBandRows, DISPLAY_ROTATE_CW);
         }
         resetHashes();
-        return;
+        return false;   // no switch, so no wait for the panel
     }
     const int copies = diagMode == Diag::Pattern ? 2 : 1;   // the pattern goes into both buffers, then nothing moves
     for (int copy = 0; copy < copies; ++copy) {
@@ -344,6 +344,7 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     lastDrawnBands = st.drawn;
     lastWaitUs = micros() - w0;
     }
+    return true;
 }
 
 // Only with bounce buffers: without them nothing falls out of step for good (the DMA restarts each frame).

@@ -340,6 +340,7 @@ void loop() {
     if (ms / 500 != lastHalf) { lastHalf = ms / 500; dirty = true; }
     if (clock.now / 60 != lastMinute) { lastMinute = clock.now / 60; dirty = true; }
     // the frame
+    bool shown = false;   // a frame went to the panel (render waited for it)
     if (dirty || forceFrame || dock::animating(app)) {
         dirty = forceFrame = false;
         const bool profile = profileNext;
@@ -351,9 +352,9 @@ void loop() {
         const uint32_t t0 = millis();
         struct Ctx { const dock::Clock* clock; uint32_t ms; } ctx = {&clock, ms};
         if (display::diag() == display::Diag::Pattern)
-            display::render([](ui::Canvas& cv, void*) { drawPattern(cv); }, nullptr);
+            shown = display::render([](ui::Canvas& cv, void*) { drawPattern(cv); }, nullptr);
         else
-            display::render([](ui::Canvas& cv, void* p) {
+            shown = display::render([](ui::Canvas& cv, void* p) {
                 const Ctx& c = *static_cast<Ctx*>(p);
                 dock::draw(cv, app, *data, *lists, *c.clock, c.ms);
                 diagLabel(cv);
@@ -438,5 +439,8 @@ void loop() {
     }
     perf::flush();
 #endif
-    delay(2);
+    // A pass that showed a frame has already slept on core 1 while the panel took it, and a drag's next frame should
+    // start now: frames move in panel steps (29.3 ms), and 2 ms more before each could push one past the next step
+    // (dock performance analysis, round 3). A pass without one sleeps, so the loop never spins.
+    if (!shown) delay(2);
 }
