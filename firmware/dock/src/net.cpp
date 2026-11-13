@@ -836,8 +836,7 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
     setStatus("Starting");
     publish();
     // Core 0, below the touch task: TLS handshakes take CPU but never hold up a frame (the loop runs on core 1).
-    // Priority 2 (touch 4, LEDs 3): above the band copier (1, display.cpp), which only gets core 0's spare time.
-    xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
 }
 
 void setPicks(const cta::PickedStop picks[cta::kDockStops]) {

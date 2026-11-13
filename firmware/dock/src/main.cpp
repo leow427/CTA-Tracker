@@ -1,13 +1,11 @@
 // The dock on the device: the frame loop and the panel's interrupts on core 1 (touch in, the UI drawn and shown on
-// the panel, the LED rows), the network task, the touch task and the band copier on core 0.
+// the panel, the LED rows), the network task and the touch task on core 0.
 //
 // Frames are drawn in bands of portrait rows in internal RAM, already in the landscape panel's order, and copied into
 // its hidden frame buffer (display.cpp, bands.cpp); a frame is drawn when something changed: new data, a touch, the
 // clock's minute, or the half-second bob and blink. Each frame's drawing is recorded once (gfx2d's ui::Recording) and
 // played band by band, and only into the bands the hidden buffer doesn't already hold: at rest, Trackie's bob and the
-// blinks alternate with the two buffers, so a frame at rest draws nothing (dock performance analysis, round 1). Each
-// band is drawn in two halves, and a copier task on core 0 copies one into the frame buffer while core 1 draws the
-// other (round 2).
+// blinks alternate with the two buffers, so a frame at rest draws nothing (dock performance analysis, round 1).
 //
 // Serial commands (115200): "m" steps Trackie through every mood and back to live (spec 6.3's debug cycle, until the
 // two-finger gesture exists), "s" shows the next screen (stops, map, picker), "h" the stops screen, "p" prints the picks, "d" puts the
@@ -342,7 +340,6 @@ void loop() {
     if (ms / 500 != lastHalf) { lastHalf = ms / 500; dirty = true; }
     if (clock.now / 60 != lastMinute) { lastMinute = clock.now / 60; dirty = true; }
     // the frame
-    bool shown = false;   // a frame went to the panel (render waited for it)
     if (dirty || forceFrame || dock::animating(app)) {
         dirty = forceFrame = false;
         const bool profile = profileNext;
@@ -354,9 +351,9 @@ void loop() {
         const uint32_t t0 = millis();
         struct Ctx { const dock::Clock* clock; uint32_t ms; } ctx = {&clock, ms};
         if (display::diag() == display::Diag::Pattern)
-            shown = display::render([](ui::Canvas& cv, void*) { drawPattern(cv); }, nullptr);
+            display::render([](ui::Canvas& cv, void*) { drawPattern(cv); }, nullptr);
         else
-            shown = display::render([](ui::Canvas& cv, void* p) {
+            display::render([](ui::Canvas& cv, void* p) {
                 const Ctx& c = *static_cast<Ctx*>(p);
                 dock::draw(cv, app, *data, *lists, *c.clock, c.ms);
                 diagLabel(cv);
@@ -377,8 +374,7 @@ void loop() {
         {
             uint32_t du, cu, wu;
             display::lastTimes(du, cu, wu);
-            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis(), display::lastBandsDrawn(),
-                        display::lastCopierUs());
+            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis(), display::lastBandsDrawn());
         }
 #endif
     }
@@ -442,8 +438,5 @@ void loop() {
     }
     perf::flush();
 #endif
-    // A pass that showed a frame has already slept on core 1 while the panel took it, and a drag's next frame should
-    // start now: frames move in panel steps (29.3 ms), and 2 ms more before each could push one past the next step.
-    // A pass without one sleeps, so the loop never spins.
-    if (!shown) delay(2);
+    delay(2);
 }

@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <sdkconfig.h>
@@ -10,7 +9,6 @@
 #include <esp_system.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
-#include <freertos/idf_additions.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
@@ -36,96 +34,17 @@ QueueHandle_t touches;
 bool gtOk = false;
 uint8_t exio = 0;
 // Bands of 32 portrait rows (25 a frame, bands.h) drawn in internal RAM: 30 KB, drawn several times faster than PSRAM.
-// A recorded band is drawn in two halves, one in each 15 KB slot of it (bands.h).
 using dock::kBandRows;
 uint16_t* band = nullptr;
 // Each frame is recorded once and played band by band (bands.h); the recording (about 450 KB) lives in PSRAM.
 ui::Recording* rec = nullptr;
 dock::BandMemo memo;   // what each frame buffer holds, band by band
-uint32_t lastCopyUs = 0, lastWaitUs = 0, lastDrawUs = 0, lastCore0CopyUs = 0, switchTimeouts = 0;
-uint32_t cpuMhz = 240;   // for the copier's cycle count (set at begin)
+uint32_t lastCopyUs = 0, lastWaitUs = 0, lastDrawUs = 0, switchTimeouts = 0;
 int lastBandsCopied = 0, lastDrawnBands = 0;
 Diag diagMode = Diag::Normal;
 bool autoRecover = true;
 uint32_t recoverCount = 0;
 bool frozen = false;   // Freeze or Pattern: drawn once, then left alone
-
-// ---------- the copier: half bands into the hidden frame buffer on core 0, while core 1 draws the next ----------
-// Copying a band into the PSRAM frame buffer took as long as drawing it on moving frames (about 0.7 ms a band, 18 ms
-// a frame, nearly all of it waiting on PSRAM), and core 0 sat idle. Each drawn half band (bands.h) is handed to this
-// task, which copies it while core 1 draws the other half; core 1 takes the slot back before drawing into it again,
-// copying whatever the copier hasn't (so a frame is never slower than copying it all on core 1, as before).
-//
-// It never takes core 0 from the dock's other tasks: it runs at priority 1, below the network task (2), the LEDs (3)
-// and touch (4), each of which preempts it at once (the handheld's round 3 starved its network task with a busy
-// core-0 sender); above the idle task, so core 1's hand-over starts it at once when core 0 is idle. (Copying at
-// priority 0 instead would share core 0 with its idle task a tick at a time: this SDK's idle task doesn't yield, and
-// sleeps until the next tick.) It copies one row (one 64-byte frame-buffer line, a couple of microseconds) at a
-// time holding copyLock, which keeps core 0's interrupts off that long (the LED strip's RMT refill, also on core 0,
-// must answer within about 29 µs): a turn can't be preempted, so core 1 never waits on one for longer than that, and
-// once core 1 holds the lock no copy from the slot is under way. Both cores write the frame buffer through the one
-// data cache the S3's cores share, as core 1's own copy did, so the panel's refill reads what either wrote. Only the
-// hidden buffer is written: render() takes both slots back (every row copied) before it asks the panel to switch.
-struct CopySlot {
-    dock::CopyJob job = {};
-    int next = 0, end = 0;   // rows [next, end) of job are still to copy (under copyLock)
-    uint32_t seq = 0;        // when it was handed over: the older is copied first
-};
-portMUX_TYPE copyLock = portMUX_INITIALIZER_UNLOCKED;
-CopySlot copySlots[2];
-uint32_t copySeq = 0;
-uint32_t copierCycles = 0;           // core 0's copying since render() last read it (under copyLock)
-TaskHandle_t copier = nullptr;       // null: core 1 copies everything, as before
-constexpr int kCopyTurnRows = 1;     // rows per turn under the lock
-
-// One turn: up to kCopyTurnRows rows of the oldest slot with rows left. False when there are none.
-bool copyTurn() {
-    bool did = false;
-    portENTER_CRITICAL(&copyLock);
-    CopySlot* s = nullptr;
-    for (CopySlot& c : copySlots)
-        if (c.next < c.end && (!s || static_cast<int32_t>(c.seq - s->seq) < 0)) s = &c;
-    if (s) {
-        const uint32_t t0 = esp_cpu_get_cycle_count();
-        const int r = s->next, r1 = r + kCopyTurnRows < s->end ? r + kCopyTurnRows : s->end;
-        dock::runCopy(s->job, r, r1);
-        s->next = r1;
-        copierCycles += esp_cpu_get_cycle_count() - t0;
-        did = true;
-    }
-    portEXIT_CRITICAL(&copyLock);
-    return did;
-}
-
-void copierTask(void*) {
-    for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);   // a hand-over
-        while (copyTurn()) {}
-    }
-}
-
-// The copier's side of bands.h's Copier, run on core 1 by drawFrame.
-void copyPut(void*, int slot, const dock::CopyJob& job) {
-    CopySlot& s = copySlots[slot];
-    portENTER_CRITICAL(&copyLock);
-    s.job = job;
-    s.next = 0;
-    s.end = job.rows;
-    s.seq = ++copySeq;
-    portEXIT_CRITICAL(&copyLock);
-    if (copier) xTaskNotifyGive(copier);
-}
-
-void copyTake(void*, int slot) {
-    CopySlot& s = copySlots[slot];
-    portENTER_CRITICAL(&copyLock);   // no copier turn is under way once this is held
-    const int r = s.next, end = s.end;
-    s.next = s.end = 0;              // nothing left for the copier
-    portEXIT_CRITICAL(&copyLock);
-    if (r < end) dock::runCopy(s.job, r, end);   // the rows it hasn't copied
-}
-
-const dock::Copier kCopier = {copyPut, copyTake, nullptr};
 
 uint32_t usNow() { return micros(); }
 
@@ -349,14 +268,6 @@ bool beginHere() {
     if (!createPanel(kTimings[kBootTiming])) return false;
     band = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     if (!band) { Serial.println("display: no RAM for the band"); return false; }
-    cpuMhz = getCpuFrequencyMhz();
-    // The copier's stack (it only copies) in PSRAM, so it costs internal RAM only its task record (about 350 bytes).
-    // Without it, core 1 copies everything, as before.
-    if (xTaskCreatePinnedToCoreWithCaps(copierTask, "copier", 2048, nullptr, 1, &copier, 0,
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
-        copier = nullptr;
-        Serial.println("display: no copier task; core 1 copies the bands");
-    }
     // Without it every band is drawn by calling the screens' code, as before (slower, same pixels).
     if (void* p = heap_caps_malloc(sizeof(ui::Recording), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) rec = new (p) ui::Recording();
     else Serial.println("display: no PSRAM for the frame recording");
@@ -384,19 +295,18 @@ bool beginHere() {
 #endif
     Serial.printf("display: SDK %s, XIP from PSRAM %s, data cache line %d B, panel ISR IRAM-safe %s\n", esp_get_idf_version(),
                   xip ? "on" : "OFF", cacheLine, isrIram ? "yes" : "no");
-    // Core 0 at a priority above the network task: a slow TLS handshake never delays a touch sample. 4: touch, LEDs
-    // (3) and network (2) each sit a step above where they were before the band copier (1) came below them.
-    xTaskCreatePinnedToCore(touchTask, "touch", 3072, nullptr, 4, nullptr, 0);
+    // Core 0 at a priority above the network task: a slow TLS handshake never delays a touch sample.
+    xTaskCreatePinnedToCore(touchTask, "touch", 3072, nullptr, 3, nullptr, 0);
     return true;
 }
 
-bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
-    if (!panel || !band) return false;
+void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
+    if (!panel || !band) return;
     if (recoverWanted && autoRecover) {
         recoverWanted = false;
         recover();
     }
-    if (frozen) return false;
+    if (frozen) return;
     if (diagMode == Diag::Freeze || diagMode == Diag::Pattern) frozen = true;   // this frame (or the pattern) stays
     if (diagMode == Diag::Single) {
         // Straight into the buffer the panel is scanning, no swap: what a single-buffered panel would show.
@@ -407,22 +317,17 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
             dock::copyBand(band, fbs[front], y0, kBandRows, DISPLAY_ROTATE_CW);
         }
         resetHashes();
-        return false;   // no switch, so no wait for the panel
+        return;
     }
     const int copies = diagMode == Diag::Pattern ? 2 : 1;   // the pattern goes into both buffers, then nothing moves
     for (int copy = 0; copy < copies; ++copy) {
     // The frame into the hidden buffer (bands.h): recorded once, and only the bands whose drawing isn't the one this
-    // buffer already holds are drawn (in halves) and copied, the copier on core 0 copying each half while core 1
-    // draws the next; drawFrame returns with every row copied. The pattern (which prints the time each band is drawn)
-    // is drawn band by band directly, as before. The switch and the wait below are as they were: a buffer is only ever
-    // written while the panel isn't reading it.
+    // buffer already holds are drawn and copied. The pattern (which prints the time each band is drawn) is drawn band
+    // by band directly, as before. The switch and the wait below are as they were: a buffer is only ever drawn into
+    // while the panel isn't reading it.
     dock::FrameStats st;
     dock::drawFrame(draw, ctx, diagMode == Diag::Pattern ? nullptr : rec, memo, back, band, fbs[back], DISPLAY_ROTATE_CW,
-                    usNow, st, &kCopier);
-    portENTER_CRITICAL(&copyLock);
-    const uint32_t copierUs = copierCycles / cpuMhz;
-    copierCycles = 0;
-    portEXIT_CRITICAL(&copyLock);
+                    usNow, st);
     const uint32_t w0 = micros();
     // Without bounce buffers the DMA reads the frame buffer from PSRAM itself, past the CPU's cache: draw_bitmap
     // writes the cache back for the rectangle it's given (the whole frame) before the switch.
@@ -434,13 +339,11 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     if (xSemaphoreTake(frameDone, pdMS_TO_TICKS(80)) != pdTRUE) ++switchTimeouts;
     back ^= 1;
     lastCopyUs = st.copyUs;
-    lastCore0CopyUs = copierUs;
     lastDrawUs = st.drawUs;
     lastBandsCopied = st.copied;
     lastDrawnBands = st.drawn;
     lastWaitUs = micros() - w0;
     }
-    return true;
 }
 
 // Only with bounce buffers: without them nothing falls out of step for good (the DMA restarts each frame).
@@ -549,7 +452,6 @@ void dumpFrame() {
     Serial.println("END");
 }
 int lastBands() { return lastBandsCopied; }
-uint32_t lastCopierUs() { return lastCore0CopyUs; }
 int lastBandsDrawn() { return lastDrawnBands; }
 void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs) {
     drawUs = lastDrawUs;

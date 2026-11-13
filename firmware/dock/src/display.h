@@ -10,12 +10,10 @@ namespace display {
 bool begin();
 // Draws a frame into the hidden frame buffer, which the panel switches to at its next vertical sync. Returns once the
 // old one is free to draw into. draw is called once, on a canvas that records the frame (ui::Recording), which is
-// then played band by band (each band in two halves, a copier on core 0 copying one while core 1 draws the other),
-// only into the bands the hidden buffer doesn't already hold (bands.h); a frame that can't be recorded calls draw
-// once per band of portrait rows, on a canvas clipped to it, as do the diagnostic pattern and single-buffer modes.
-// draw must draw the same frame each time it's called. True when the frame went to the panel (render waited for the
-// switch); false when nothing was shown that way (no panel, a frozen diagnostic picture, the single-buffer mode).
-bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
+// then played band by band, only into the bands the hidden buffer doesn't already hold (bands.h); a frame that can't
+// be recorded calls draw once per band of portrait rows, on a canvas clipped to it, as do the diagnostic pattern and
+// single-buffer modes. draw must draw the same frame each time it's called.
+void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
 
 // Restarts the panel (deletes and recreates it with the same timing; the screen is black for a moment until the next
 // frame). A refill that runs late can leave the panel's bounce buffers out of step with its DMA for good (stale
@@ -56,9 +54,6 @@ void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs);
 int lastBands();
 // Bands the last frame drew (the rest the hidden buffer already held, bands.h).
 int lastBandsDrawn();
-// The copier's time on core 0 last frame, copying half bands into the frame buffer while core 1 drew (display.cpp).
-// lastTimes' copy is core 1's share: what the copier hadn't done when core 1 needed the slot back.
-uint32_t lastCopierUs();
 // Frames whose buffer switch wasn't confirmed within 80 ms (should stay 0).
 uint32_t timeouts();
 // Since the last call: frames the panel read, how many came off their period by more than a bounce buffer's time
