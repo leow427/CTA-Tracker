@@ -7,10 +7,21 @@
 // A canvas covers either a whole row-major screen or one band of screen rows stored the way the panel wants it
 // (rotated a quarter turn right and byte-swapped), so the device can draw a frame band by band in internal RAM
 // and send each band as it is. Drawing outside the canvas's band is skipped cheaply.
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
 namespace ui {
+
+// lroundf(v) as an int, without the library call when |v| < 2^23 (every coordinate, alpha and pen position the screens
+// draw with): the same result, halfway cases away from zero. v minus its truncation is exact there, so comparing it
+// with one half decides the rounding exactly as lroundf does. Anything larger, infinite or NaN goes to lroundf itself.
+inline int roundi(float v) {
+    if (!(fabsf(v) < 8388608.f)) return static_cast<int>(lroundf(v));
+    const int i = static_cast<int>(v);   // toward zero
+    const float f = v - static_cast<float>(i);
+    return f >= 0.5f ? i + 1 : f <= -0.5f ? i - 1 : i;
+}
 
 // 0xRRGGBB colors.
 namespace col {
@@ -130,6 +141,18 @@ private:
     // On a band, where a column's rows run along memory, each column is written a word (two pixels) at a time.
     static constexpr int kRun = 48;   // the most rows written that way (a band: the dock's 32, the handheld's 48)
     void fillPattern(int x0, int y0, int x1, int y1, const uint16_t* col);
+    // Device rectangle [x0, x1) × [y0, y1), already clipped, blended toward c (native RGB565) by a255 / 255 (0 < a255
+    // < 255): every pixel exactly as mix565 blends it, the color and factor worked out once, along memory first.
+    void blendRect(int x0, int y0, int x1, int y1, uint16_t c, int a255);
+    // seg's steps lo..hi from its first step's minor coordinate (quotient q, remainder rem), in I-bit arithmetic: 32
+    // bits for any line that fits a screen, 64 for the rest (gfx2d.cpp).
+    template <typename I>
+    void segSteps(int lo, int hi, int b, bool steep, int sx, int sy, int x0, int y0, I q, I rem, I major2, I minor2,
+                  uint16_t c, int a255);
+    // A faded seg's blocks, each pixel visited once and blended as many times as blocks cover it (gfx2d.cpp).
+    template <typename I>
+    void fadedSeg(int lo, int hi, int b, bool steep, int sm, int sn, int m0, int n0, I q, I rem, I major2, I minor2,
+                  uint16_t c, int a255);
     bool outside(int x0, int y0, int x1, int y1) const { return x1 <= cx0_ || x0 >= cx1_ || y1 <= cy0_ || y0 >= cy1_; }
 
     uint16_t* px_ = nullptr;

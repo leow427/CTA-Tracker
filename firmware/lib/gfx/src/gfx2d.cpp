@@ -27,7 +27,7 @@ inline uint32_t lerpRgbI(uint32_t a, uint32_t b, int t256) {   // t256 in 0..256
 inline uint32_t lerpRgb(uint32_t a, uint32_t b, float t) {
     auto ch = [&](int s) {
         const float va = (a >> s) & 255, vb = (b >> s) & 255;
-        return static_cast<uint32_t>(lroundf(va + (vb - va) * t)) << s;
+        return static_cast<uint32_t>(roundi(va + (vb - va) * t)) << s;
     };
     return ch(16) | ch(8) | ch(0);
 }
@@ -39,6 +39,10 @@ inline uint32_t spread(uint32_t c) { return (c | c << 16) & kSpread; }
 inline uint16_t unspread(uint32_t x) { return static_cast<uint16_t>(x | x >> 16); }
 inline uint32_t lerpS(uint32_t y, uint32_t x, uint32_t a32) { return ((((x - y) * a32) >> 5) + y) & kSpread; }
 inline uint16_t swap16(uint32_t c) { return static_cast<uint16_t>((c << 8) | ((c >> 8) & 0xFF)); }
+// The widest block a faded seg counts its overlaps for (Canvas::fadedSeg); wider ones are blended block by block.
+constexpr int kFadeBlockMax = 16;
+// A seg whose doubled major extent is at most this works out its steps in 32 bits (Canvas::seg).
+constexpr int64_t kSeg32Max = 500000;
 // Native RGB565 d blended toward rgb by a/255.
 inline uint16_t mix565(uint16_t d, uint32_t rgb, int a) {
     if (a >= 255) return to565(rgb);
@@ -121,7 +125,7 @@ int rowInset(int j, int h, int block, const uint8_t* steps, int nSteps, bool bot
 // A text's baseline as a device row, as text() places it.
 int baseRow(const Font* f, float y, Base base, int oy) {
     const float by = base == Base::Top ? y + f->top : base == Base::Middle ? y + f->middle : y;
-    return static_cast<int>(lroundf(by)) + oy;
+    return roundi(by) + oy;
 }
 
 // A line of text's width (measure()'s sum) and the rows [lo, hi) its glyphs cover with the baseline on row byi
@@ -292,6 +296,23 @@ void Canvas::fillPattern(int x0, int y0, int x1, int y1, const uint16_t* col) {
     }
 }
 
+void Canvas::blendRect(int x0, int y0, int x1, int y1, uint16_t c, int a255) {
+    if (x0 >= x1 || y0 >= y1) return;
+    const uint32_t cs = spread(c), a32 = static_cast<uint32_t>(a255 * 32 + 128) >> 8;   // as mix565 has them
+    // Along a column first when its rows run along memory (a band), else along a row.
+    const bool down = sy_ == 1 || sy_ == -1;
+    const int nOuter = down ? x1 - x0 : y1 - y0, nInner = down ? y1 - y0 : x1 - x0;
+    const int stepOuter = down ? sx_ : sy_, stepInner = down ? sy_ : sx_;
+    uint16_t* line = &at(x0, y0);
+    for (int o = 0; o < nOuter; ++o, line += stepOuter) {
+        uint16_t* p = line;
+        if (swap_)
+            for (int k = 0; k < nInner; ++k, p += stepInner) *p = swap16(unspread(lerpS(spread(swap16(*p)), cs, a32)));
+        else
+            for (int k = 0; k < nInner; ++k, p += stepInner) *p = unspread(lerpS(spread(*p), cs, a32));
+    }
+}
+
 void Canvas::blend(int x, int y, uint32_t rgb, int a) {
     if (rec_) {
         if (Recording::Op* op = rec_->add(*this, kBlend)) {
@@ -311,22 +332,18 @@ void Canvas::fillRect(float x, float y, float w, float h, uint32_t rgb, float a)
     if (rec_) {
         if (Recording::Op* op = rec_->add(*this, kRect)) {
             op->a[0].f = x; op->a[1].f = y; op->a[2].f = w; op->a[3].f = h; op->a[4].u = rgb; op->a[5].f = a;
-            rec_->keep(op, static_cast<int>(lroundf(y)) + oy, static_cast<int>(lroundf(y + h)) + oy, *this);
+            rec_->keep(op, roundi(y) + oy, roundi(y + h) + oy, *this);
         }
         return;
     }
     const Timed timed(Prim::Rect);
-    const int x0 = static_cast<int>(lroundf(x)) + ox, x1 = static_cast<int>(lroundf(x + w)) + ox;
-    const int y0 = static_cast<int>(lroundf(y)) + oy, y1 = static_cast<int>(lroundf(y + h)) + oy;
+    const int x0 = roundi(x) + ox, x1 = roundi(x + w) + ox;
+    const int y0 = roundi(y) + oy, y1 = roundi(y + h) + oy;
     if (outside(x0, y0, x1, y1)) return;
-    const int a255 = static_cast<int>(lroundf(255 * a * alpha));
+    const int a255 = roundi(255 * a * alpha);
     if (a255 <= 0) return;
     if (a255 >= 255) { fill565(x0, y0, x1, y1, to565(rgb)); return; }
-    for (int j = maxi(y0, cy0_); j < mini(y1, cy1_); ++j)
-        for (int i = maxi(x0, cx0_); i < mini(x1, cx1_); ++i) {
-            uint16_t& d = at(i, j);
-            d = enc(mix565(dec(d), rgb, a255));
-        }
+    blendRect(maxi(x0, cx0_), maxi(y0, cy0_), mini(x1, cx1_), mini(y1, cy1_), to565(rgb), a255);
 }
 
 void Canvas::fillPixelShape(int x, int y, int w, int h, int block, const uint8_t* steps, int nSteps, uint32_t rgb,
@@ -347,17 +364,14 @@ void Canvas::fillPixelShape(int x, int y, int w, int h, int block, const uint8_t
     const Timed timed(Prim::Shape);
     const int X = x + ox, Y = y + oy;
     if (outside(X, Y, X + w, Y + h)) return;
-    const int a255 = static_cast<int>(lroundf(255 * a * alpha));
+    const int a255 = roundi(255 * a * alpha);
     if (a255 <= 0) return;
     const uint16_t c = to565(rgb);
     const int j0 = maxi(0, cy0_ - Y), j1 = mini(h, cy1_ - Y);
     for (int j = j0; j < j1; ++j) {
         const int in = rowInset(j, h, block, steps, nSteps, bottom);
-        if (a255 >= 255) { fill565(X + in, Y + j, X + w - in, Y + j + 1, c); continue; }
-        for (int i = maxi(in, cx0_ - X); i < mini(w - in, cx1_ - X); ++i) {
-            uint16_t& d = at(X + i, Y + j);
-            d = enc(mix565(dec(d), rgb, a255));
-        }
+        if (a255 >= 255) fill565(X + in, Y + j, X + w - in, Y + j + 1, c);
+        else blendRect(maxi(X + in, cx0_), Y + j, mini(X + w - in, cx1_), Y + j + 1, c, a255);
     }
 }
 
@@ -380,7 +394,7 @@ void Canvas::plate(int x, int y, int w, int h, const PlateStyle& s) {
     }
     const Timed timed(Prim::Plate);
     const int X = x + ox, Y = y + oy;
-    const int a255 = static_cast<int>(lroundf(255 * alpha));
+    const int a255 = roundi(255 * alpha);
     if (s.edge > 0 && a255 >= 255) {
         // The shadow, edge rows down: the plate goes over it opaque, so only what shows is drawn (its bottom rows, and
         // beside the plate's stepped bottom corners). The same pixels as the whole shape drawn first.
@@ -571,7 +585,7 @@ float Canvas::text(const Font* f, const char* t, float x, float y, uint32_t rgb,
     while (*t) {
         const Glyph* g = glyphFor(f, nextCp(t));
         if (!g) continue;
-        const int gx = static_cast<int>(lroundf(pen)) + g->x + ox, gy = byi + g->y;
+        const int gx = roundi(pen) + g->x + ox, gy = byi + g->y;
         pen += g->adv16 / 16.f;
         if (outside(gx, gy, gx + g->w, gy + g->h)) continue;
         const uint8_t* bits = f->bits + g->off;
@@ -630,7 +644,7 @@ float Canvas::textOutlined(const Font* f, const char* t, float x, float y, uint3
         for (const char* s = t; *s;) {
             const Glyph* g = glyphFor(f, nextCp(s));
             if (!g) continue;
-            const int gx = static_cast<int>(lroundf(pen)) + g->x + ox, gy = byi + g->y;
+            const int gx = roundi(pen) + g->x + ox, gy = byi + g->y;
             pen += g->adv16 / 16.f;
             if (outside(gx - r, gy - r, gx + g->w + r, gy + g->h + r)) continue;
             const uint8_t* bits = f->bits + g->off;
@@ -701,7 +715,7 @@ int Canvas::pixelText(const char* t, float x, int y, int s, uint32_t rgb, Align 
     }
     const Timed timed(Prim::Digits);
     const int w = pixelWidth(t, s);
-    int cx = static_cast<int>(lroundf(al == Align::Center ? x - w / 2.f : al == Align::Right ? x - w : x));
+    int cx = roundi(al == Align::Center ? x - w / 2.f : al == Align::Right ? x - w : x);
     if (outside(cx + ox - grow, y + oy - grow, cx + ox + w + grow, y + oy + 7 * s + grow)) return w;
     for (int k = 0; t[k]; ++k) {
         const PG& g = pf(t[k]);
@@ -922,18 +936,17 @@ void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb
         if (Recording::Op* op = rec_->add(*this, kSeg)) {
             op->a[0].f = x0f; op->a[1].f = y0f; op->a[2].f = x1f; op->a[3].f = y1f; op->a[4].i = b; op->a[5].u = rgb;
             op->a[6].f = a;
-            const int ya = static_cast<int>(lroundf(y0f)), yb = static_cast<int>(lroundf(y1f)), h = b >> 1;
+            const int ya = roundi(y0f), yb = roundi(y1f), h = b >> 1;
             rec_->keep(op, mini(ya, yb) - h + oy, maxi(ya, yb) - h + b + oy, *this);   // every block, as below
         }
         return;
     }
     const Timed timed(Prim::Seg);
-    int x0 = static_cast<int>(lroundf(x0f)), y0 = static_cast<int>(lroundf(y0f));
-    const int x1 = static_cast<int>(lroundf(x1f)), y1 = static_cast<int>(lroundf(y1f)), h = b >> 1;
+    int x0 = roundi(x0f), y0 = roundi(y0f);
+    const int x1 = roundi(x1f), y1 = roundi(y1f), h = b >> 1;
     if (outside(mini(x0, x1) - h + ox, mini(y0, y1) - h + oy, maxi(x0, x1) - h + b + ox, maxi(y0, y1) - h + b + oy)) return;
-    const int a255 = static_cast<int>(lroundf(255 * a * alpha));
-    if (a255 <= 0) return;
-    const uint16_t c = to565(rgb);
+    const int a255 = roundi(255 * a * alpha);
+    if (a255 <= 0 || b <= 0) return;   // nothing to draw: faded to nothing, or blocks with no pixels
     // The mockup's Bresenham (Zingl's form: e = dx - |dy|, x steps when 2e >= -|dy|, y when 2e <= dx) visits, at
     // step n of a line whose major axis is y (|dy| >= dx), y0 + sy * n and x0 + sx * floor((2n dx + |dy|) / 2|dy|);
     // along x, x0 + sx * n and y0 + sy * floor((2n |dy| + dx) / 2dx). Working the steps out directly lets a long
@@ -952,16 +965,43 @@ void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb
         lo = maxi(lo, a - 1);
         hi = mini(hi, z + 1);
     }
-    int lastN = -2, lastX = 0, lastY = 0;   // the last opaque block drawn
-    // The minor coordinate's floor((2n minor + major) / 2 major), kept as a quotient q and remainder rem from step lo
-    // on: each step adds 2 minor to the numerator, at most one carry since minor <= major (no division a step).
+    if (lo > hi) return;   // no block reaches the clip
+    // The minor coordinate's floor((2n minor + major) / 2 major), as a quotient q and remainder from step lo on (each
+    // step adds 2 minor to the numerator, at most one carry since minor <= major: no division a step). In 32 bits for
+    // any line that fits a screen, without the 64-bit library divisions at every band a line reaches: there lo <= 3999
+    // and minor2 <= major2 <= kSeg32Max, so the first numerator is under 4000 * kSeg32Max < 2^31.
+    const uint16_t c = to565(rgb);
     const int64_t major2 = 2LL * (steep ? ady : dx), minor2 = 2LL * (steep ? dx : ady);
-    int64_t q = 0, rem = 0;
-    if (major2) {
+    if (major2 <= kSeg32Max) {
+        const int32_t m = static_cast<int32_t>(major2), mi = static_cast<int32_t>(minor2);
+        int32_t q = 0, rem = 0;
+        if (m) {
+            const int32_t num = mi * lo + m / 2;
+            q = num / m;
+            rem = num % m;
+        }
+        segSteps<int32_t>(lo, hi, b, steep, sx, sy, x0, y0, q, rem, m, mi, c, a255);
+    } else {
         const int64_t num = minor2 * lo + major2 / 2;
-        q = num / major2;
-        rem = num % major2;
+        segSteps<int64_t>(lo, hi, b, steep, sx, sy, x0, y0, num / major2, num % major2, major2, minor2, c, a255);
     }
+}
+
+template <typename I>
+void Canvas::segSteps(int lo, int hi, int b, bool steep, int sx, int sy, int x0, int y0, I q, I rem, I major2, I minor2,
+                      uint16_t c, int a255) {
+    const int h = b >> 1;
+    if (a255 < 255 && b <= kFadeBlockMax) {
+        fadedSeg<I>(lo, hi, b, steep, steep ? sy : sx, steep ? sx : sy, (steep ? y0 + oy : x0 + ox) - h,
+                    (steep ? x0 + ox : y0 + oy) - h, q, rem, major2, minor2, c, a255);
+        return;
+    }
+    // The canvas in locals (a store below would otherwise make the compiler reload it every pixel): pixel (x, y) is
+    // px[org + x * stepX + y * stepY], as at() has it.
+    uint16_t* const px = px_;
+    const int org = org_, stepX = sx_, stepY = sy_, clx0 = cx0_, cly0 = cy0_, clx1 = cx1_, cly1 = cy1_;
+    const uint16_t e = enc(c);
+    int lastN = -2, lastX = 0, lastY = 0;   // the last opaque block drawn
     for (int n = lo; n <= hi; ++n) {
         int x, y;
         if (steep) {
@@ -975,31 +1015,103 @@ void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb
             rem -= major2;
             ++q;
         }
-        // Each block as fillRect(x - h, y - h, b, b, rgb, a) would draw it. Opaque, a block one step from the last
-        // only adds its leading row and column (the rest is the same color already), so a thick line costs about b
-        // pixels a step instead of b * b.
+        // Each block as fillRect(x - h, y - h, b, b, rgb, a) would draw it.
         const int X = x - h + ox, Y = y - h + oy;
-        if (X < cx1_ && X + b > cx0_ && Y < cy1_ && Y + b > cy0_) {
-            if (a255 >= 255) {
-                if (n > lo && n - 1 == lastN) {
-                    if (X != lastX) { const int cx = X > lastX ? X + b - 1 : X; fill565(cx, Y, cx + 1, Y + b, c); }
-                    if (Y != lastY) { const int ry = Y > lastY ? Y + b - 1 : Y; fill565(X, ry, X + b, ry + 1, c); }
-                } else {
-                    fill565(X, Y, X + b, Y + b, c);
+        if (X >= clx1 || X + b <= clx0 || Y >= cly1 || Y + b <= cly0) continue;
+        if (a255 < 255) {   // too wide to count: blended block by block
+            blendRect(maxi(X, clx0), maxi(Y, cly0), mini(X + b, clx1), mini(Y + b, cly1), c, a255);
+            continue;
+        }
+        // Opaque, a block one step from the last only adds its leading column and row (the rest is the same color
+        // already), so a thick line costs about 2b pixels a step instead of b * b; each written straight, clipped as
+        // fill565 would clip it.
+        if (n > lo && n - 1 == lastN) {
+            if (X != lastX) {
+                const int cx = X > lastX ? X + b - 1 : X;
+                if (cx >= clx0 && cx < clx1) {
+                    const int ja = maxi(Y, cly0), jb = mini(Y + b, cly1);
+                    uint16_t* p = px + org + cx * stepX + ja * stepY;
+                    for (int j = ja; j < jb; ++j, p += stepY) *p = e;
                 }
-                lastN = n; lastX = X; lastY = Y;
-            } else
-                for (int j = maxi(Y, cy0_); j < mini(Y + b, cy1_); ++j)
-                    for (int i = maxi(X, cx0_); i < mini(X + b, cx1_); ++i) {
-                        uint16_t& d = at(i, j);
-                        d = enc(mix565(dec(d), rgb, a255));
-                    }
+            }
+            if (Y != lastY) {
+                const int ry = Y > lastY ? Y + b - 1 : Y;
+                if (ry >= cly0 && ry < cly1) {
+                    const int ia = maxi(X, clx0), ib = mini(X + b, clx1);
+                    uint16_t* p = px + org + ia * stepX + ry * stepY;
+                    for (int i = ia; i < ib; ++i, p += stepX) *p = e;
+                }
+            }
+        } else {
+            fill565(X, Y, X + b, Y + b, c);
+        }
+        lastN = n; lastX = X; lastY = Y;
+    }
+}
+
+// A faded seg (see seg): each block is blended over what's there, as fillRect(x - h, y - h, b, b, rgb, a) would blend
+// it, so a pixel under k of the blocks is blended k times (the line builds up where they overlap). Here the blocks
+// over each pixel are counted first and the pixel blended k times in a row: the same pixels, visiting each once
+// instead of once per block (b * b loads, blends and stores a step). Steps lo..hi; step n's block covers major lines
+// [m0 + sm * n, + b) and minor lines [n0 + sn * minor(n), + b), minor(n) being q at step lo and stepping as in seg. A
+// line of the major axis has seen every block over it once the steps reach the block that starts it (stepping
+// backwards, the one that ends it): blocks start a line apart.
+template <typename I>
+void Canvas::fadedSeg(int lo, int hi, int b, bool steep, int sm, int sn, int m0, int n0, I q, I rem, I major2, I minor2,
+                      uint16_t c, int a255) {
+    const uint32_t cs = spread(c), a32 = static_cast<uint32_t>(a255 * 32 + 128) >> 8;   // as mix565 has them
+    const int majLo = steep ? cy0_ : cx0_, majHi = steep ? cy1_ : cx1_, minLo = steep ? cx0_ : cy0_,
+              minHi = steep ? cx1_ : cy1_;
+    // The canvas's addressing in locals: pixel (major line L, minor line p) is px[org + L * stepMaj + p * stepMin], as
+    // at() has it.
+    uint16_t* const px = px_;
+    const int org = org_, stepMaj = steep ? sy_ : sx_, stepMin = steep ? sx_ : sy_;
+    const bool swap = swap_;
+    int first[kFadeBlockMax];   // the first minor line of each of the last b blocks, step n's at n % b
+    int slot = lo % b;          // n % b
+    for (int n = lo; n <= hi + b - 1; ++n, slot = slot + 1 == b ? 0 : slot + 1) {
+        if (n <= hi) {
+            first[slot] = n0 + sn * static_cast<int>(q);
+            if (major2 && (rem += minor2) >= major2) {
+                rem -= major2;
+                ++q;
+            }
+        }
+        // The line every block over it has now been seen for, and the steps whose blocks cover it.
+        const int line = sm > 0 ? m0 + n : m0 - n + b - 1;
+        const int nA = maxi(lo, n - b + 1), nB = mini(hi, n);
+        if (line < majLo || line >= majHi || nA > nB) continue;
+        // Along the line, the blocks' spans [first, first + b) as a count: +1 where one starts, -1 past its end. The
+        // starts move at most one line a step, one way, so the at most b of them lie within b - 1 lines of each other:
+        // every index below is under 2b - 1.
+        const int iA = (slot - (n - nA) + b) % b, iB = (slot - (n - nB) + b) % b;   // nA % b, nB % b
+        const int fa = first[iA], fb = first[iB], base = mini(fa, fb), span = maxi(fa, fb) - base + b;
+        int cnt[2 * kFadeBlockMax];
+        for (int t = 0; t < span; ++t) cnt[t] = 0;
+        for (int k = nA, i = iA; k <= nB; ++k, i = i + 1 == b ? 0 : i + 1) {
+            const int s = first[i] - base;
+            ++cnt[s];
+            --cnt[s + b];
+        }
+        // The count up to the clip, then each pixel inside it blended as many times as blocks cover it.
+        const int t0 = maxi(0, minLo - base), t1 = mini(span, minHi - base);
+        if (t0 >= t1) continue;
+        int k = 0;
+        for (int t = 0; t < t0; ++t) k += cnt[t];
+        uint16_t* d = px + org + line * stepMaj + (base + t0) * stepMin;
+        for (int t = t0; t < t1; ++t, d += stepMin) {
+            k += cnt[t];
+            if (k <= 0) continue;
+            uint32_t v = spread(swap ? swap16(*d) : *d);
+            for (int r = 0; r < k; ++r) v = lerpS(v, cs, a32);
+            const uint16_t o = unspread(v);
+            *d = swap ? swap16(o) : o;
         }
     }
 }
 
 void Canvas::dot(float xf, float yf, int size, uint32_t rgb, float a) {
-    const int h = size >> 1, x = static_cast<int>(lroundf(xf)), y = static_cast<int>(lroundf(yf));
+    const int h = size >> 1, x = roundi(xf), y = roundi(yf);
     if (rec_) {
         if (Recording::Op* op = rec_->add(*this, kDot)) {
             op->a[0].f = xf; op->a[1].f = yf; op->a[2].i = size; op->a[3].u = rgb; op->a[4].f = a;

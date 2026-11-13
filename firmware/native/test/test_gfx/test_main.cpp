@@ -136,6 +136,159 @@ static void test_seg_matches_the_mockup_in_bands() {
     }
 }
 
+static void test_roundi_matches_lroundf() {
+    // Every rounding the canvas does goes through roundi: it must give lroundf's answer for every float, halfway cases
+    // (away from zero), values a hair either side of them, both signs, near and past 2^23 (where it hands over to
+    // lroundf), and infinities.
+    const float halves[] = {0.5f, 1.5f, 2.5f, -0.5f, -1.5f, -2.5f, 254.5f, -254.5f, 8388607.5f, -8388607.5f, 4194303.5f};
+    for (float h : halves) {
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(h)), ui::roundi(h));
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(nextafterf(h, 0))), ui::roundi(nextafterf(h, 0)));
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(nextafterf(h, h * 4))), ui::roundi(nextafterf(h, h * 4)));
+    }
+    const float edges[] = {0.f, -0.f, 0.49999997f, -0.49999997f, 8388608.f, -8388608.f, 8388609.f, 16777217.f, 1e9f,
+                           -1e9f, 3e-39f, -3e-39f};
+    for (float v : edges) TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(v)), ui::roundi(v));
+    // Past what an int holds: lroundf's own answer, whatever the platform makes of it.
+    const float huge[] = {3e9f, -3e9f, 1e20f, -1e20f};
+    for (float h : huge) {
+        volatile float v = h;   // not folded at compile time
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(v)), ui::roundi(v));
+    }
+    uint32_t seed = 99;
+    for (int t = 0; t < 200000; ++t) {
+        seed = seed * 1103515245u + 12345u;
+        const uint32_t bits = seed;
+        float v;
+        memcpy(&v, &bits, 4);
+        if (!(fabsf(v) < 2e9f)) continue;   // outside int: lroundf's answer doesn't fit what callers keep
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(v)), ui::roundi(v));
+        const float w = static_cast<float>(static_cast<int>(seed % 20001) - 10000) / 4.f;   // quarters: many halves
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(lroundf(w)), ui::roundi(w));
+    }
+}
+
+namespace {
+// The canvases a seg or a fill is checked on: a whole screen; a band laid out a quarter turn right (the dock's, rows
+// along memory) or left; and a band rotated and byte-swapped (the handheld's panelBand).
+ui::Canvas testCanvas(uint16_t* px, int kind, int y0band) {
+    switch (kind) {
+        case 1: return ui::Canvas::strided(px, (N - 1) * 16 - y0band, -16, 1, 0, y0band, N, y0band + 16);
+        case 2: return ui::Canvas::strided(px, y0band + 15, 16, -1, 0, y0band, N, y0band + 16);
+        case 3: return ui::Canvas::panelBand(px, N, y0band, 16);
+        default: return ui::Canvas(px, N, N);
+    }
+}
+}  // namespace
+
+static void test_seg_matches_each_block() {
+    // seg works out its steps directly, writes an opaque line's leading edges straight, and counts how many of a faded
+    // line's blocks cover each pixel to blend it that many times: every pixel must be left exactly as the mockup's
+    // block-by-block fills leave it, over any background, in any color and alpha (opaque too), any width (those too
+    // wide to count are blended block by block), translated and clipped, on every kind of canvas, from either end.
+    static uint16_t a[N * N], b[N * N], under[N * N];
+    uint32_t seed = 2026;
+    auto rnd = [&](int lo, int hi) { seed = seed * 1103515245u + 12345u; return lo + static_cast<int>((seed >> 8) % (hi - lo + 1)); };
+    for (int t = 0; t < 8000; ++t) {
+        const int x0 = rnd(-40, 70), y0 = rnd(-40, 70), w = rnd(-1, 20);
+        int x1 = t % 4 ? rnd(-40, 70) : x0 + rnd(-3, 3), y1 = t % 5 ? rnd(-40, 70) : y0 + rnd(-3, 3);   // short ones too
+        if (t % 11 == 0) {   // heading far off (over 250000 px, worked out in 64 bits): the blocks near this end show
+            x1 = x0 + (t % 2 ? 1 : -1) * rnd(250001, 900000);
+            y1 = y0 + rnd(-300000, 300000);
+            if (t % 3 == 0) { const int k = x1; x1 = x0 + (y1 - y0); y1 = y0 + (k - x0); }   // steep
+        }
+        int sx0 = x0, sy0 = y0;
+        if (t % 11 == 5) {   // starting 2000-4000 px off, crossing the canvas thousands of steps in, running on past
+            // 250000 px, nearly level or nearly diagonal: the first step drawn is far along a line just over the 32-bit
+            // limit, where its first numerator (2 minor x the step) would not fit 32 bits
+            const int off = rnd(2000, 4000), len = rnd(250001, 900000), dir = t % 2 ? 1 : -1;
+            const int minor = t % 4 < 2 ? rnd(-len / 200, len / 200) : (t % 8 < 4 ? 1 : -1) * (len - rnd(1, len / 50));
+            const int back = static_cast<int>(static_cast<int64_t>(off) * minor / len);   // the minor coordinate off steps in
+            if (t % 3 == 0) {   // steep
+                sy0 = y0 - dir * off;
+                sx0 = x0 - back;
+                x1 = sx0 + minor;
+                y1 = sy0 + dir * len;
+            } else {
+                sx0 = x0 - dir * off;
+                sy0 = y0 - back;
+                x1 = sx0 + dir * len;
+                y1 = sy0 + minor;
+            }
+        }
+        const uint32_t rgb = static_cast<uint32_t>(rnd(0, 0xFFFFFF));
+        const float al = t % 3 == 0 ? 1.f : rnd(0, 256) / 255.f, canvasAlpha = t % 7 ? 1.f : rnd(30, 100) / 100.f;
+        for (int i = 0; i < N * N; ++i) under[i] = static_cast<uint16_t>(rnd(0, 0xFFFF));
+        const int kind = t % 4, y0band = rnd(0, 16), ox = rnd(-5, 5), oy = rnd(-5, 5);
+        memcpy(a, under, sizeof(a));
+        memcpy(b, under, sizeof(b));
+        ui::Canvas ca = testCanvas(a, kind, y0band), cb = testCanvas(b, kind, y0band);
+        const int cx = rnd(-5, N), cy = rnd(-5, N), cw = rnd(0, N + 10), ch = rnd(0, N + 10);
+        ui::Canvas* both[2] = {&ca, &cb};
+        for (ui::Canvas* cv : both) {
+            cv->ox = ox;
+            cv->oy = oy;
+            cv->alpha = canvasAlpha;
+            if (t % 6) cv->clip(cx, cy, cw, ch);
+        }
+        refSeg(ca, sx0, sy0, x1, y1, w, rgb, al);
+        cb.seg(sx0, sy0, x1, y1, w, rgb, al);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "t %d: (%d,%d)-(%d,%d) width %d alpha %.3f, canvas %d", t, sx0, sy0, x1, y1, w, al, kind);
+        TEST_ASSERT_EQUAL_MEMORY_MESSAGE(a, b, sizeof(a), msg);
+    }
+}
+
+static void test_faded_fills_blend_each_pixel_once() {
+    // A faded rectangle or pixel shape blends each pixel it covers once, exactly as blend() would with the same alpha,
+    // whichever way the canvas lies in memory. The shape's pixels come from drawing it opaque.
+    static uint16_t a[N * N], b[N * N], mask[N * N];
+    uint32_t seed = 4242;
+    auto rnd = [&](int lo, int hi) { seed = seed * 1103515245u + 12345u; return lo + static_cast<int>((seed >> 8) % (hi - lo + 1)); };
+    for (int t = 0; t < 6000; ++t) {
+        const int kind = t % 4, y0band = rnd(0, 16), ox = rnd(-4, 4), oy = rnd(-4, 4);
+        const uint32_t rgb = static_cast<uint32_t>(rnd(0, 0xFFFFFF));
+        const float al = rnd(1, 254) / 255.f, canvasAlpha = t % 3 ? 1.f : rnd(30, 100) / 100.f;
+        const int cx = rnd(-5, N), cy = rnd(-5, N), cw = rnd(0, N + 10), ch = rnd(0, N + 10);
+        for (int i = 0; i < N * N; ++i) a[i] = b[i] = static_cast<uint16_t>(rnd(0, 0xFFFF));
+        memset(mask, 0, sizeof(mask));
+        ui::Canvas ca = testCanvas(a, kind, y0band), cb = testCanvas(b, kind, y0band), cm = testCanvas(mask, kind, y0band);
+        ui::Canvas* all[3] = {&ca, &cb, &cm};
+        for (ui::Canvas* cv : all) {
+            cv->ox = ox;
+            cv->oy = oy;
+            if (t % 5) cv->clip(cx, cy, cw, ch);
+        }
+        ca.alpha = cb.alpha = canvasAlpha;
+        const bool shape = t % 2;
+        const float x = rnd(-80, 160) / 4.f, y = rnd(-80, 160) / 4.f, w = rnd(-8, 160) / 4.f, h = rnd(-8, 160) / 4.f;
+        const int sx = rnd(-10, 30), sy = rnd(-10, 30), sw = rnd(0, 40), sh = rnd(0, 40), block = rnd(1, 4);
+        const uint8_t steps[3] = {static_cast<uint8_t>(rnd(0, 3)), 1, static_cast<uint8_t>(rnd(0, 2))};
+        const int nSteps = rnd(0, 3);
+        const bool bottom = rnd(0, 1);
+        if (shape) {
+            cb.fillPixelShape(sx, sy, sw, sh, block, steps, nSteps, rgb, al, bottom);
+            cm.fillPixelShape(sx, sy, sw, sh, block, steps, nSteps, 0xFFFFFF, 1, bottom);
+        } else {
+            cb.fillRect(x, y, w, h, rgb, al);
+            cm.fillRect(x, y, w, h, 0xFFFFFF);
+        }
+        // The reference: every pixel the opaque fill reached (device coordinates), blended once with blend().
+        const int a255 = static_cast<int>(lroundf(255 * al * canvasAlpha));
+        ui::Canvas ref = testCanvas(a, kind, y0band);
+        for (int py = 0; py < N; ++py)
+            for (int px = 0; px < N; ++px) {
+                if (kind && (py < y0band || py >= y0band + 16)) continue;
+                // where device pixel (px, py) is in the buffer, for each kind of canvas (testCanvas)
+                const int idx = kind == 0 ? py * N + px : kind == 1 ? (N - 1 - px) * 16 + (py - y0band) : px * 16 + (y0band + 15 - py);
+                if (mask[idx]) ref.blend(px, py, rgb, a255);
+            }
+        char msg[64];
+        snprintf(msg, sizeof(msg), "t %d: %s, canvas %d, a255 %d", t, shape ? "shape" : "rect", kind, a255);
+        TEST_ASSERT_EQUAL_MEMORY_MESSAGE(a, b, sizeof(a), msg);
+    }
+}
+
 // ---------- recording (the dock draws a frame recorded once, then played band by band) ----------
 
 namespace {
@@ -332,6 +485,9 @@ int main() {
     RUN_TEST(test_seg_clipped);
     RUN_TEST(test_strided_matches_row_major);
     RUN_TEST(test_seg_matches_the_mockup_in_bands);
+    RUN_TEST(test_roundi_matches_lroundf);
+    RUN_TEST(test_seg_matches_each_block);
+    RUN_TEST(test_faded_fills_blend_each_pixel_once);
     RUN_TEST(test_recording_plays_back_exactly);
     RUN_TEST(test_recording_band_hashes);
     RUN_TEST(test_plate_is_its_shadow_then_itself);
