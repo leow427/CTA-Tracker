@@ -23,3 +23,6 @@ data/gtfs/
 
 # Sprite previews (tools/sprite_build.py output)
 art/build/
+
+# OpenStreetMap download cache (tools/basemap_build.py input)
+data/osm/

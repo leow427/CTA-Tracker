@@ -17,6 +17,7 @@
 #include "fonts.h"
 #include "line_colors.h"
 #include "local_time.h"
+#include "basemap.h"
 #include "map_frame.h"
 #include "mood.h"
 #include "train_map.h"
@@ -38,7 +39,7 @@ struct { int x, y, s; } constexpr PET = {16, 14, 2};
 struct { int x, cy; } constexpr BUBBLE = {104, 44};
 struct { int top, row, rowH; } constexpr PK = {96, 76, 64};
 struct { int x, y, w, h; } constexpr MAP_BTN = {306, 18, 44, 40};
-struct { int top, padX, padTop, padBottom, track, casing, maxPerLine, car; } constexpr MAP = {STRIP_H, 56, 50, 130, 6, 12, 3, 3};
+struct { int top, padX, padTop, padBottom, track, casing, maxPerLine, car, cell; } constexpr MAP = {STRIP_H, 56, 50, 130, 6, 12, 3, 3, 3};
 struct { int x, y, w, h; } constexpr RECENTER = {W - 16 - 52, H - 20 - 48, 52, 48};
 constexpr int ROUTE_ROW = 84, ROUTE_H = 70;   // the bus route list's pitch and row height
 constexpr uint32_t kRed = 0xff453a;
@@ -51,14 +52,6 @@ struct LineName { const char* route; const char* name; };
 constexpr LineName kLines[] = {{"Red", "Red"}, {"Blue", "Blue"}, {"Brn", "Brown"}, {"G", "Green"},
                                {"Org", "Orange"}, {"Pink", "Pink"}, {"P", "Purple"}, {"Y", "Yellow"}};
 const char* lineName(const char* route) { return cta::trainLineName(route); }
-
-// Lines sharing the North Side tracks sit side by side on the map, like a transit map.
-int lineOffset(const char* route, bool bus) {
-    if (bus) return 0;
-    if (strcmp(route, "Brn") == 0) return 6;
-    if (strcmp(route, "P") == 0) return 12;
-    return 0;
-}
 
 // The local clock as "7:42" (12-hour), from the TZ environment.
 void clockAt(uint32_t unix, char* out, size_t cap) {
@@ -510,6 +503,43 @@ bool overlaps(const Box& r, const Box* placed, int n) {
     return false;
 }
 
+// A line nobody picked: its on-black color 40% of the way up from the casing, drawn solid (at partial alpha, seg's
+// overlapping blocks would stack up to nearly full strength).
+uint32_t dimmed(const char* route) {
+    const uint32_t b = onBlack(route);
+    auto ch = [&](int sh) {
+        const int lo = (CASING >> sh) & 255, hi = (b >> sh) & 255;
+        return static_cast<uint32_t>(lo + (hi - lo) * 2 / 5) << sh;
+    };
+    return ch(16) | ch(8) | ch(0);
+}
+
+const char* const kCopyright[7] = {".xxxxx.", "x.....x", "x..xx.x", "x.x...x", "x..xx.x", "x.....x", ".xxxxx."};
+
+// The pixel map of Chicago in the Quiet style (design: docs/superpowers/specs/2026-11-12-pixel-map-design.md): land
+// black, water, parks, beaches, and the main streets and expressways in dim blues; no side streets. Cells are 3 px,
+// like the map's trains. The grid covers the map plus MARGIN px each way and is made at an anchor pan, so a drag only
+// moves it (cells are anchored to the map); it's made again when the picks' frame changes or a pan nears its edge.
+constexpr uint32_t kQuiet[cta::kClassCount] = {0x000000, 0x0a2016, 0x221d12, 0x0a1838, 0x111725, 0x1a2333, 0x2a3654};
+constexpr int MARGIN = 240;
+void drawBasemap(Canvas& cv, const cta::MapFrame& fr, int panX, int panY) {
+    static cta::BasemapGrid grid;
+    static bool made = false;
+    static float key[3];
+    static int anchorX = 0, anchorY = 0;
+    const float k[3] = {fr.lat0, fr.lon0, fr.pxPerKm};
+    const bool near = abs(panX - anchorX) <= MARGIN - MAP.cell && abs(panY - anchorY) <= MARGIN - MAP.cell;
+    if (!made || memcmp(k, key, sizeof(k)) != 0 || !near) {
+        made = cta::basemapRaster(fr, panX, panY, -MARGIN, MAP.top - MARGIN, W + 2 * MARGIN, H - MAP.top + 2 * MARGIN,
+                                  MAP.cell, false, grid);
+        memcpy(key, k, sizeof(k));
+        anchorX = panX; anchorY = panY;
+        if (!made) return;
+    }
+    cv.cells(grid.cells, grid.cols, grid.rows, grid.ox + panX - anchorX, grid.oy + panY - anchorY, grid.cell, kQuiet,
+             cta::kClassCount, grid.version);
+}
+
 void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     drawStrip(cv, a, d, c, ms);
     const int px0 = a.panX, py0 = a.panY;
@@ -528,6 +558,7 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     auto proj = [&](float lat, float lon, int& x, int& y) { cta::mapProject(fr, lat, lon, px0, py0, x, y); };
     const bool lost = d.wifiSetUp && !d.wifiUp;
     cv.clip(0, MAP.top, W, H - MAP.top);
+    drawBasemap(cv, fr, px0, py0);   // Chicago under everything
     // The track: casings under everything, then the lines; lines nobody picked are dimmed. Every point is projected
     // once per frame of the picks (the device draws a frame band by band, calling this once per band, or records it
     // once). mapProject rounds a point and then adds the pan, so the points are kept at pan 0 and panned (and limited
@@ -591,11 +622,10 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     for (size_t k = 0, n = 0; k < cta::kTrainShapeCount && k < 64; n += cta::kTrainShapes[k].count, ++k) firstPt[k] = n;
     auto track = [&](size_t shape, int b, uint32_t rgb, float al) {
         const cta::TrainShape& sh = cta::kTrainShapes[shape];
-        const int off = lineOffset(sh.route, false);
         const int16_t(*p)[2] = cache.train + firstPt[shape];
         if (firstPt[shape] + sh.count > 1024) return;
         for (int k = 1; k < sh.count; ++k)
-            segIn(at(p[k - 1][0], dx) + off, at(p[k - 1][1], dy), at(p[k][0], dx) + off, at(p[k][1], dy), b, rgb, al);
+            segIn(at(p[k - 1][0], dx), at(p[k - 1][1], dy), at(p[k][0], dx), at(p[k][1], dy), b, rgb, al);
     };
     auto pathLine = [&](int i, int b, uint32_t rgb) {
         const int16_t(*p)[2] = cache.bus[i];
@@ -611,14 +641,14 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     for (int pass = 0; pass < 2; ++pass)   // dim lines first, so the picked ones sit on top
         for (size_t k = 0; k < cta::kTrainShapeCount; ++k) {
             const cta::TrainShape& sh = cta::kTrainShapes[k];
-            if (isPicked(sh.route) == (pass == 1)) track(k, MAP.track, onBlack(sh.route), pass ? 1 : 0.3f);
+            if (isPicked(sh.route) == (pass == 1)) track(k, MAP.track, pass ? onBlack(sh.route) : dimmed(sh.route), 1);
         }
     for (int i = 0; i < cta::kDockStops; ++i) if (hasPick(d.sec[i]) && isBus(d.sec[i])) pathLine(i, 4, kBusOutline);
     (void)busPicked;
     // Each zone's stops: small stations along the approach.
     for (const Section& s : d.sec) {
         if (!hasPick(s)) continue;
-        const int off = lineOffset(s.pick.route, isBus(s));
+        const int off = 0;   // every line on its real track (lines sharing one overlap)
         for (int k = 0; k < 6; ++k) {
             if (s.zone[k].lat == 0 && s.zone[k].lon == 0) continue;
             int x, y;
@@ -633,7 +663,7 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         const bool fresh = s.posTs && c.now >= s.posTs && c.now - s.posTs <= cta::kLedStaleSec;
         int ks[3];
         const int n = cta::vehiclesFor(fresh ? s.mask : 0, dueNow(s, c.now), ks, MAP.maxPerLine);
-        const int off = lineOffset(s.pick.route, isBus(s));
+        const int off = 0;   // every line on its real track (lines sharing one overlap)
         const uint32_t lineRgb = isBus(s) ? kBusOutline : onBlack(s.pick.route);
         for (int j = 0; j < n; ++j) {
             cta::LatLon v;
@@ -652,7 +682,7 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         if (!hasPick(s) || (s.zone[6].lat == 0 && s.zone[6].lon == 0)) continue;
         int x, y;
         proj(s.zone[6].lat, s.zone[6].lon, x, y);
-        const int ox = x + lineOffset(s.pick.route, isBus(s));
+        const int ox = x;
         pins[nPins++] = Pin{i, ox, y, ox, y};
     }
     // Pins closer than a pin apart spread sideways, with a short leader back to the real spot.
@@ -752,6 +782,9 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         cv.plate(16, H - 20 - 40, tw, 40, ps);
         cv.text(f, buf, 28, H - 20 - 19, col::amber, Align::Left, Base::Middle);
     }
+    // The map data's credit (its license asks for it): a pixel (c), then the words.
+    cv.ink(kCopyright, 7, 10, H - 14, 1, col::dimInk);
+    cv.text(F(800, 12), "OpenStreetMap contributors", 20, H - 7, col::dimInk, Align::Left, Base::Alphabetic);
     // Recenter: headlight yellow while the frame is on the picks, like the app's button.
     const bool follow = !a.panX && !a.panY;
     PlateStyle rp = smallPlate();

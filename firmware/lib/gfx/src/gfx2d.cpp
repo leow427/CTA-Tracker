@@ -148,7 +148,7 @@ float textRows(const Font* f, const char* t, int byi, int& lo, int& hi) {
 
 // The recorded calls (Recording::Op::kind).
 enum : uint8_t { kClear = 1, kRect, kBlend, kShape, kPlate, kChip, kText, kOutlined, kDigits, kInk, kSprite, kCircle,
-                 kLine, kArc, kArrow, kSeg, kDot };
+                 kLine, kArc, kArrow, kSeg, kDot, kCells };
 
 // FNV-1a over 32-bit words, 64 bits wide: a change to any one word always changes the hash (xor and an odd multiply
 // are both one-to-one), and a recording's bands only need equal or not.
@@ -1232,6 +1232,44 @@ void Canvas::blitNearest(const uint16_t* src, int sw, int sh, uint16_t key, floa
     }
 }
 
+// ---------- cell grids (the dock map's pixel Chicago) ----------
+
+void Canvas::cells(const uint8_t* grid, int cols, int rows, int x, int y, int cell, const uint32_t* pal, int nPal,
+                   uint32_t version) {
+    nPal = mini(maxi(nPal, 0), 16);
+    if (cell < 1 || cols < 1 || rows < 1) return;
+    if (rec_) {
+        if (Recording::Op* op = rec_->add(*this, kCells)) {
+            op->a[0].i = cols; op->a[1].i = rows; op->a[2].i = x; op->a[3].i = y; op->a[4].i = cell;
+            op->a[5].u = version; op->a[6].i = nPal;
+            if (uint8_t* d = rec_->reserve(op, sizeof(grid) + nPal * sizeof(uint32_t))) {
+                memcpy(d, &grid, sizeof(grid));
+                memcpy(d + sizeof(grid), pal, nPal * sizeof(uint32_t));
+                rec_->keep(op, y + oy, y + oy + rows * cell, *this);
+            }
+        }
+        return;
+    }
+    const Timed timed(Prim::Rect);
+    uint16_t c565[16];
+    for (int k = 0; k < nPal; ++k) c565[k] = to565(pal[k]);
+    const int X0 = x + ox, Y0 = y + oy;
+    auto floorDiv = [](int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); };
+    const int j0 = maxi(0, floorDiv(cy0_ - Y0, cell)), j1 = mini(rows - 1, floorDiv(cy1_ - 1 - Y0, cell));
+    const int i0 = maxi(0, floorDiv(cx0_ - X0, cell)), i1 = mini(cols - 1, floorDiv(cx1_ - 1 - X0, cell));
+    for (int j = j0; j <= j1; ++j) {
+        const uint8_t* row = grid + static_cast<size_t>(j) * cols;
+        const int ya = Y0 + j * cell;
+        for (int i = i0; i <= i1;) {
+            const uint8_t v = row[i];
+            int k = i + 1;
+            while (k <= i1 && row[k] == v) ++k;
+            if (v < nPal) fill565(X0 + i * cell, ya, X0 + k * cell, ya + cell, c565[v]);
+            i = k;
+        }
+    }
+}
+
 // ---------- recording ----------
 
 Canvas Recording::begin(int w, int h, int bandRows) {
@@ -1374,6 +1412,14 @@ void Recording::play(Canvas& cv, int b) const {
             case kArrow: cv.arrowCircle(a[0].f, a[1].f, a[2].f, a[3].u, a[4].u); break;
             case kSeg: cv.seg(a[0].f, a[1].f, a[2].f, a[3].f, a[4].i, a[5].u, a[6].f); break;
             case kDot: cv.dot(a[0].f, a[1].f, a[2].i, a[3].u, a[4].f); break;
+            case kCells: {
+                const uint8_t* grid;
+                memcpy(&grid, d, sizeof(grid));
+                uint32_t pal[16];
+                memcpy(pal, d + sizeof(grid), a[6].i * sizeof(uint32_t));
+                cv.cells(grid, a[0].i, a[1].i, a[2].i, a[3].i, a[4].i, pal, a[6].i, a[5].u);
+                break;
+            }
             default: break;
         }
     }
