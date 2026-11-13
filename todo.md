@@ -2,7 +2,26 @@
 
 ## Bugs
 
-_None open. Bugs are labelled B1, B2, … in order of importance._
+Labelled B1, B2, … in order of importance.
+
+### B1. Handheld cards look jagged while scrolling (open investigation)
+
+On the handheld (wearable), scrolling the card list doesn't look smooth: the cards' edges look mildly
+jagged, and one side of the screen seems to move at a different rate from the other, or a little before it.
+
+Not diagnosed yet. Leads to check first:
+
+- **Tearing.** Frames go out in strips of changed rows from a task on core 0 while core 1 draws the next strip
+  (`firmware/handheld/mock/src/main.cpp`), with no sync to the panel's refresh. The panel is mounted a quarter
+  turn off, so its scan runs across the screen's columns: a frame caught mid-scan would show one side of the
+  screen newer than the other, which matches what's seen. Check whether the CO5300 exposes a tearing-effect
+  (TE) signal on this board, and whether sending only whole frames, or sending in step with TE, fixes it.
+- **Frame time.** Measure draw and send time per frame while scrolling (the serial `p` profile, `plog`) to see
+  whether scroll frames miss the refresh, and whether sends lag the draws.
+- **CPU clock.** Make sure scrolling holds full speed for the whole gesture and its fling (`cpu_clock.h`).
+
+Check Waveshare's and Espressif's examples and FAQs for this panel before custom fixes. Done when scrolling
+looks even on the board; record what the cause was here.
 
 ## Features
 
