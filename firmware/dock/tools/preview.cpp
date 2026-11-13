@@ -1,7 +1,10 @@
 // Renders the dock's screens to PNGs on a laptop, from the same dock_ui code the device runs, with the mockup's
 // sample data (docs/ideas/2026-11-11-dock-ui-mockup.html): the stops screen in each mood, Wi-Fi lost, night, empty
-// sections, the map, the picker's steps, and the setup messages. Each is also drawn the device's way (bands of rows
-// straight in the landscape panel's order, both mountings, bands.cpp) and checked against the plain picture.
+// sections, the map, the picker's steps, and the setup messages. Each is also drawn the device's way (bands.cpp:
+// recorded once and played band by band, and every band drawn directly, straight in the landscape panel's order, both
+// mountings, at both halves of Trackie's bob and the blinks) and checked against the plain picture. Then a run of
+// frames goes through the device's two frame buffers, each drawing only the bands it doesn't hold, and every frame is
+// checked against the plain picture; it prints how many bands each kind of frame drew.
 // Build and run (from firmware/dock):
 //   c++ -std=c++17 -O2 -Isrc -Iinclude -I../lib/gfx/src -I../lib/cta/src -I../lib/pet/src -I<ArduinoJson>/src \
 //       tools/preview.cpp src/dock_ui.cpp src/bands.cpp ../lib/gfx/src/*.cpp ../lib/cta/src/*.cpp \
@@ -185,25 +188,124 @@ const State kStates[] = {
     {"no_key", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.keys = false; }},
 };
 
-}  // namespace
+// ---------- the device's path (bands.cpp, display.cpp) ----------
 
-static bool bandsMatch(const uint16_t* fb, dock::App& a, const dock::Data& d, const dock::PickerLists& pl,
-                       const dock::Clock& c) {
-    static uint16_t panel[dock::W * dock::H], band[dock::W * 32];
-    for (int cw = 0; cw < 2; ++cw) {
-        for (int y0 = 0; y0 < dock::H; y0 += 32) {
-            ui::Canvas cv = dock::bandCanvas(band, y0, 32, cw != 0);
-            dock::draw(cv, a, d, pl, c, 600);
-            dock::copyBand(band, panel, y0, 32, cw != 0);
+ui::Recording rec;   // big, like the device's
+uint16_t band[dock::W * dock::kBandRows];
+uint32_t noClock() { return 0; }
+
+struct Frame {
+    dock::App* a;
+    const dock::Data* d;
+    const dock::PickerLists* pl;
+    const dock::Clock* c;
+    uint32_t ms;
+};
+void drawFrameCb(ui::Canvas& cv, void* p) {
+    const Frame& f = *static_cast<Frame*>(p);
+    dock::draw(cv, *f.a, *f.d, *f.pl, *f.c, f.ms);
+}
+
+// A panel frame buffer against the plain picture, through bands.h's mapping.
+bool samePicture(const uint16_t* panel, const uint16_t* fb, bool cw) {
+    for (int y = 0; y < dock::H; ++y)
+        for (int x = 0; x < dock::W; ++x) {
+            const int X = cw ? y : dock::H - 1 - y, Y = cw ? dock::W - 1 - x : x;
+            if (panel[Y * dock::H + X] != fb[y * dock::W + x]) return false;
         }
-        for (int y = 0; y < dock::H; ++y)
-            for (int x = 0; x < dock::W; ++x) {
-                const int X = cw ? y : dock::H - 1 - y, Y = cw ? dock::W - 1 - x : x;   // bands.h's mapping
-                if (panel[Y * dock::H + X] != fb[y * dock::W + x]) return false;
-            }
-    }
     return true;
 }
+
+// The frame drawn the device's way into a blank frame buffer, both mountings: recorded and played band by band, and
+// (for a frame that can't be recorded) every band drawn directly.
+bool bandsMatch(const uint16_t* fb, dock::App& a, const dock::Data& d, const dock::PickerLists& pl,
+                const dock::Clock& c, uint32_t ms) {
+    static uint16_t panel[dock::W * dock::H];
+    static dock::BandMemo memo;
+    Frame f = {&a, &d, &pl, &c, ms};
+    for (int cw = 0; cw < 2; ++cw)
+        for (int recorded = 0; recorded < 2; ++recorded) {
+            memset(panel, 0, sizeof(panel));
+            memo.forget();
+            dock::FrameStats st;
+            dock::drawFrame(drawFrameCb, &f, recorded ? &rec : nullptr, memo, 0, band, panel, cw != 0, noClock, st);
+            if (st.drawn != dock::BandMemo::kBands || !samePicture(panel, fb, cw != 0)) return false;
+        }
+    return true;
+}
+
+// A run of frames as the device shows them, each drawn into the buffer the panel isn't showing (the two take turns)
+// and drawing only the bands that buffer doesn't hold: at rest (Trackie's bob, the blinks), a poke and its end, the
+// clock's minute, new arrivals, the map and a pan, the picker and a scroll, Wi-Fi lost, night. After each frame the
+// buffer must be exactly the frame drawn whole. Prints how many bands each kind of frame drew.
+bool sequenceMatches() {
+    static uint16_t panels[2][dock::W * dock::H], fb[dock::W * dock::H];
+    static dock::Data d;
+    static dock::PickerLists pl;
+    static dock::BandMemo memo;
+    sampleData(d);
+    sampleLists(pl);
+    dock::App a;
+    dock::Clock c;
+    c.now = kNow;
+    uint32_t ms = 0;
+    struct Step { const char* name; int frames; void (*apply)(dock::Data&, dock::App&, dock::Clock&, uint32_t&); };
+    const Step steps[] = {
+        {"first frames", 2, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"at rest", 8, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"poke", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 120; a.poked = true; a.pokeMs = ms; }},
+        {"poked, at rest", 6, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"minute", 1, [](dock::Data&, dock::App&, dock::Clock& c, uint32_t& ms) { ms += 500; c.now += 60; }},
+        {"arrivals", 1, [](dock::Data& d, dock::App&, dock::Clock&, uint32_t& ms) {
+             ms += 37; for (auto& s : d.sec) for (int k = 0; k < s.rec.count; ++k) s.rec.arrivals[k].min -= 1; }},
+        {"at rest", 4, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"map", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 90; a.screen = dock::Screen::Map; }},
+        {"map pan", 12, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 45; a.panX += 9; a.panY -= 5; }},
+        {"map at rest", 4, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"stops", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 70; a.screen = dock::Screen::Home; }},
+        {"picker", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) {
+             ms += 800; a.screen = dock::Screen::Picker; a.picker.step = 1; a.picker.bus = false; }},
+        {"picker line", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 300; a.picker.step = 2; }},
+        {"picker stops", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) {
+             ms += 300; a.picker.step = 4; snprintf(a.picker.line, sizeof(a.picker.line), "Red");
+             snprintf(a.picker.dirName, sizeof(a.picker.dirName), "95th/Dan Ryan"); a.picker.scroll = 0; }},
+        {"picker scroll", 12, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 40; a.picker.scroll += 33.3f; }},
+        {"picker at rest", 4, [](dock::Data&, dock::App&, dock::Clock&, uint32_t& ms) { ms += 500; }},
+        {"stops", 1, [](dock::Data&, dock::App& a, dock::Clock&, uint32_t& ms) { ms += 60; a.screen = dock::Screen::Home; }},
+        {"Wi-Fi lost", 3, [](dock::Data& d, dock::App&, dock::Clock& c, uint32_t& ms) { ms += 500; d.wifiUp = false; c.now += 200; }},
+        {"night", 3, [](dock::Data& d, dock::App&, dock::Clock& c, uint32_t& ms) { ms += 500; d.wifiUp = true; c.night = true; }},
+        {"bus picker list", 3, [](dock::Data&, dock::App& a, dock::Clock& c, uint32_t& ms) {
+             ms += 500; c.night = false; a.screen = dock::Screen::Picker; a.picker.step = 2; a.picker.bus = true; a.picker.scroll = 0; }},
+    };
+    memset(panels, 0, sizeof(panels));
+    memo.forget();
+    int back = 0;
+    bool ok = true;
+    for (const Step& s : steps) {
+        int drawn = 0, copied = 0;
+        for (int k = 0; k < s.frames; ++k) {
+            s.apply(d, a, c, ms);
+            Frame f = {&a, &d, &pl, &c, ms};
+            dock::FrameStats st;
+            dock::drawFrame(drawFrameCb, &f, &rec, memo, back, band, panels[back], true, noClock, st);
+            drawn += st.drawn;
+            copied += st.copied;
+            dock::App plain = a;
+            ui::Canvas cv(fb, dock::W, dock::H);
+            dock::draw(cv, plain, d, pl, c, ms);
+            if (!samePicture(panels[back], fb, true)) {
+                printf("sequence: %s, frame %d: DIFFERS\n", s.name, k + 1);
+                ok = false;
+            }
+            back ^= 1;
+        }
+        printf("sequence: %-16s %2d frame%-2s %4.1f bands drawn and %4.1f copied a frame\n", s.name, s.frames,
+               s.frames == 1 ? "," : "s,", static_cast<float>(drawn) / s.frames, static_cast<float>(copied) / s.frames);
+    }
+    return ok;
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) { fprintf(stderr, "usage: %s <out dir>\n", argv[0]); return 2; }
@@ -226,10 +328,13 @@ int main(int argc, char** argv) {
         writePng(std::string(argv[1]) + "/" + st.name + ".png", fb);
         char reason[48];
         dock::reasonText(d, c, reason, sizeof(reason));
-        const bool same = bandsMatch(fb, a, d, pl, c);
+        bool same = bandsMatch(fb, a, d, pl, c, 600);
+        dock::draw(cv, a, d, pl, c, 0);   // Trackie's other bob and the blinks' other half
+        same = same && bandsMatch(fb, a, d, pl, c, 0);
         printf("%s: mood %d, reason \"%s\", bands %s\n", st.name, static_cast<int>(dock::moodOf(d, c)), reason,
                same ? "match" : "DIFFER");
         if (!same) bad = true;
     }
+    if (!sequenceMatches()) bad = true;
     return bad ? 1 : 0;
 }

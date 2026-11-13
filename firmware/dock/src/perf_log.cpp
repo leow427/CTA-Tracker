@@ -24,7 +24,7 @@ namespace {
 constexpr const char* kColumns =
     "ms,phase,screen,cpu_c,busy0,busy1,frames,bands,draw_ms,copy_ms,wait_ms,move_fps,slow_frame_ms,tap_ms,tap_max_ms,"
     "drag_ms,drag_max_ms,touches,list_ms,req_started,req_done,req_ms,req_bytes,wifi_status,rssi,scan_late,recoveries,"
-    "switch_timeouts,int_free,int_min,psram_free,sections,picked,data_age,log_us";
+    "switch_timeouts,int_free,int_min,psram_free,sections,picked,data_age,log_us,drawn";
 
 // ---------- the ring: whole lines, PSRAM ----------
 
@@ -61,6 +61,7 @@ uint32_t burstCount = 0;
 
 // Frame loop.
 uint32_t frames = 0, bands = 0, touches = 0, scanLate = 0;
+uint32_t drawn = 0;   // bands drawn (the rest the hidden buffer already held)
 uint64_t drawUs = 0, copyUs = 0, waitUs = 0;
 uint32_t moveIntervals = 0, moveMs = 0, slowFrameMs = 0, lastFrameMs = 0;
 bool lastMoving = false;
@@ -152,7 +153,7 @@ void sample(uint32_t ms, const Inputs& in) {
     char line[512];
     const int n = snprintf(
         line, sizeof(line),
-        "P,%u,%u,%u,%.1f,%.1f,%.1f,%u,%u,%.1f,%.1f,%.1f,%s,%s,%s,%s,%s,%s,%u,%s,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%d,%d,%s,%u\n",
+        "P,%u,%u,%u,%.1f,%.1f,%.1f,%u,%u,%.1f,%.1f,%.1f,%s,%s,%s,%s,%s,%s,%u,%s,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%d,%d,%s,%u,%u\n",
         static_cast<unsigned>(ms), in.phase, in.screen, temperatureRead(), busy[0], busy[1],
         static_cast<unsigned>(frames), static_cast<unsigned>(bands), drawUs / 1000.0, copyUs / 1000.0, waitUs / 1000.0,
         fps, slow, tap, tapM, drag, dragM, static_cast<unsigned>(touches), list, static_cast<unsigned>(rs),
@@ -161,11 +162,11 @@ void sample(uint32_t ms, const Inputs& in) {
         static_cast<unsigned>(display::timeouts()), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
         static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),
         static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), in.sections, in.picked, age,
-        static_cast<unsigned>(lastLogUs));
+        static_cast<unsigned>(lastLogUs), static_cast<unsigned>(drawn));
     append(line, static_cast<size_t>(n));
     if (dropped) { event("dropped,%u", static_cast<unsigned>(dropped)); dropped = 0; }
 
-    frames = bands = touches = scanLate = 0;
+    frames = bands = touches = scanLate = drawn = 0;
     drawUs = copyUs = waitUs = 0;
     moveIntervals = moveMs = slowFrameMs = 0;
     tapSum = tapN = tapMax = dragSum = dragN = dragMax = 0;
@@ -203,9 +204,10 @@ void move(uint32_t touchMs) {
     if (!havePendingMove) { pendingMove = touchMs; havePendingMove = true; }   // the oldest unshown sample
 }
 
-void frame(uint32_t dUs, uint32_t cUs, uint32_t wUs, int bandsCopied, bool moving, uint32_t doneMs) {
+void frame(uint32_t dUs, uint32_t cUs, uint32_t wUs, int bandsCopied, bool moving, uint32_t doneMs, int bandsDrawn) {
     ++frames;
     bands += static_cast<uint32_t>(bandsCopied);
+    drawn += static_cast<uint32_t>(bandsDrawn);
     drawUs += dUs;
     copyUs += cUs;
     waitUs += wUs;

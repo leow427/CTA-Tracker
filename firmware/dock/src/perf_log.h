@@ -29,8 +29,9 @@ void event(const char* fmt, ...) __attribute__((format(printf, 1, 2)));   // fmt
 void touch();                                // one touch event handled
 void tapUp(uint32_t touchMs);                // a tap (or any release) at touchMs: tap-to-screen ends at the next frame
 void move(uint32_t touchMs);                 // a drag sample at touchMs: drag-to-screen ends at the next frame
-// A frame was shown: its draw, copy and wait times, bands copied, whether a drag was moving it, and when it was done.
-void frame(uint32_t drawUs, uint32_t copyUs, uint32_t waitUs, int bandsCopied, bool moving, uint32_t doneMs);
+// A frame was shown: its draw, copy and wait times, bands copied, whether a drag was moving it, when it was done, and
+// bands drawn (the last column, `drawn`: the rest the hidden buffer already held).
+void frame(uint32_t drawUs, uint32_t copyUs, uint32_t waitUs, int bandsCopied, bool moving, uint32_t doneMs, int bandsDrawn);
 void listLoaded(uint32_t ms);                // a picker list asked for at the loop came in after ms
 void scan(uint32_t late);                    // late panel frames (display::scanStats)
 

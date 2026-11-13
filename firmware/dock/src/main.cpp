@@ -3,7 +3,9 @@
 //
 // Frames are drawn in bands of portrait rows in internal RAM, already in the landscape panel's order, and copied into
 // its hidden frame buffer (display.cpp, bands.cpp); a frame is drawn when something changed: new data, a touch, the
-// clock's minute, or the half-second bob and blink.
+// clock's minute, or the half-second bob and blink. Each frame's drawing is recorded once (gfx2d's ui::Recording) and
+// played band by band, and only into the bands the hidden buffer doesn't already hold: at rest, Trackie's bob and the
+// blinks alternate with the two buffers, so a frame at rest draws nothing (dock performance analysis, round 1).
 //
 // Serial commands (115200): "m" steps Trackie through every mood and back to live (spec 6.3's debug cycle, until the
 // two-finger gesture exists), "s" shows the next screen (stops, map, picker), "h" the stops screen, "p" prints the picks, "d" puts the
@@ -372,7 +374,7 @@ void loop() {
         {
             uint32_t du, cu, wu;
             display::lastTimes(du, cu, wu);
-            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis());
+            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis(), display::lastBandsDrawn());
         }
 #endif
     }
