@@ -21,6 +21,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW = os.path.join(ROOT, "firmware", "handheld", "mock")
 RUNS = os.path.join(ROOT, "docs", "power", "runs")
 PIO_PYTHON = os.path.expanduser("~/.platformio/penv/bin/python")
+# PlatformIO's own pio: the handheld's pinned platform runs `python -m pip`, which Homebrew's pio has no pip for.
+PIO = os.path.expanduser("~/.platformio/penv/bin/pio")
+PIO = PIO if os.path.exists(PIO) else "pio"
 STRESS_VERSION = "stress-v2"   # must match stress::kVersion in the firmware
 TIMEOUT_S = 35 * 60   # warm-up (at most 3 min) + 19 min of phases, with room
 
@@ -81,7 +84,9 @@ def main():
     port = args.port or find_port()
     if not args.no_flash:
         print("Flashing env:power...", file=sys.stderr)
-        r = subprocess.run(["pio", "run", "-e", "power", "-t", "upload", "-d", FW], capture_output=True, text=True)
+        # The port named, never PlatformIO's guess: the dock's serial chip shows up as a usbmodem port too.
+        r = subprocess.run([PIO, "run", "-e", "power", "-t", "upload", "--upload-port", port, "-d", FW],
+                           capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit("Flash failed:\n" + r.stdout[-3000:] + r.stderr[-2000:])
         time.sleep(2)

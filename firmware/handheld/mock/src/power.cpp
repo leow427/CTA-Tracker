@@ -44,4 +44,10 @@ State read() {
     return s;
 }
 
+bool off() {
+    if (!ok) return false;
+    pmu.shutdown();
+    return true;
+}
+
 }  // namespace power
