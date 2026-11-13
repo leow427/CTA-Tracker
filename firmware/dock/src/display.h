@@ -8,9 +8,13 @@
 namespace display {
 
 bool begin();
-// Draws a frame (draw is called once per band of portrait rows, on a canvas clipped to it) into the hidden frame
-// buffer, which the panel switches to at its next vertical sync. Returns once the old one is free to draw into.
-void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
+// Draws a frame into the hidden frame buffer, which the panel switches to at its next vertical sync. Returns once the
+// old one is free to draw into. draw is called once, on a canvas that records the frame (ui::Recording), which is
+// then played band by band, only into the bands the hidden buffer doesn't already hold (bands.h); a frame that can't
+// be recorded calls draw once per band of portrait rows, on a canvas clipped to it, as do the diagnostic pattern and
+// single-buffer modes. draw must draw the same frame each time it's called. True when the frame went to the panel and
+// render waited for the panel to take it (the loop then needn't sleep before its next pass).
+bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx);
 
 // Restarts the panel (deletes and recreates it with the same timing; the screen is black for a moment until the next
 // frame). A refill that runs late can leave the panel's bounce buffers out of step with its DMA for good (stale
@@ -47,11 +51,17 @@ bool nextTouch(Touch& t);
 bool touchOk();
 // The last frame's time drawing, copying bands into the frame buffer, and waiting for the panel's switch.
 void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs);
+// Bands the last frame copied into the frame buffer (the rest were unchanged).
+int lastBands();
+// Bands the last frame drew (the rest the hidden buffer already held, bands.h).
+int lastBandsDrawn();
 // Frames whose buffer switch wasn't confirmed within 80 ms (should stay 0).
 uint32_t timeouts();
 // Since the last call: frames the panel read, how many came off their period by more than a bounce buffer's time
 // (the refill interrupt ran late), the longest gap, and the nominal period.
 void scanStats(uint32_t& frames, uint32_t& late, uint32_t& maxGapUs, uint32_t& periodUs);
+// The backlight on or off (the CH422G's EXIO2).
+void backlight(bool on);
 // Sends the frame on screen over serial, run-length coded (tools/frame_grab.py turns it into a PNG).
 void dumpFrame();
 

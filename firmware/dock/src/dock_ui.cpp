@@ -101,21 +101,38 @@ int badge(Canvas& cv, const char* label, int x, int cy, int h, const Theme& t) {
     return w;
 }
 
-// Pixel art in a few named colors (the map's vehicles): K outline, W white, Y headlight, C glass, A the line.
+// Pixel art in a few named colors (the map's vehicles): K outline, W white, Y headlight, C glass, A the line. Each art
+// pixel is an s × s fillRect; the pixels never overlap, so the order they're drawn in doesn't matter, and the art is
+// drawn as one ink call per color it uses (ink draws its pixels with those same fillRects): a few recorded calls a
+// vehicle instead of one a pixel (dock performance analysis, round 3).
 void art(Canvas& cv, const char* const* rows, int n, int x, int y, int s, uint32_t line, float a = 1.f) {
-    for (int j = 0; j < n; ++j)
-        for (int i = 0; rows[j][i]; ++i) {
-            uint32_t rgb;
-            switch (rows[j][i]) {
-                case 'K': rgb = 0x0B0D14; break;
-                case 'W': rgb = 0xFFFFFF; break;
-                case 'Y': rgb = 0xFFD43B; break;
-                case 'C': rgb = 0x9BEFF5; break;
-                case 'A': rgb = line; break;
-                default: continue;
+    constexpr int kRows = 8, kCols = 16;   // the most the per-color rows below hold (the vehicles are 7 × 8)
+    const struct { char key; uint32_t rgb; } inks[] = {{'K', 0x0B0D14}, {'W', 0xFFFFFF}, {'Y', 0xFFD43B}, {'C', 0x9BEFF5}, {'A', line}};
+    bool fits = n <= kRows;
+    for (int j = 0; j < n && fits; ++j) fits = strlen(rows[j]) <= static_cast<size_t>(kCols);
+    if (!fits) {   // bigger art: a fillRect a pixel
+        for (int j = 0; j < n; ++j)
+            for (int i = 0; rows[j][i]; ++i)
+                for (const auto& k : inks)
+                    if (rows[j][i] == k.key) cv.fillRect(x + i * s, y + j * s, s, s, k.rgb, a);
+        return;
+    }
+    char one[kRows][kCols + 1];
+    const char* rowsOf[kRows];
+    for (const auto& k : inks) {
+        bool any = false;
+        for (int j = 0; j < n; ++j) {
+            int i = 0;
+            for (; rows[j][i]; ++i) {
+                const bool mine = rows[j][i] == k.key;
+                one[j][i] = mine ? '#' : '.';
+                any |= mine;
             }
-            cv.fillRect(x + i * s, y + j * s, s, s, rgb, a);
+            one[j][i] = 0;
+            rowsOf[j] = one[j];
         }
+        if (any) cv.ink(rowsOf, n, x, y, s, k.rgb, a);
+    }
 }
 const char* const kCar[7] = {".KKKKKK.", "KAAAAAAK", "KAWWWWAK", "KAWWWWAK", "KAAAAAAK", "KAYAAYAK", ".KK..KK."};   // an L car
 const char* const kBusCar[7] = {"KKKKKKKK", "KWWWWWWK", "KCCCCCCK", "KCCCCCCK", "KWWWWWWK", "KWYWWYWK", ".KK..KK."};
@@ -512,9 +529,14 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     const bool lost = d.wifiSetUp && !d.wifiUp;
     cv.clip(0, MAP.top, W, H - MAP.top);
     // The track: casings under everything, then the lines; lines nobody picked are dimmed. Every point is projected
-    // once per frame (the device draws a frame band by band, calling this once per band).
+    // once per frame of the picks (the device draws a frame band by band, calling this once per band, or records it
+    // once). mapProject rounds a point and then adds the pan, so the points are kept at pan 0 and panned (and limited
+    // to +-30000, as they always were) as they're used: a drag doesn't project them all again every frame (dock
+    // performance analysis, round 3). A frame whose points don't all fit 16 bits at pan 0 keeps them at its pan
+    // instead, projected again when the pan changes, as before.
     struct Cache {
         bool valid = false;
+        bool atPan = false;   // the points are at the pan in key; else at pan 0, panned as used
         float key[6] = {};
         int16_t train[1024][2];
         int16_t bus[cta::kDockStops][kMaxPath][2];
@@ -523,26 +545,41 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     float pathSum = 0;
     for (int i = 0; i < cta::kDockStops; ++i)
         for (int k = 0; k < d.busPathN[i]; ++k) pathSum += d.busPath[i][k].lat * (k + 1) + d.busPath[i][k].lon;
-    const float key[6] = {fr.lat0, fr.lon0, fr.pxPerKm, static_cast<float>(px0), static_cast<float>(py0), pathSum};
-    if (!cache.valid || memcmp(key, cache.key, sizeof(key)) != 0) {
-        size_t n = 0;
-        for (size_t k = 0; k < cta::kTrainShapeCount; ++k)
-            for (int j = 0; j < cta::kTrainShapes[k].count && n < 1024; ++j, ++n) {
-                int x, y;
-                proj(cta::kTrainShapes[k].pts[j][0] / 1e5f, cta::kTrainShapes[k].pts[j][1] / 1e5f, x, y);
-                cache.train[n][0] = static_cast<int16_t>(std::max(-30000, std::min(30000, x)));
-                cache.train[n][1] = static_cast<int16_t>(std::max(-30000, std::min(30000, y)));
-            }
-        for (int i = 0; i < cta::kDockStops; ++i)
-            for (int k = 0; k < d.busPathN[i]; ++k) {
-                int x, y;
-                proj(d.busPath[i][k].lat, d.busPath[i][k].lon, x, y);
-                cache.bus[i][k][0] = static_cast<int16_t>(std::max(-30000, std::min(30000, x)));
-                cache.bus[i][k][1] = static_cast<int16_t>(std::max(-30000, std::min(30000, y)));
-            }
-        memcpy(cache.key, key, sizeof(key));
+    const float keyAt0[6] = {fr.lat0, fr.lon0, fr.pxPerKm, 0.f, 0.f, pathSum};
+    const float keyAtPan[6] = {fr.lat0, fr.lon0, fr.pxPerKm, static_cast<float>(px0), static_cast<float>(py0), pathSum};
+    if (!cache.valid || memcmp(cache.atPan ? keyAtPan : keyAt0, cache.key, sizeof(cache.key)) != 0) {
+        // Each point at the pan given, limited to +-30000 when pinned (at the frame's pan); false when one at pan 0
+        // doesn't fit 16 bits.
+        auto fill = [&](int panX, int panY, bool pinned) {
+            auto keep = [&](int v, int16_t& out) {
+                if (pinned) v = std::max(-30000, std::min(30000, v));
+                else if (v < INT16_MIN || v > INT16_MAX) return false;
+                out = static_cast<int16_t>(v);
+                return true;
+            };
+            size_t n = 0;
+            for (size_t k = 0; k < cta::kTrainShapeCount; ++k)
+                for (int j = 0; j < cta::kTrainShapes[k].count && n < 1024; ++j, ++n) {
+                    int x, y;
+                    cta::mapProject(fr, cta::kTrainShapes[k].pts[j][0] / 1e5f, cta::kTrainShapes[k].pts[j][1] / 1e5f, panX, panY, x, y);
+                    if (!keep(x, cache.train[n][0]) || !keep(y, cache.train[n][1])) return false;
+                }
+            for (int i = 0; i < cta::kDockStops; ++i)
+                for (int k = 0; k < d.busPathN[i]; ++k) {
+                    int x, y;
+                    cta::mapProject(fr, d.busPath[i][k].lat, d.busPath[i][k].lon, panX, panY, x, y);
+                    if (!keep(x, cache.bus[i][k][0]) || !keep(y, cache.bus[i][k][1])) return false;
+                }
+            return true;
+        };
+        cache.atPan = !fill(0, 0, false);
+        if (cache.atPan) fill(px0, py0, true);
+        memcpy(cache.key, cache.atPan ? keyAtPan : keyAt0, sizeof(cache.key));
         cache.valid = true;
     }
+    // A kept point on screen: panned (unless it's kept at the pan already) and limited as it always was.
+    const int dx = cache.atPan ? 0 : px0, dy = cache.atPan ? 0 : py0;
+    auto at = [](int16_t v, int pan) { return std::max(-30000, std::min(30000, v + pan)); };
     // A segment only reaches seg() when its box meets this band (an integer test; seg's own rounding is costly on
     // the device, and most of the L's segments miss a given band).
     auto segIn = [&](int x0, int y0, int x1, int y1, int b, uint32_t rgb, float al) {
@@ -557,11 +594,13 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         const int off = lineOffset(sh.route, false);
         const int16_t(*p)[2] = cache.train + firstPt[shape];
         if (firstPt[shape] + sh.count > 1024) return;
-        for (int k = 1; k < sh.count; ++k) segIn(p[k - 1][0] + off, p[k - 1][1], p[k][0] + off, p[k][1], b, rgb, al);
+        for (int k = 1; k < sh.count; ++k)
+            segIn(at(p[k - 1][0], dx) + off, at(p[k - 1][1], dy), at(p[k][0], dx) + off, at(p[k][1], dy), b, rgb, al);
     };
     auto pathLine = [&](int i, int b, uint32_t rgb) {
+        const int16_t(*p)[2] = cache.bus[i];
         for (int k = 1; k < d.busPathN[i]; ++k)
-            segIn(cache.bus[i][k - 1][0], cache.bus[i][k - 1][1], cache.bus[i][k][0], cache.bus[i][k][1], b, rgb, 1);
+            segIn(at(p[k - 1][0], dx), at(p[k - 1][1], dy), at(p[k][0], dx), at(p[k][1], dy), b, rgb, 1);
     };
     auto isPicked = [&](const char* route) {
         for (int k = 0; k < 8; ++k) if (picked[k] && strcmp(kLines[k].route, route) == 0) return true;
