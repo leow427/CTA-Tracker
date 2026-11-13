@@ -24,7 +24,17 @@ Read first:
 
 ## What must not change (functionality)
 
-- Every screen (stops, map, picker steps 1–4, setup messages), card, tile, colour, font, layout, Trackie's bob and moods, blinks, the n## What the numbers say (round 1 against the baseline, interleaved, 2 runs each)
+- Every screen (stops, map, picker steps 1–4, setup messages), card, tile, colour, font, layout, Trackie's bob and moods, blinks, the night veil, and every gesture (tap, long press, map pan, edge swipe back, picker scroll, swipe to the map) look and behave the same, frame for frame where drawn.
+- Poll intervals and data freshness no longer than now; the LED rows the same.
+- No secrets, Wi-Fi names, stop IDs or locations in logs, serial output, commits or docs.
+
+## Goals, in order
+
+1. **Speed up or equal everywhere, beyond noise**: frame time while dragging and fps (map pan, picker scroll), slowest frame, tap-to-screen, drag-to-screen, picker list load, request times, boot to every stop loaded.
+2. **Heat no higher**: chip temperature per phase, core busy % (busy cores make heat).
+3. Lowest free internal RAM no more than 2 KB lower than the baseline.
+
+## What the numbers say (round 1 against the baseline, interleaved, 2 runs each)
 
 | Phase | Frame ms (draw / copy / wait) | FPS dragging | Tap ms (max) | Drag ms | Busy c0/c1 % | Temp °C | Request ms | List ms |
 |---|---|---|---|---|---|---|---|---|
@@ -56,12 +66,6 @@ What this says:
 6. **Requests and list loads**: resumed TLS sessions and the CPU idling through DNS and TCP waits, as the handheld's round 2 did (`firmware/handheld/mock/src/live.cpp`, commit `5b09be1`: 14–34% faster requests). Watch internal RAM (51 KB floor now).
 
 Round 2 should go after ideas 1–3 first (they decide the frame rate), then 6 if it's safe.
-
-first bands while waiting for the switch. Watch internal RAM (a second 30 KB band would take lowest free from 50 to about 20 KB; TLS needs about 45 KB during a handshake, so smaller bands are safer).
-5. **Use core 0** for part of the drawing, if the network task (priority 1) and the touch task still get their time; the handheld's round 3 failed exactly because moving work onto core 0 slowed requests.
-6. **Requests**: the handheld's round 2 cut request time 14–34% with resumed TLS sessions and the CPU idling through DNS and TCP waits (`firmware/handheld/mock/src/live.cpp`, commit `5b09be1`); see whether the dock's `net.cpp` can do the same.
-
-Round 1 should go after ideas 1 and 2 first: they're the biggest and safest.
 
 ## Rules
 
