@@ -12,6 +12,8 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
+#include <new>
+
 #include "dock_ui.h"
 #include "pins.h"
 #include "bands.h"
@@ -31,27 +33,20 @@ SemaphoreHandle_t frameDone;
 QueueHandle_t touches;
 bool gtOk = false;
 uint8_t exio = 0;
-// Bands of 32 portrait rows (25 a frame) drawn in internal RAM: 30 KB, drawn several times faster than PSRAM.
-constexpr int kBandRows = 32;
+// Bands of 32 portrait rows (25 a frame, bands.h) drawn in internal RAM: 30 KB, drawn several times faster than PSRAM.
+using dock::kBandRows;
 uint16_t* band = nullptr;
+// Each frame is recorded once and played band by band (bands.h); the recording (about 450 KB) lives in PSRAM.
+ui::Recording* rec = nullptr;
+dock::BandMemo memo;   // what each frame buffer holds, band by band
 uint32_t lastCopyUs = 0, lastWaitUs = 0, lastDrawUs = 0, switchTimeouts = 0;
+int lastBandsCopied = 0, lastDrawnBands = 0;
 Diag diagMode = Diag::Normal;
 bool autoRecover = true;
 uint32_t recoverCount = 0;
 bool frozen = false;   // Freeze or Pattern: drawn once, then left alone
-constexpr int kBands = 800 / kBandRows;
-uint32_t hashes[2][kBands];
-bool hashKnown[2][kBands] = {};
 
-// FNV-1a over 32-bit words, with a final mix: any change to a band changes it but for a 1-in-4-billion collision.
-uint32_t bandHash(const uint16_t* px, int n) {
-    const uint32_t* w = reinterpret_cast<const uint32_t*>(px);
-    uint32_t h = 2166136261u;
-    for (int i = 0; i < n / 2; ++i) h = (h ^ w[i]) * 16777619u;
-    h ^= h >> 15;
-    h *= 0x2c1b3c6du;
-    return h ^ (h >> 12);
-}
+uint32_t usNow() { return micros(); }
 
 void exioWrite(int pin, bool high) {
     exio = high ? (exio | (1 << pin)) : (exio & ~(1 << pin));
@@ -187,9 +182,7 @@ constexpr int kTimingCount = sizeof(kTimings) / sizeof(kTimings[0]);
 constexpr int kBootTiming = 0;
 int timingIndex = kBootTiming;
 
-void resetHashes() {
-    for (auto& k : hashKnown) for (bool& b : k) b = false;
-}
+void resetHashes() { memo.forget(); }
 
 // Creates the RGB panel with two PSRAM frame buffers (black) and the frame-complete event, on the calling core
 // (its interrupts run there).
@@ -275,6 +268,9 @@ bool beginHere() {
     if (!createPanel(kTimings[kBootTiming])) return false;
     band = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     if (!band) { Serial.println("display: no RAM for the band"); return false; }
+    // Without it every band is drawn by calling the screens' code, as before (slower, same pixels).
+    if (void* p = heap_caps_malloc(sizeof(ui::Recording), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) rec = new (p) ui::Recording();
+    else Serial.println("display: no PSRAM for the frame recording");
     exioWrite(EXIO_BACKLIGHT, true);
 
     uint8_t id[4] = {};
@@ -304,13 +300,13 @@ bool beginHere() {
     return true;
 }
 
-void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
-    if (!panel || !band) return;
+bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
+    if (!panel || !band) return false;
     if (recoverWanted && autoRecover) {
         recoverWanted = false;
         recover();
     }
-    if (frozen) return;
+    if (frozen) return false;
     if (diagMode == Diag::Freeze || diagMode == Diag::Pattern) frozen = true;   // this frame (or the pattern) stays
     if (diagMode == Diag::Single) {
         // Straight into the buffer the panel is scanning, no swap: what a single-buffered panel would show.
@@ -321,28 +317,17 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
             dock::copyBand(band, fbs[front], y0, kBandRows, DISPLAY_ROTATE_CW);
         }
         resetHashes();
-        return;
+        return false;   // no switch, so no wait for the panel
     }
     const int copies = diagMode == Diag::Pattern ? 2 : 1;   // the pattern goes into both buffers, then nothing moves
     for (int copy = 0; copy < copies; ++copy) {
-    uint32_t copyUs = 0, drawUs = 0;
-    for (int y0 = 0; y0 < dock::H; y0 += kBandRows) {
-        ui::Canvas cv = dock::bandCanvas(band, y0, kBandRows, DISPLAY_ROTATE_CW);
-        const uint32_t d0 = micros();
-        draw(cv, ctx);
-        const uint32_t c0 = micros();
-        drawUs += c0 - d0;
-        // A band the hidden buffer already holds (most of a frame that only moves Trackie or blinks a glyph) isn't
-        // copied again: each buffer remembers a hash of each band it got.
-        const uint32_t h = bandHash(band, dock::W * kBandRows);
-        const int b = y0 / kBandRows;
-        if (!hashKnown[back][b] || hashes[back][b] != h) {
-            dock::copyBand(band, fbs[back], y0, kBandRows, DISPLAY_ROTATE_CW);
-            hashes[back][b] = h;
-            hashKnown[back][b] = true;
-        }
-        copyUs += micros() - c0;
-    }
+    // The frame into the hidden buffer (bands.h): recorded once, and only the bands whose drawing isn't the one this
+    // buffer already holds are drawn and copied. The pattern (which prints the time each band is drawn) is drawn band
+    // by band directly, as before. The switch and the wait below are as they were: a buffer is only ever drawn into
+    // while the panel isn't reading it.
+    dock::FrameStats st;
+    dock::drawFrame(draw, ctx, diagMode == Diag::Pattern ? nullptr : rec, memo, back, band, fbs[back], DISPLAY_ROTATE_CW,
+                    usNow, st);
     const uint32_t w0 = micros();
     // Without bounce buffers the DMA reads the frame buffer from PSRAM itself, past the CPU's cache: draw_bitmap
     // writes the cache back for the rectangle it's given (the whole frame) before the switch.
@@ -353,10 +338,13 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     xSemaphoreTake(frameDone, 0);
     if (xSemaphoreTake(frameDone, pdMS_TO_TICKS(80)) != pdTRUE) ++switchTimeouts;
     back ^= 1;
-    lastCopyUs = copyUs;
-    lastDrawUs = drawUs;
+    lastCopyUs = st.copyUs;
+    lastDrawUs = st.drawUs;
+    lastBandsCopied = st.copied;
+    lastDrawnBands = st.drawn;
     lastWaitUs = micros() - w0;
     }
+    return true;
 }
 
 // Only with bounce buffers: without them nothing falls out of step for good (the DMA restarts each frame).
@@ -431,6 +419,8 @@ void scanStats(uint32_t& frames, uint32_t& late, uint32_t& maxGapUs_, uint32_t& 
     doneCount = lateCount = maxGapUs = 0;
 }
 
+void backlight(bool on) { exioWrite(EXIO_BACKLIGHT, on); }
+
 void dumpFrame() {
     if (!panel) return;
     const uint16_t* fb = fbs[back ^ 1];   // the one on screen
@@ -462,6 +452,8 @@ void dumpFrame() {
     }
     Serial.println("END");
 }
+int lastBands() { return lastBandsCopied; }
+int lastBandsDrawn() { return lastDrawnBands; }
 void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs) {
     drawUs = lastDrawUs;
     copyUs = lastCopyUs;

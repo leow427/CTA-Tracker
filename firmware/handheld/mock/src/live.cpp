@@ -155,10 +155,12 @@ class Tls : public NetworkClientSecure {   // NetworkClientSecure keeps these pr
 public:
     mbedtls_ssl_context* ssl() { return &sslclient->ssl_ctx; }
     // stop() leaves a failed connection's plain-start flag set, and HTTPClient's connected() check would then poll
-    // the closed socket as a plain one.
+    // the closed socket as a plain one. On core 3.2 it also forgets the CA bundle (3.3 keeps it), and every full
+    // handshake after that would fail for want of a trusted root.
     void stop() override {
         NetworkClientSecure::stop();
         _stillinPlainStart = false;
+        attach_ssl_certificate_bundle(sslclient.get(), true);
     }
 };
 
@@ -539,14 +541,17 @@ void netTask(void*) {
     }
 #endif
     // Why a join or a connection ended, in the driver's words (wifi_err_reason_t: 15 and 204 are a wrong password,
-    // 201 the network out of reach, 8 left on purpose). Logged once per distinct reason in a row.
-    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
-        // Every reason, at most one line a second (the driver can repeat one many times a second).
-        static uint32_t lastMs = 0;
-        const uint8_t reason = info.wifi_sta_disconnected.reason;
-        if (millis() - lastMs >= 1000) Serial.printf("net: disconnected, reason %u\n", reason);
-        lastMs = millis();
-    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    // 201 the network out of reach, 8 left on purpose); the loop below logs it. On ESP-IDF's event loop, not
+    // WiFi.onEvent: core 3.2's list of Arduino handlers has no lock, and adding one while its task runs the start
+    // event that mode() just posted could read a freed list. The handler only notes the reason: it runs on the 2 KB
+    // system event task, too small for printf.
+    static volatile uint8_t discReason = 0;
+    static volatile uint32_t discCount = 0;
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, [](void*, esp_event_base_t, int32_t, void* data) {
+        discReason = static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
+        discCount = discCount + 1;
+    }, nullptr);
+    uint32_t discShown = 0;
     WiFi.setAutoReconnect(false);   // the driver would rescan right after every miss; this loop backs off instead
     // NTP servers by address, not name: while SNTP's own DNS lookup is pending (as it stays on a network that
     // blocks it), an HTTPS request's hostByName() clears the DNS cache, which runs SNTP's callback outside the
@@ -569,6 +574,12 @@ void netTask(void*) {
         else cpuclk::release();
     };
     for (;;) {
+        // The latest disconnect reason, at most once a pass (about a second while joining; the driver can repeat one
+        // many times a second).
+        if (discCount != discShown) {
+            discShown = discCount;
+            Serial.printf("net: disconnected, reason %u\n", discReason);
+        }
         if (nearbyPending) {   // a new list: start over with its stops
             static cta::Nearby n;
             xSemaphoreTake(mu, portMAX_DELAY);
@@ -593,7 +604,7 @@ void netTask(void*) {
             if (joining && millis() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
                 setJoining(false);
                 const int why = WiFi.status();
-                WiFi.disconnect();
+                esp_wifi_disconnect();   // core 3.2's WiFi.disconnect() skips this until associated, leaving a join running
                 Serial.printf("net: no %s (status %d); next try in %u s\n", WIFI_SSID, why, static_cast<unsigned>(retryMs / 1000));
                 if (!scanned) {   // once per boot or wake: say whether the network is in reach at all
                     scanned = true;

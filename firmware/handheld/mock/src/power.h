@@ -1,6 +1,6 @@
 #pragma once
 // The AXP2101 power chip (spec 3, 8.4, 8.5): USB power, battery, and charging. It turns on measurements only and
-// never changes a power rail.
+// changes no power rail, except off().
 #include <stdint.h>
 
 namespace power {
@@ -20,5 +20,8 @@ struct State {
 // Call after Wire.begin(). False if the chip doesn't answer.
 bool begin();
 State read();
+// Turns the whole board off (every rail, screen included), so a board left plugged in can't burn in. Only the task
+// that owns the I2C bus may call it (the touch task, or the loop when there's none). False if there's no chip to ask.
+bool off();
 
 }  // namespace power

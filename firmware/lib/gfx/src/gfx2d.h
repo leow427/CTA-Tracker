@@ -7,10 +7,21 @@
 // A canvas covers either a whole row-major screen or one band of screen rows stored the way the panel wants it
 // (rotated a quarter turn right and byte-swapped), so the device can draw a frame band by band in internal RAM
 // and send each band as it is. Drawing outside the canvas's band is skipped cheaply.
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
 namespace ui {
+
+// lroundf(v) as an int, without the library call when |v| < 2^23 (every coordinate, alpha and pen position the screens
+// draw with): the same result, halfway cases away from zero. v minus its truncation is exact there, so comparing it
+// with one half decides the rounding exactly as lroundf does. Anything larger, infinite or NaN goes to lroundf itself.
+inline int roundi(float v) {
+    if (!(fabsf(v) < 8388608.f)) return static_cast<int>(lroundf(v));
+    const int i = static_cast<int>(v);   // toward zero
+    const float f = v - static_cast<float>(i);
+    return f >= 0.5f ? i + 1 : f <= -0.5f ? i - 1 : i;
+}
 
 // 0xRRGGBB colors.
 namespace col {
@@ -22,6 +33,7 @@ enum class Align : uint8_t { Left, Center, Right };
 enum class Base : uint8_t { Top, Middle, Alphabetic };
 
 struct Font;
+class Recording;
 
 struct PlateStyle {
     uint32_t fill = col::raised, fill2 = col::raised;
@@ -119,11 +131,28 @@ public:
                      bool overBlack = false);
 
 private:
+    friend class Recording;
     Canvas() = default;
     uint16_t& at(int x, int y) { return px_[org_ + x * sx_ + y * sy_]; }
     uint16_t enc(uint16_t c) const { return swap_ ? static_cast<uint16_t>(c << 8 | c >> 8) : c; }
     uint16_t dec(uint16_t c) const { return enc(c); }
     void fill565(int x0, int y0, int x1, int y1, uint16_t c);   // device coordinates, clipped, opaque
+    // Columns [x0, x1) of rows [y0, y1), row y in col[y - y0] (native RGB565): device coordinates, clipped, opaque.
+    // On a band, where a column's rows run along memory, each column is written a word (two pixels) at a time.
+    static constexpr int kRun = 48;   // the most rows written that way (a band: the dock's 32, the handheld's 48)
+    void fillPattern(int x0, int y0, int x1, int y1, const uint16_t* col);
+    // Device rectangle [x0, x1) × [y0, y1), already clipped, blended toward c (native RGB565) by a255 / 255 (0 < a255
+    // < 255): every pixel exactly as mix565 blends it, the color and factor worked out once, along memory first.
+    void blendRect(int x0, int y0, int x1, int y1, uint16_t c, int a255);
+    // seg's steps lo..hi from its first step's minor coordinate (quotient q, remainder rem), in I-bit arithmetic: 32
+    // bits for any line that fits a screen, 64 for the rest (gfx2d.cpp).
+    template <typename I>
+    void segSteps(int lo, int hi, int b, bool steep, int sx, int sy, int x0, int y0, I q, I rem, I major2, I minor2,
+                  uint16_t c, int a255);
+    // A faded seg's blocks, each pixel visited once and blended as many times as blocks cover it (gfx2d.cpp).
+    template <typename I>
+    void fadedSeg(int lo, int hi, int b, bool steep, int sm, int sn, int m0, int n0, I q, I rem, I major2, I minor2,
+                  uint16_t c, int a255);
     bool outside(int x0, int y0, int x1, int y1) const { return x1 <= cx0_ || x0 >= cx1_ || y1 <= cy0_ || y0 >= cy1_; }
 
     uint16_t* px_ = nullptr;
@@ -131,6 +160,63 @@ private:
     bool swap_ = false;
     int bx0_ = 0, by0_ = 0, bx1_ = 0, by1_ = 0;   // what the buffer covers, device coordinates, [x0, x1)
     int cx0_ = 0, cy0_ = 0, cx1_ = 0, cy1_ = 0;   // clip, within that
+    Recording* rec_ = nullptr;   // set: every drawing call is recorded there, not drawn (Recording::begin)
+};
+
+// A frame's drawing, recorded once and played back band by band. The dock draws its screen in bands of rows; recorded,
+// the screens' code runs once a frame instead of once a band, and each band plays only the calls that reach its rows.
+// Each band also gets a hash of those calls, in order, with everything that decides their pixels (arguments, text,
+// sprite and pixel-art data, and the canvas's translation, clip and alpha): a band whose hash is the one a frame
+// buffer already shows needn't be drawn or copied again. A call's rows are worked out from the same arithmetic the
+// call draws with, so a band plays every call that can touch it.
+//
+// Every call but the blits can be recorded (a blit's source may change before playback). A frame that blits, starts
+// with anything but clear() (the band would show what the last band drawn left), or doesn't fit, ends false: draw it
+// band by band directly instead. Big (kOps calls): allocate one and keep it (the dock's lives in PSRAM).
+class Recording {
+public:
+    static constexpr int kOps = 4096, kArena = 32 * 1024, kRefs = 16384, kBands = 32;
+    // Starts recording a frame of a w × h screen (whole-screen coordinates), cut into bands of bandRows rows: draw the
+    // frame into the canvas this returns, then call end().
+    Canvas begin(int w, int h, int bandRows);
+    // Finishes the frame; false when it can't be played back (see above).
+    bool end();
+    int bands() const { return nBands_; }
+    // The hash of the calls that reach band b: equal hashes, equal pixels.
+    uint64_t hash(int b) const { return bandHash_[b]; }
+    // Plays band b's calls into cv, a canvas over that band's rows (Canvas::strided, as the frame is drawn).
+    void play(Canvas& cv, int b) const;
+
+private:
+    friend class Canvas;
+    union Arg { float f; int32_t i; uint32_t u; };
+    struct Op {
+        uint8_t kind, b0, b1, flag;           // the call; the first and last band it reaches; a bool argument
+        uint8_t small[4];                     // small arguments (alignment, baseline)
+        int32_t ox, oy, cx0, cy0, cx1, cy1;   // the canvas's translation and clip at the call
+        float alpha;                          // and its alpha
+        const Font* font;
+        uint32_t data, len;                   // the call's bytes in the arena: text, steps, pixel art, a sprite
+        Arg a[12];
+    };
+    static constexpr int kInkRows = 64;
+    // A call's slot, zeroed, with the canvas's state (null when the recording is full or has failed).
+    Op* add(const Canvas& cv, uint8_t kind);
+    // n bytes of the arena for op's data, zeroed (null when it's full).
+    uint8_t* reserve(Op* op, size_t n);
+    // Keeps op when it can touch any of rows [y0, y1) (within the clip unless clipped is false): hashes it into each
+    // band it reaches. A call that touches no row changes no pixel and is dropped.
+    void keep(Op* op, int y0, int y1, const Canvas& cv, bool clipped = true);
+    void fail() { ok_ = false; }
+
+    Op ops_[kOps];
+    alignas(4) uint8_t arena_[kArena];
+    uint16_t refs_[kRefs];                 // band b plays ops_[refs_[k]] for k in [first_[b], first_[b + 1])
+    uint16_t first_[kBands + 1];
+    uint16_t count_[kBands];
+    uint64_t bandHash_[kBands];
+    int nOps_ = 0, arenaUsed_ = 0, refsUsed_ = 0, nBands_ = 0, rows_ = 1;
+    bool ok_ = false;
 };
 
 // Optional timing of the drawing primitives (the device's "p" command): point clock at a cycle counter and each
