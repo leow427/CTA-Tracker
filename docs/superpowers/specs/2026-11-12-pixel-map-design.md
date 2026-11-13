@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-12
 - **Owner:** Leo
-- **Status:** Built in the mockups (2026-11-12); waiting on Leo's pick of a style
+- **Status:** Built in the mockups (2026-11-12). Leo picked Quiet, now on the dock (2026-11-13)
 - **Relates to:** the dock mockup `docs/ideas/2026-11-11-dock-ui-mockup.html` (its map page; picture
   `docs/ideas/2026-11-11-dock-ui-map.png`), the handheld mockup `docs/ideas/2026-11-04-handheld-ui-mockup.html` (its
   stretch-goal map page), and the main spec `2026-11-03-cta-tracker-design.md` (sections 7 and 8)
@@ -326,3 +326,38 @@ A fresh reviewer read the finished work cold and found the following, all now fi
 
 Kept as designed: streets tagged `tunnel=building_passage` stay hidden, under the "roads in tunnels are left out"
 rule. That is about 5.6 km in all, for example 293 m of W Washington St.
+
+## 9. On the dock (2026-11-13)
+
+Leo picked **Quiet**, and the dock firmware draws it. The handheld's map screen is still a stretch goal.
+
+### 9.1 Data and code
+
+- **Data:** `tools/basemap_build.py` also writes `firmware/lib/cta/src/basemap_data.cpp`. It's the same packing
+  without side streets (Quiet never draws them): 379 KB of flash.
+  - The mockups' script comes out byte-identical.
+  - The dock firmware is 2.74 MB of its 3.34 MB partition (81.9%).
+- **Rasterizer:** `firmware/lib/cta/src/basemap.h/.cpp` is the rasterizer ported from `2026-11-12-pixel-map.js`.
+  - It unpacks the map once into PSRAM. With the map unpacked, 1.87 MB of PSRAM is free.
+  - `basemapRaster` fills a cell grid for a `MapFrame` and a pan, anchored to the map.
+- **Drawing call:** `Canvas::cells` in `gfx2d` draws a cell grid in a palette, as runs of `fill565`. It is recorded
+  as one call that references the grid (not copied), with a version number standing in for its cells in the bands'
+  hashes. That keeps the map inside the recording's 4,096 calls.
+
+### 9.2 Changes in `dock_ui.cpp`
+
+- **Basemap:** the grid covers the map area plus 240 px each way and is made at an anchor pan, so a drag only moves
+  it. It's rasterized again when the picks' frame changes or a pan nears the margin.
+- **Lines:** the Brown and Purple offsets are gone, so every line runs on its real track. Unpicked lines are drawn
+  solid, 40% of the way from the casing to their color.
+- **Credit:** a pixel (c) with "OpenStreetMap contributors" at the map's bottom left. The 12 px font has no "©".
+- **L tracks:** they stay at `train_map.cpp`'s 5 m. That's under a fifth of a cell at the usual framing (about
+  28 m cells).
+
+### 9.3 Checks
+
+- **Native test:** `firmware/native/test/test_basemap` covers the landmarks, the stations in the expressway medians,
+  and cells staying with the map as it pans. All native tests pass.
+- **Preview:** `firmware/dock/tools/preview.cpp` renders the map the same as the mockup's Quiet style. Its recorded,
+  band-by-band frames match the plain picture on every screen, including the map and a panned map.
+- **On the board:** the map frame took 29 ms (6 ms of it drawing), checked with `frame_grab`.
