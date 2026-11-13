@@ -70,6 +70,10 @@
       <div><span class="lbl">Picker step</span>
         <div class="seg" id="segStep"><button data-v="1">1 Kind</button><button data-v="2">2 Line / route</button><button data-v="3">3 Direction</button><button data-v="4">4 Stop</button></div>
         <div class="seg" id="segKind" style="margin-top:6px"><button data-v="train">Train</button><button data-v="bus">Bus</button></div></div>
+      <div><span class="lbl">Map style (Chicago from OpenStreetMap)</span>
+        <div class="seg" id="segMapStyle"><button data-v="night">Night</button><button data-v="navy">Navy</button><button data-v="bit8">8-bit</button><button data-v="blueprint">Blueprint</button><button data-v="quiet">Quiet</button></div>
+        <p class="hint" id="mapStyleNote" style="margin:6px 0 0"></p>
+        <div class="seg" id="segMapZoom" style="margin-top:6px"><button data-v="picks">Framed on the picks</button><button data-v="wide">Wider</button><button data-v="city">Whole city</button></div></div>
       <div><span class="lbl">Trackie's mood</span>
         <div class="seg" id="segMood"><button data-v="happy">Happy</button><button data-v="hyped">Hyped</button><button data-v="worried">Worried</button><button data-v="sad">Sad</button><button data-v="sleepy">Sleepy</button></div></div>
       <div><span class="lbl">Weather</span>
@@ -111,6 +115,8 @@
   </div>
 </div>
 
+<script src="2026-11-12-chicago-basemap.js"></script>
+<script src="2026-11-12-pixel-map.js"></script>
 <script>
 (() => {
 'use strict';
@@ -128,7 +134,7 @@ const PET = { x: 16, y: 14, s: 2 };                                // Trackie at
 const BUBBLE = { x: 104, cy: 44 };
 const PK = { top: 96, row: 76, rowH: 64 };                         // picker header height and stop-list pitch
 const MAP_BTN = { x: 306, y: 18, w: 44, h: 40 };                   // in the strip, between the bubble and the time
-const MAP = { top: STRIP_H, padX: 56, padTop: 50, padBottom: 130, track: 6, casing: 12, maxPerLine: 3, car: 3 };
+const MAP = { top: STRIP_H, padX: 56, padTop: 50, padBottom: 130, track: 6, casing: 12, maxPerLine: 3, car: 3, cell: 3 };   // cell: the pixel map's 3 px
 const RECENTER = { x: W - 16 - 52, y: H - 20 - 48, w: 52, h: 48 };
 const SWIPE_PX = 60;
 const LONG_PRESS_MS = 600;
@@ -361,11 +367,11 @@ const ZONES = [
   [['Clark & Grace', 41.950917, -87.659607], ['Clark & Waveland', 41.949106, -87.658133], ['Clark & Addison', 41.947362, -87.656756],
     ['Clark & Cornelia', 41.945662, -87.655361], ['Clark & Roscoe', 41.943617, -87.653725], ['Clark & School/Aldine', 41.941897, -87.652317], ['Clark & Belmont', 41.940088, -87.650909]],
 ];
-// The L near the zones: data/train_shapes.json clipped to the area (on the device: the whole 15 KB table, culled per frame).
-const SHAPES = {"Brn":[[[41.96605,-87.71269],[41.96626,-87.68851],[41.96643,-87.67767],[41.96639,-87.67696],[41.96624,-87.67639],[41.9658,-87.6757],[41.96548,-87.67545],[41.96492,-87.67523],[41.94514,-87.67467],[41.94456,-87.67451],[41.94424,-87.6743],[41.94387,-87.67368],[41.94369,-87.67264],[41.94395,-87.65522],[41.94375,-87.65442],[41.94343,-87.65401],[41.94269,-87.65356],[41.94218,-87.65346],[41.91407,-87.65251]]],"P":[[[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91407,-87.65251]]],"Red":[[[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91309,-87.65249]]]};
-// The 22 along Clark (on the device: the getpatterns points, already cached for the LED row).
-const BUS_SHAPE = [[41.9614, -87.6681], [41.954247, -87.662197], [41.95267, -87.661014], [41.950917, -87.659607], [41.947362, -87.656756],
-  [41.943617, -87.653725], [41.940088, -87.650909], [41.9363, -87.6479], [41.9325, -87.6455], [41.9259, -87.6405]];
+// The L and the 22, from CTA's GTFS at 2 m (2026-11-12-chicago-basemap.js); on the device the train table and the
+// cached getpatterns points.
+const SHAPES = {};
+for (const sh of CHI_BASEMAP.lines) (SHAPES[sh.route] ||= []).push(sh.points);
+const BUS_SHAPE = CHI_BASEMAP.bus22;
 const MOOD_SAYS = { happy: 'All on time', hyped: 'Go now!', worried: 'Running late', sad: 'Uh oh…', sleepy: 'Sleepy…' };
 const REASON = { happy: 'Red in 3 min', hyped: 'Red in 2 min!', worried: '22 is 4 min late', sad: 'Red Line alert', sleepy: 'Night hours' };
 const WEATHER = { clear: ['sun', '41°', 0xffd95a, 0], rain: ['cloud', '48°', 0x9db0d8, 61], snow: ['snow', '27°', 0xe8eef8, 73] };
@@ -599,10 +605,15 @@ const pickerMaxScroll = st => { const n = (st.picker.kind === 'bus' ? BUS_STOPS 
 /* ---------- map mode: the 3 picked stops' approach zones, their lines, and up to 3 live vehicles per line ---------- */
 const ON_BLACK = {};
 const onBlack = route => ON_BLACK[route] ??= lifted(LINE[route], 0x000000, 3, 0);   // big line color on black (the app's rule)
-const OFFSET = { Brn: 6, P: 12 };   // lines sharing the North Side tracks sit side by side, like a transit map
 const CASING = 0x050d1d;
+// A line nobody picked: its on-black color DIM of the way up from the casing, drawn solid. (Drawing it at partial alpha
+// would stack up where seg's blocks overlap, and come out nearly full strength.)
+const DIM = 0.4;
+const DIMMED = {};
+const dimmed = route => DIMMED[route] ??= (() => { const a = CASING, b = onBlack(route), ch = sh => Math.round(((a >> sh) & 255) + (((b >> sh) & 255) - ((a >> sh) & 255)) * DIM) << sh; return ch(16) | ch(8) | ch(0); })();
 // The frame: every picked zone fits between the pads, at one scale for both axes. Recomputed only when picks change.
-function mapFrame(secs) {
+// zoom: the mockup's preview zoom (1 on the device, which always frames the picks).
+function mapFrame(secs, zoom = 1) {
   const zs = secs.map((s, i) => s && ZONES[i]).filter(Boolean), pts = (zs.length ? zs : ZONES).flat();
   const la = pts.map(p => p[1]), lo = pts.map(p => p[2]);
   const lat0 = (Math.min(...la) + Math.max(...la)) / 2, lon0 = (Math.min(...lo) + Math.max(...lo)) / 2;
@@ -611,7 +622,11 @@ function mapFrame(secs) {
   const boxW = W - 2 * MAP.padX, boxH = H - MAP.top - MAP.padTop - MAP.padBottom;
   const pxPerKm = Math.min(boxW / Math.max(spanX, 0.5), boxH / Math.max(spanY, 0.5));
   const cx = W / 2, cy = MAP.top + MAP.padTop + boxH / 2;
-  return { proj: (lat, lon, pan) => [Math.round(cx + (lon - lon0) * kmX * pxPerKm + pan.x), Math.round(cy - (lat - lat0) * kmY * pxPerKm + pan.y)], pxPerKm };
+  return mapFrameOf({ lat0, lon0, kmX, kmY, pxPerKm: pxPerKm * zoom, cx, cy });
+}
+function mapFrameOf(frame) {
+  const { lat0, lon0, kmX, kmY, pxPerKm, cx, cy } = frame;
+  return { frame, pxPerKm, proj: (lat, lon, pan) => [Math.round(cx + (lon - lon0) * kmX * pxPerKm + pan.x), Math.round(cy - (lat - lat0) * kmY * pxPerKm + pan.y)] };
 }
 // Where a vehicle sits: one that lights LED k is between stop k-1 and stop k (its next stop), so the map and the
 // LEDs always agree. LED 1's vehicle is still short of the zone's first stop.
@@ -623,31 +638,54 @@ function vehiclesFor(s) {   // up to MAP.maxPerLine, nearest the stop first
   const ks = [...s.leds]; if (s.arr[0].live && s.arr[0].min <= 3 && !ks.includes(7)) ks.push(7);
   return ks.sort((a, b) => b - a).slice(0, MAP.maxPerLine);
 }
+// The pixel map of Chicago (2026-11-12-pixel-map.js): cells rasterized once per frame and pan, painted as runs of
+// fillRect in the chosen style. The mockup keeps the painted layer until the cells or the style change; the device
+// would paint the runs band by band. MAP_ZOOM is the mockup's preview zoom; the device always frames the picks.
+const MAP_ZOOM = { picks: 1, wide: 0.3, city: 0.11 };
+let basemapLayer = null;
+function drawBasemap(cv, frame, pan, style) {
+  const s = PixelMap.STYLES[style] ? style : 'night', area = { x: 0, y: MAP.top, w: W, h: H - MAP.top };
+  const ras = PixelMap.cached(frame, pan, area, MAP.cell, { lod: PixelMap.STYLES[s].lod });
+  if (!basemapLayer || basemapLayer.ras !== ras || basemapLayer.style !== s) {
+    const c = basemapLayer ? basemapLayer.canvas : Object.assign(document.createElement('canvas'), { width: W, height: H });
+    const g = c.getContext('2d'); g.clearRect(0, 0, W, H);
+    PixelMap.paint(ras, s, (x, y, w, h, rgb) => { g.fillStyle = hex(rgb); g.fillRect(x, y, w, h); }, area);
+    basemapLayer = { ras, style: s, canvas: c };
+  }
+  cv.ga(1); cv.c.drawImage(basemapLayer.canvas, 0, 0);
+}
 function drawMap(cv, st, ms) {
   drawStrip(cv, st, ms);
   const secs = sectionsFor(st), stale = st.data === 'lost', pan = st.mapPan;
-  const { proj } = mapFrame(secs);
+  const { proj, frame } = mapFrame(secs, MAP_ZOOM[st.mapZoom] || 1);
   const picked = new Set(secs.filter(s => s && !s.bus).map(s => s.route)), busPicked = secs.some(s => s && s.bus);
   cv.c.save(); cv.c.beginPath(); cv.c.rect(0, MAP.top, W, H - MAP.top); cv.c.clip();
-  const lineAt = (pts, off, b, rgb, a) => { let prev = null; for (const [la, lo] of pts) { const [x, y] = proj(la, lo, pan); if (prev) cv.seg(prev[0] + off, prev[1], x + off, y, b, rgb, a); prev = [x, y]; } };
-  // track: casings under everything, then the lines; lines nobody picked are dimmed
-  const order = ['P', 'Red', 'Brn'];
-  for (const r of order) for (const run of SHAPES[r] || []) lineAt(run, OFFSET[r] || 0, MAP.casing, CASING, 1);
-  if (busPicked) lineAt(BUS_SHAPE, 0, 10, CASING, 1);
-  for (const r of order) for (const run of SHAPES[r] || []) lineAt(run, OFFSET[r] || 0, MAP.track, onBlack(r), picked.has(r) ? 1 : 0.3);
-  if (busPicked) lineAt(BUS_SHAPE, 0, 4, kBusOutline, 1);
+  // Chicago under everything, in 3 px cells (2026-11-12-pixel-map.js)
+  drawBasemap(cv, frame, pan, st.mapStyle);
+  // a segment only when its box meets the screen (the whole L is drawn now, not just the picks' part)
+  const lineAt = (pts, b, rgb, a) => { let prev = null; for (const [la, lo] of pts) { const [x, y] = proj(la, lo, pan);
+    if (prev && !(Math.max(prev[0], x) < -b || Math.min(prev[0], x) > W + b || Math.max(prev[1], y) < MAP.top - b || Math.min(prev[1], y) > H + b)) cv.seg(prev[0], prev[1], x, y, b, rgb, a);
+    prev = [x, y]; } };
+  // track: casings under everything, then the lines, each on its real track (lines that share a track overlap): the
+  // ones nobody picked first and dimmed, then the picked ones, the first section's line last so it's on top
+  const firstPicked = secs.filter(s => s && !s.bus).map(s => s.route);
+  const order = Object.keys(SHAPES).sort((a, b) => (picked.has(a) - picked.has(b)) || (firstPicked.indexOf(b) - firstPicked.indexOf(a)));
+  for (const r of order) for (const run of SHAPES[r]) lineAt(run, MAP.casing, CASING, 1);
+  if (busPicked) lineAt(BUS_SHAPE, 10, CASING, 1);
+  for (const r of order) for (const run of SHAPES[r]) lineAt(run, MAP.track, picked.has(r) ? onBlack(r) : dimmed(r), 1);
+  if (busPicked) lineAt(BUS_SHAPE, 4, kBusOutline, 1);
   // each zone's stops: small stations along the approach
-  secs.forEach((s, i) => { if (!s) return; const off = s.bus ? 0 : OFFSET[s.route] || 0;
+  secs.forEach((s, i) => { if (!s) return; const off = 0;
     ZONES[i].slice(0, 6).forEach(([, la, lo]) => { const [x, y] = proj(la, lo, pan); cv.dot(x + off, y, s.bus ? 9 : 11, CASING); cv.dot(x + off, y, s.bus ? 5 : 7, col.white); }); });
   // live vehicles, at most 3 per line, faded when the data is old
-  secs.forEach((s, i) => { if (!s) return; const off = s.bus ? 0 : OFFSET[s.route] || 0, lineRgb = s.bus ? kBusOutline : onBlack(s.route);
+  secs.forEach((s, i) => { if (!s) return; const off = 0, lineRgb = s.bus ? kBusOutline : onBlack(s.route);
     for (const k of vehiclesFor(s)) {
       const [la, lo] = vehicleAt(ZONES[i], k), [x, y] = proj(la, lo, pan), rows = s.bus ? BUSCAR : CAR;
       const saved = cv.alpha; if (stale) cv.alpha *= 0.4;
       PAL.A = lineRgb; cv.sprite(rows, x + off - 4 * MAP.car, y - Math.floor(3.5 * MAP.car), MAP.car); cv.alpha = saved;
     } });
   // the picked stops: numbered like their section and LED row, with the stop and its next arrival
-  const pins = secs.map((s, i) => { if (!s) return null; const z = ZONES[i][6], [x, y] = proj(z[1], z[2], pan); const ox = x + (s.bus ? 0 : OFFSET[s.route] || 0); return { s, i, x: ox, y, ax: ox, ay: y }; }).filter(Boolean);
+  const pins = secs.map((s, i) => { if (!s) return null; const z = ZONES[i][6], [x, y] = proj(z[1], z[2], pan); const ox = x; return { s, i, x: ox, y, ax: ox, ay: y }; }).filter(Boolean);
   // Pins closer than a pin apart (Belmont's Red platform and Clark & Belmont are 200 m apart) spread sideways, with a
   // short leader back to the real spot.
   for (let it = 0; it < 4; it++) for (const p of pins) for (const q of pins) {
@@ -684,6 +722,7 @@ function drawMap(cv, st, ms) {
     hit(px, py, size, size, () => setScreen('home')); hit(lx, ly, lw, lh, () => setScreen('home'));
   }
   cv.c.restore();
+  cv.text(F(800, 12), PixelMap.credit, 10, H - 6, col.dimInk, 'left', 'alphabetic');   // the map data's license asks for it
   if (!pins.length) {
     cv.plate(W / 2 - 150, 380, 300, 70, { fill: col.navy, rim: col.mist, rimAlpha: 0.25 });
     cv.text(F(900, 20), 'No stops picked yet', W / 2, 396, col.white, 'center');
@@ -760,6 +799,7 @@ function drawLeds(ctx, st, ms) {
 const $ = id => document.getElementById(id);
 const scr = $('screen'), cv = new Canvas(scr.getContext('2d')), ledCtx = $('leds').getContext('2d');
 const S = { screen: 'home', mood: 'happy', weather: 'clear', data: 'live', empty: 'none', night: false, poke: 0, mapPan: { x: 0, y: 0 },
+  mapStyle: 'night', mapZoom: 'picks',
   picker: { step: 1, kind: 'train', line: 'Red', dir: 1, section: 0, scroll: 0 } };
 let hits = [];
 function poke() { S.poke = performance.now(); }
@@ -809,6 +849,8 @@ bindSeg('segStep', v => { S.screen = 'picker'; S.picker.step = +v; S.picker.scro
 bindSeg('segKind', v => { S.screen = 'picker'; S.picker.kind = v; S.picker.scroll = 0; if (S.picker.step === 1) S.picker.step = 2; });
 bindSeg('segMood', v => { S.mood = v; S.night = false; if (S.screen !== 'map') S.screen = 'home'; });
 bindSeg('segWeather', v => { S.weather = v; });
+bindSeg('segMapStyle', v => { S.mapStyle = v; S.screen = 'map'; });
+bindSeg('segMapZoom', v => { S.mapZoom = v; S.mapPan = { x: 0, y: 0 }; S.screen = 'map'; });
 bindSeg('segData', v => { S.data = v; if (S.screen !== 'map') S.screen = 'home'; });
 bindSeg('segEmpty', v => { S.empty = v; if (S.screen !== 'map') S.screen = 'home'; });
 bindSeg('segSize', v => $('device').classList.toggle('real', v === 'real'));
@@ -819,6 +861,7 @@ function syncUI() {
   set('segScreen', S.screen); set('segStep', S.screen === 'picker' ? S.picker.step : ''); set('segKind', S.screen === 'picker' ? S.picker.kind : '');
   set('segMood', S.night ? '' : S.mood); set('segWeather', S.weather); set('segData', S.data); set('segEmpty', S.empty);
   set('segSize', $('device').classList.contains('real') ? 'real' : 'fit'); $('night').checked = S.night;
+  set('segMapStyle', S.mapStyle); set('segMapZoom', S.mapZoom); $('mapStyleNote').textContent = PixelMap.STYLES[S.mapStyle].note;
 }
 
 /* ---------- every state, drawn by the same code ---------- */
@@ -828,12 +871,14 @@ const STATES = [
   ['Wi-Fi lost', { data: 'lost' }], ['Section 3 empty', { empty: 'one' }], ['No stops picked yet', { empty: 'all' }],
   ['Map', { screen: 'map' }], ['Map, hyped, rain', { screen: 'map', mood: 'hyped', weather: 'rain' }], ['Map, Wi-Fi lost', { screen: 'map', data: 'lost' }],
   ['Map, section 3 empty', { screen: 'map', empty: 'one' }],
+  ...Object.entries(PixelMap.STYLES).flatMap(([k, v]) => [[`Map style: ${v.name}`, { screen: 'map', mapStyle: k }],
+    [`Map style: ${v.name}, whole city`, { screen: 'map', mapStyle: k, mapZoom: 'city' }]]),
   ['Picker 1: kind', { screen: 'picker', picker: { step: 1 } }], ['Picker 2: train line', { screen: 'picker', picker: { step: 2 } }],
   ['Picker 2: bus route', { screen: 'picker', picker: { step: 2, kind: 'bus' } }], ['Picker 3: direction', { screen: 'picker', picker: { step: 3 } }],
   ['Picker 4: stop', { screen: 'picker', picker: { step: 4, scroll: 532 } }], ['Pairing passkey', { screen: 'pair' }],
   ['No Wi-Fi saved', { screen: 'nowifi' }], ['No API key', { screen: 'nokey' }],
 ];
-function stateFor(o) { return { ...S, mood: 'happy', weather: 'clear', data: 'live', empty: 'none', night: false, poke: 0, screen: 'home', mapPan: { x: 0, y: 0 }, ...o,
+function stateFor(o) { return { ...S, mood: 'happy', weather: 'clear', data: 'live', empty: 'none', night: false, poke: 0, screen: 'home', mapPan: { x: 0, y: 0 }, mapZoom: 'picks', ...o,
   picker: { step: 1, kind: 'train', line: 'Red', dir: 1, section: 0, scroll: 0, ...(o.picker || {}) } }; }
 function buildSheet() {
   const off = document.createElement('canvas'); off.width = W; off.height = H; const ocv = new Canvas(off.getContext('2d'));
@@ -853,6 +898,11 @@ function buildSheet() {
 // URL hash picks a state for screenshots: #state=3
 Promise.race([Promise.all([document.fonts.load('900 34px Nunito'), document.fonts.load('800 16px Nunito')]), new Promise(r => setTimeout(r, 2500))]).catch(() => {}).then(() => {
   const m = location.hash.match(/state=(\d+)/); if (m && STATES[+m[1]]) Object.assign(S, stateFor(STATES[+m[1]][1]));
+  // #...&mapstyle=bit8&zoom=city&pan=40,-120 for picture exports
+  const ms = location.hash.match(/mapstyle=(\w+)/), mz = location.hash.match(/zoom=(\w+)/), mp = location.hash.match(/pan=(-?\d+),(-?\d+)/);
+  if (ms && PixelMap.STYLES[ms[1]]) S.mapStyle = ms[1];
+  if (mz && MAP_ZOOM[mz[1]]) S.mapZoom = mz[1];
+  if (mp) S.mapPan = { x: +mp[1], y: +mp[2] };
   syncUI(); buildSheet();
   if (/device/.test(location.hash)) { // the screen with the LED faceplate, for PNG exports: #state=0&device
     const d = $('device'); document.body.style.cssText = 'margin:0;background:#0b0d12'; document.body.replaceChildren(d);
