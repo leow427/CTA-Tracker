@@ -10,9 +10,10 @@
 // default picks back, "g" times the drawing primitives over the next frame. Tearing diagnostics: "0" all off, "1" freeze
 // the screen, "2" a static test pattern, "3" Wi-Fi off/on, "4" single buffer, "5" the next panel timing, "6" the panel restart after a late frame off/on; "f" sends the frame on screen
 // (tools/frame_grab.py), "l" prints the LED colors, "w" checks that the dock's Wi-Fi network is on the
-// air, "x" swaps sections 1 and 2 (a real flash write).
+// air, "x" swaps sections 1 and 2 (a real flash write), "z" powers down (LEDs and backlight off, deep sleep).
 #include <Arduino.h>
 #include <esp_heap_caps.h>
+#include <esp_sleep.h>
 #include <esp_task_wdt.h>
 #include <time.h>
 
@@ -29,6 +30,10 @@
 #include "net.h"
 #include "pins.h"
 #include "store.h"
+#ifdef PERF_LOG
+#include "perf_log.h"
+#include "stress.h"
+#endif
 
 namespace {
 
@@ -39,6 +44,12 @@ cta::PickedStop picks[cta::kDockStops];
 uint32_t dataVersion = 0, listsVersion = 0;
 bool profileNext = false, printLeds = false;
 bool wifiOffDiag = false, forceFrame = false;
+#ifdef PERF_LOG
+// The perf log's view of the loop: a picker list asked for (and when), and boot milestones (ms since boot, 0 = not yet).
+dock::Request listWanted = dock::Request::None;
+uint32_t listAskedMs = 0;
+uint32_t bootWifiMs = 0, bootClockMs = 0, bootLoadedMs = 0;
+#endif
 
 // ---------- diagnostics for the tearing (keys 0–5) ----------
 // The mode's name in the bottom left, so Leo sees which one is on.
@@ -122,6 +133,10 @@ void setPicks() {
 void pollSerial() {
     while (Serial.available()) {
         const int c = Serial.read();
+#ifdef PERF_LOG
+        if (c == 'S') { stress::start(); continue; }   // the stress test (dock performance analysis)
+        if (c == 'X') { stress::stop(); continue; }
+#endif
         if (c == 'm') {
             app.debugMood = app.debugMood >= static_cast<int>(cta::Mood::Hyped) ? -1 : app.debugMood + 1;
             Serial.printf("debug: mood %d%s\n", app.debugMood, app.debugMood < 0 ? " (live)" : "");
@@ -168,6 +183,14 @@ void pollSerial() {
         } else if (c == 'd') {
             cta::defaultPicks(picks);
             setPicks();
+        } else if (c == 'z') {   // power down: LEDs and backlight off, then deep sleep until reset or power cycle
+            Serial.println("dock: powering down (reset or replug to wake)");
+            cta::LedRow off[cta::kLedRows];
+            leds::post(off, 0, true);   // night: every LED black
+            delay(300);
+            display::backlight(false);
+            Serial.flush();
+            esp_deep_sleep_start();
         }
     }
 }
@@ -175,8 +198,16 @@ void pollSerial() {
 }  // namespace
 
 void setup() {
+#ifdef PERF_LOG
+    // A TX buffer, so the perf log's whole lines (up to about 400 bytes) go out in the background: without one, a
+    // line only fits the UART's 128-byte FIFO and a blocking write would hold the loop for 20 ms.
+    Serial.setTxBufferSize(4096);
+#endif
     Serial.begin(115200);
     delay(200);
+#ifdef PERF_LOG
+    perf::begin();
+#endif
     Serial.printf("\ndock: reset reason %d, internal free %u, psram free %u\n", static_cast<int>(esp_reset_reason()),
                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
     // As on the handheld: the task watchdog warns instead of rebooting, and doesn't watch the idle tasks. Core 0's
@@ -201,9 +232,41 @@ void setup() {
 void loop() {
     static uint32_t lastHalf = UINT32_MAX, lastMinute = UINT32_MAX, lastLeds = 0, statT = 0, frames = 0, sumDraw = 0;
     static bool dirty = true;
+#ifdef PERF_LOG
+    // The perf log's picture of the data: picked sections, those with arrivals, the oldest arrivals' age.
+    int picked = 0, withData = 0, oldest = -1;
+    {
+        const uint32_t now = net::unixNow();
+        for (const dock::Section& s : data->sec) {
+            if (!s.pick.id[0]) continue;
+            ++picked;
+            if (!s.rec.ts) continue;
+            ++withData;
+            const int age = now > s.rec.ts ? static_cast<int>(now - s.rec.ts) : 0;
+            if (age > oldest) oldest = age;
+        }
+        const uint32_t m = millis();
+        if (!bootWifiMs && data->wifiUp) bootWifiMs = m;
+        if (!bootClockMs && now) bootClockMs = m;
+        if (!bootLoadedMs && now && picked && withData == picked) bootLoadedMs = m;
+        static uint8_t lastPhase = 0;
+        stress::tick(app, m, now && picked && withData == picked);
+        if (stress::phase() == 1 && lastPhase == 0)
+            perf::event("boot,wifi=%u,clock=%u,loaded=%u", static_cast<unsigned>(bootWifiMs), static_cast<unsigned>(bootClockMs),
+                        static_cast<unsigned>(bootLoadedMs));
+        lastPhase = stress::phase();
+    }
+#endif
     // touch
     display::Touch t;
+#ifdef PERF_LOG
+    while (display::nextTouch(t) || stress::nextTouch(t)) {
+        perf::touch();
+        if (t.kind == display::Touch::Up) perf::tapUp(t.ms);
+        else if (t.kind == display::Touch::Move) perf::move(t.ms);
+#else
     while (display::nextTouch(t)) {
+#endif
         if (t.kind != display::Touch::Move)   // for checking the touch mapping: where a press starts and ends
             Serial.printf("touch: %s %d,%d (%d finger%s)\n", t.kind == display::Touch::Down ? "down" : "up", t.x, t.y,
                           t.fingers, t.fingers == 1 ? "" : "s");
@@ -228,13 +291,28 @@ void loop() {
                 data->busPathN[i] = 0;
             }
     }
-    if (net::readLists(*lists, listsVersion)) dirty = true;
+    if (net::readLists(*lists, listsVersion)) {
+        dirty = true;
+#ifdef PERF_LOG
+        const dock::Load st = listWanted == dock::Request::Routes ? lists->routesState
+                            : listWanted == dock::Request::Dirs ? lists->dirsState
+                            : listWanted == dock::Request::Stops ? lists->stopsState : dock::Load::Loading;
+        if (listWanted != dock::Request::None && st != dock::Load::Loading) {
+            perf::listLoaded(millis() - listAskedMs);
+            listWanted = dock::Request::None;
+        }
+#endif
+    }
     if (app.request != dock::Request::None) {
         // Show "Loading" at once; the network task publishes the list when it's in.
         if (app.request == dock::Request::Routes) lists->routesState = dock::Load::Loading;
         if (app.request == dock::Request::Dirs) lists->dirsState = dock::Load::Loading;
         if (app.request == dock::Request::Stops) lists->stopsState = dock::Load::Loading;
         net::request(app.request, app.picker.line, app.picker.dirName);
+#ifdef PERF_LOG
+        listWanted = app.request;
+        listAskedMs = millis();
+#endif
         app.request = dock::Request::None;
         dirty = true;
     }
@@ -253,6 +331,9 @@ void loop() {
     dock::Clock clock;
     clock.now = net::unixNow();
     clock.night = clock.now && cta::inNightHours(localMinute(clock.now), cta::kNightStartMin, cta::kNightEndMin);
+#ifdef PERF_LOG
+    if (stress::running()) clock.night = false;   // runs keep daytime polling and look at any hour
+#endif
     net::setSlow(clock.night);
     if (ms / 500 != lastHalf) { lastHalf = ms / 500; dirty = true; }
     if (clock.now / 60 != lastMinute) { lastMinute = clock.now / 60; dirty = true; }
@@ -287,6 +368,13 @@ void loop() {
                           static_cast<unsigned>(cu / 1000), static_cast<unsigned>(wu / 1000));
         }
         ++frames;
+#ifdef PERF_LOG
+        {
+            uint32_t du, cu, wu;
+            display::lastTimes(du, cu, wu);
+            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis());
+        }
+#endif
     }
     // the LED rows: their state goes to the LED task (leds.cpp), which breathes LED 7 on its own 25 Hz tick
     if (ms - lastLeds >= 200 || dataChanged) {
@@ -315,10 +403,17 @@ void loop() {
     static uint32_t scanT = 0;
     // The panel's scan: late refills show as a shaking, torn picture. Every second for the first 2 minutes (boot is
     // when the radio, flash and network are busiest), then every 5 s.
+#ifdef PERF_LOG
+    if (ms - scanT >= 1000u) {   // every second, for the perf log
+#else
     if (ms - scanT >= (ms < 120000 ? 1000u : 5000u)) {
+#endif
         scanT = ms;
         uint32_t f, late, gap, period;
         display::scanStats(f, late, gap, period);
+#ifdef PERF_LOG
+        perf::scan(late);
+#endif
         if (late) Serial.printf("scan: at %u ms, %u frames, %u late, longest %u us (period %u us)\n", ms, f, late, gap, period);
     }
     if (ms - statT >= 30000) {
@@ -329,5 +424,17 @@ void loop() {
                       ESP.getFreePsram(), net::requests());
         frames = sumDraw = 0;
     }
+#ifdef PERF_LOG
+    if (perf::due(ms)) {
+        perf::Inputs in;
+        in.phase = stress::phase();
+        in.picked = picked;
+        in.sections = withData;
+        in.dataAgeSec = oldest;
+        in.screen = static_cast<uint8_t>(app.screen);
+        perf::sample(ms, in);
+    }
+    perf::flush();
+#endif
     delay(2);
 }

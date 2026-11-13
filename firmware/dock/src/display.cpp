@@ -35,6 +35,7 @@ uint8_t exio = 0;
 constexpr int kBandRows = 32;
 uint16_t* band = nullptr;
 uint32_t lastCopyUs = 0, lastWaitUs = 0, lastDrawUs = 0, switchTimeouts = 0;
+int lastBandsCopied = 0;
 Diag diagMode = Diag::Normal;
 bool autoRecover = true;
 uint32_t recoverCount = 0;
@@ -326,6 +327,7 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     const int copies = diagMode == Diag::Pattern ? 2 : 1;   // the pattern goes into both buffers, then nothing moves
     for (int copy = 0; copy < copies; ++copy) {
     uint32_t copyUs = 0, drawUs = 0;
+    int copied = 0;
     for (int y0 = 0; y0 < dock::H; y0 += kBandRows) {
         ui::Canvas cv = dock::bandCanvas(band, y0, kBandRows, DISPLAY_ROTATE_CW);
         const uint32_t d0 = micros();
@@ -340,6 +342,7 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
             dock::copyBand(band, fbs[back], y0, kBandRows, DISPLAY_ROTATE_CW);
             hashes[back][b] = h;
             hashKnown[back][b] = true;
+            ++copied;
         }
         copyUs += micros() - c0;
     }
@@ -355,6 +358,7 @@ void render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     back ^= 1;
     lastCopyUs = copyUs;
     lastDrawUs = drawUs;
+    lastBandsCopied = copied;
     lastWaitUs = micros() - w0;
     }
 }
@@ -431,6 +435,8 @@ void scanStats(uint32_t& frames, uint32_t& late, uint32_t& maxGapUs_, uint32_t& 
     doneCount = lateCount = maxGapUs = 0;
 }
 
+void backlight(bool on) { exioWrite(EXIO_BACKLIGHT, on); }
+
 void dumpFrame() {
     if (!panel) return;
     const uint16_t* fb = fbs[back ^ 1];   // the one on screen
@@ -462,6 +468,7 @@ void dumpFrame() {
     }
     Serial.println("END");
 }
+int lastBands() { return lastBandsCopied; }
 void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs) {
     drawUs = lastDrawUs;
     copyUs = lastCopyUs;

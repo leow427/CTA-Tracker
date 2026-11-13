@@ -18,6 +18,9 @@
 #include "bus_parse.h"
 #include "cta_config.h"
 #include "local_time.h"
+#ifdef PERF_LOG
+#include "perf_log.h"
+#endif
 #include "schedule.h"
 #include "secrets.h"
 #include "store.h"
@@ -235,7 +238,7 @@ bool readBody(String& out) {
 
 // GETs url into body (unless null). Returns the HTTP status or a negative HTTPClient error. Never logs the URL (it
 // carries keys). keep: leave the connection open for the next request to the same host.
-int fetch(const char* url, String* body, bool keep) {
+int fetchNow(const char* url, String* body, bool keep) {
     conn->date = 0;
     char host[sizeof(conn->host)];
     hostOf(url, host, sizeof(host));
@@ -270,6 +273,29 @@ int fetch(const char* url, String* body, bool keep) {
         if (code < 0 && reused && attempt == 0) continue;   // the server had closed the idle connection
         return code;
     }
+}
+
+#ifdef PERF_LOG
+// The request's kind for the perf log, from its host (never the URL itself: it carries keys).
+char kindOf(const char* url, bool hasBody) {
+    if (strstr(url, "lapi.")) return hasBody ? 't' : 'c';
+    if (strstr(url, "bustracker")) return 'b';
+    if (strstr(url, "open-meteo")) return 'w';
+    if (strstr(url, "ipapi")) return 'g';
+    return 'a';
+}
+#endif
+int fetch(const char* url, String* body, bool keep) {
+#ifdef PERF_LOG
+    const char kind = kindOf(url, body != nullptr);
+    perf::reqStart(kind);
+    const uint32_t t0 = millis();
+    const int code = fetchNow(url, body, keep);
+    perf::reqEnd(kind, code, body ? body->length() : 0, millis() - t0);
+    return code;
+#else
+    return fetchNow(url, body, keep);
+#endif
 }
 
 int get(const char* url, String& body, bool keep = false, bool cta = true) {
@@ -590,6 +616,38 @@ bool pollOne(uint32_t now) {
     return false;
 }
 
+#ifdef PERF_LOG
+// The network burst (stress phases 5 and 6): marks the next thing in rotation as never polled, so pollOne fetches it
+// now. Trains (arrivals, positions), buses (arrivals, positions), weather, alerts.
+void burstNext() {
+    static int k = 0;
+    for (int tries = 0; tries < 16; ++tries, ++k) {
+        const int slot = k % 16;
+        if (slot < 6) {
+            Sec& s = secs[slot / 2];
+            if (!hasPick(s)) continue;
+            if (isBus(s)) {
+                if (slot % 2 == 0) busPredPolled = 0;
+                else if (s.rowsReady) s.posPolled = 0;
+                else continue;
+            } else {
+                if (slot % 2 == 0) s.arrPolled = 0;
+                else s.posPolled = 0;
+            }
+        } else if (slot == 6) {
+            if (!hasGeo) continue;
+            weatherPolled = 0;
+        } else if (slot == 7) {
+            alertsPolled = 0;
+        } else {
+            continue;
+        }
+        ++k;
+        return;
+    }
+}
+#endif
+
 // ---------- the picker's lists ----------
 void serveRequest(const Req& r) {
     static char url[256];
@@ -734,6 +792,9 @@ void netTask(void*) {
             continue;
         }
         if (building->status[0]) { setStatus(""); publish(); }
+#ifdef PERF_LOG
+        if (perf::burstDue()) burstNext();
+#endif
         if (pollOne(nowUnix())) {
             takePendingPicks();   // picks made during that fetch: never publish the old ones over them
             publish();

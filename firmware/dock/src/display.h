@@ -47,11 +47,15 @@ bool nextTouch(Touch& t);
 bool touchOk();
 // The last frame's time drawing, copying bands into the frame buffer, and waiting for the panel's switch.
 void lastTimes(uint32_t& drawUs, uint32_t& copyUs, uint32_t& waitUs);
+// Bands the last frame copied into the frame buffer (the rest were unchanged).
+int lastBands();
 // Frames whose buffer switch wasn't confirmed within 80 ms (should stay 0).
 uint32_t timeouts();
 // Since the last call: frames the panel read, how many came off their period by more than a bounce buffer's time
 // (the refill interrupt ran late), the longest gap, and the nominal period.
 void scanStats(uint32_t& frames, uint32_t& late, uint32_t& maxGapUs, uint32_t& periodUs);
+// The backlight on or off (the CH422G's EXIO2).
+void backlight(bool on);
 // Sends the frame on screen over serial, run-length coded (tools/frame_grab.py turns it into a PNG).
 void dumpFrame();
 
