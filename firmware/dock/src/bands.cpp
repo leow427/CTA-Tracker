@@ -17,8 +17,26 @@ ui::Canvas bandCanvas(uint16_t* buf, int y0, int rows, bool cw) {
     return ui::Canvas::strided(buf, y0 + rows - 1, rows, -1, 0, y0, W, y0 + rows);
 }
 
+// Pixels read and written as 32-bit words (two at a time), in buffers of 16-bit pixels.
+typedef uint32_t __attribute__((__may_alias__)) Word;
+
 void copyBand(const uint16_t* buf, uint16_t* panel, int y0, int rows, bool cw) {
     const int col = cw ? y0 : PW - y0 - rows;
+    // A band of 32 rows (the device's) into word-aligned buffers (both are): each panel row's 64 bytes as 16 words,
+    // written out in line rather than through a library call a row (dock performance analysis, round 3). The same
+    // bytes; anything else row by row with memcpy.
+    if (rows == 32 && ((reinterpret_cast<uintptr_t>(buf) | reinterpret_cast<uintptr_t>(panel + col)) & 3) == 0) {
+        const Word* s = reinterpret_cast<const Word*>(buf);
+        Word* d = reinterpret_cast<Word*>(panel + col);
+        for (int r = 0; r < W; ++r, s += 16, d += PW / 2) {
+#pragma GCC unroll 4
+            for (int k = 0; k < 16; k += 4) {   // four words at a time: loads ahead of their stores
+                const Word a = s[k], b = s[k + 1], c = s[k + 2], e = s[k + 3];
+                d[k] = a; d[k + 1] = b; d[k + 2] = c; d[k + 3] = e;
+            }
+        }
+        return;
+    }
     for (int r = 0; r < W; ++r) memcpy(panel + r * PW + col, buf + r * rows, static_cast<size_t>(rows) * 2);
 }
 
