@@ -4,7 +4,7 @@ The dock's speed and heat, measured on the dock itself with `env:perf` and the `
 
 ## Where it ended
 
-**The firmware on the branch is round 1 + round 3** (`b6f68bc`, `675a553`, `96cafd2`, `807783f`, `7d4d758`), with round 2 reverted (`0653c11`, kept on branch `dock-perf-r2`). Rounds 1 and 3 passed the gate; round 2 didn't. Leo still needs to look at the panel (below).
+**The firmware on the branch is round 1 + round 3** (`b6f68bc`, `8c022ad`, `01348bb`, `42ae6ce`, `4756d33`), with round 2 reverted (`5aee211`, kept on branch `dock-perf-r2`). Rounds 1 and 3 passed the gate; round 2 didn't. Leo still needs to look at the panel (below).
 
 | What you feel | Baseline | Now | Change |
 |---|---|---|---|
@@ -29,8 +29,8 @@ The dock's speed and heat, measured on the dock itself with `env:perf` and the `
 |---|---|---|---|
 | Baseline (`68778ad`) | First working dock firmware + logger | Every frame redraws the whole screen (70 ms, 94 on the map) | `reports/baseline.*` |
 | 1 (`b6f68bc`) | Each frame recorded once and played band by band; bands the buffer already holds aren't drawn or copied; faster plates and lines | **Passes.** 53 scores better. Map 7 → 11.4 fps, picker 11 → 17 fps, taps 31–77% sooner, idle core 1 22 → 7.5% | `reports/r1.*` |
-| 2 (`ddeb145`, branch `dock-perf-r2`) | Half bands copied on core 0 while core 1 draws | **Fails.** Drawing got slower (both cores on PSRAM), fps barely moved, worst frames +30 ms, core 0 +20–30 points | `reports/r2.*` |
-| 3 (`675a553`, `96cafd2`, `807783f`, `7d4d758`) | Cheaper map and fade drawing; word-store copy; no sleep after a frame; resumed TLS | **Passes.** Requests 19–36% faster, map 11.4 → 12.9 fps, core 0 cooler | `reports/r3.*` |
+| 2 (`0a200aa`, branch `dock-perf-r2`) | Half bands copied on core 0 while core 1 draws | **Fails.** Drawing got slower (both cores on PSRAM), fps barely moved, worst frames +30 ms, core 0 +20–30 points | `reports/r2.*` |
+| 3 (`8c022ad`, `01348bb`, `42ae6ce`, `4756d33`) | Cheaper map and fade drawing; word-store copy; no sleep after a frame; resumed TLS | **Passes.** Requests 19–36% faster, map 11.4 → 12.9 fps, core 0 cooler | `reports/r3.*` |
 
 ## Leo's look at the panel (not yet done)
 

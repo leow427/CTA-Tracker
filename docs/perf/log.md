@@ -79,7 +79,7 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 
 ## Round 2: half-band copies on core 0, faded lines blended once (2026-11-13): fails, reverted
 
-- **Change:** `ddeb145` (worker 2; review round 1 found one Should fix, the copier's priority against the idle task, fixed by moving every core 0 task up one; round 2 found nothing).
+- **Change:** `0a200aa` (worker 2; review round 1 found one Should fix, the copier's priority against the idle task, fixed by moving every core 0 task up one; round 2 found nothing).
   - Each band drawn in two halves; a new copier task on core 0 copies one half into the frame buffer while core 1 draws the other, and core 1 copies whatever the copier hasn't reached.
   - Faded map lines blended once a pixel; a line's first step in 32 bits (no 64-bit divisions); no 2 ms sleep after a pass that showed a frame. New last column `copier_ms`.
   - Byte-identical to round 1 on the laptop (1014 frames, with stand-in copiers).
@@ -93,7 +93,7 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 | 5 Network burst | 27 → 31 | 9 → 15 | 3 → 1 | – | – | 30 → 30 | 25 → **33** |
 | 6 Mixed | 60 → 61 | 29 → **35** | 17 → 11 | 14.3 → 14.5 | 88 → **118** | 30 → **45** | 66 → 67 |
 
-**Result: fails** (8 better, 17 worse beyond noise). Reverted in `0653c11`; kept on branch `dock-perf-r2`.
+**Result: fails** (8 better, 17 worse beyond noise). Reverted in `5aee211`; kept on branch `dock-perf-r2`.
 
 **Findings**
 
@@ -107,9 +107,9 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 ## Round 3: cheaper map and fade drawing, a tighter copy, no sleep after a frame, resumed TLS (2026-11-13)
 
 - **Change:** four independent commits from worker 3, on round 1's firmware (one review round by a fresh Opus reviewer at xhigh found one Should fix, a missing test at the 32/64-bit line switch, added; nothing else).
-  - `675a553` drawing: round 2's single-core pieces (a line's first step in 32 bits; faded lines blended once a pixel; opaque lines write their lead pixels directly), an exact inline rounding in place of `lroundf`, faded fills (`blendRect`) worked out once per rectangle (the picker's bottom fade), each map vehicle one call per colour (map frames 610 → 284 recorded calls), track points projected once and shifted by the pan.
-  - `96cafd2` copy: each 64-byte band row written as 16 word stores, no `memcpy` call per row.
-  - `807783f` loop: no 2 ms sleep after a pass that showed a frame.
+  - `8c022ad` drawing: round 2's single-core pieces (a line's first step in 32 bits; faded lines blended once a pixel; opaque lines write their lead pixels directly), an exact inline rounding in place of `lroundf`, faded fills (`blendRect`) worked out once per rectangle (the picker's bottom fade), each map vehicle one call per colour (map frames 610 → 284 recorded calls), track points projected once and shifted by the pan.
+  - `01348bb` copy: each 64-byte band row written as 16 word stores, no `memcpy` call per row.
+  - `42ae6ce` loop: no 2 ms sleep after a pass that showed a frame.
   - `f9bb1be` network: TLS sessions resumed per host (4 PSRAM slots of 4 KB), as the handheld does; bus sessions are bigger than a slot and stay full. A new `E,tls,<kind>,resumed|full` event.
   - Byte-identical on the laptop (1014 preview frames plus a 1246-frame map and picker sweep), fuzzed and mutation-tested.
 - **Runs, interleaved:** `ref1b-1`, `r3-1`, `ref1b-2`, `r3-2`, then `r3-3`, `ref1b-3` (ref1b = round 1's firmware `b6f68bc`). Report: `reports/r3.html`, table: `reports/r3.md`. About 36 of 166 TLS connections a run resumed.

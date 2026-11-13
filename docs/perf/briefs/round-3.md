@@ -5,7 +5,7 @@ You are the round 3 worker in a performance analysis of the CTA Tracker **dock**
 Read first:
 - `docs/superpowers/specs/2026-11-12-dock-performance-analysis-design.md`: the contract (rules, logger, stress test, gate). Section 9 is the first look at the code.
 - `docs/perf/log.md` (read it all: the baseline, round 1 which passed, and round 2 which failed and was reverted, with findings) and `docs/perf/reports/r1.md`, `r2.md`.
-- Round 2's commit `ddeb145` on branch `dock-perf-r2` (`git show ddeb145`): reverted as a whole, but parts of it are worth salvaging (below). Its worker's scratch tools are in `the session scratchpad (not in the repo)/r2/tools/`.
+- Round 2's commit `0a200aa` on branch `dock-perf-r2` (`git show 0a200aa`): reverted as a whole, but parts of it are worth salvaging (below). Its worker's scratch tools are in `the session scratchpad (not in the repo)/r2/tools/`.
 - Round 1's commit `b6f68bc` (`git show b6f68bc`): the recorded-frame path you build on. Its worker left verification tools you may reuse (not committed) in `the session scratchpad (not in the repo)/tools/`: `compare.sh` (byte comparison of raw frames against a base manifest, `scratchpad/raw_base.sha`), `bench.cpp`/`bench_rec.cpp` (laptop timings), `hh.sh` (handheld checks), `mutate.py` (mutation tests). Rebuild the base manifest from round 1's commit before you change anything.
 - `docs/Agent-Workflow.md`: how you work (you + fresh Opus reviewers at xhigh, at most 3 review rounds, stop early when findings are small).
 - `firmware/dock/platformio.ini` (why the core and SDK are pinned), `firmware/dock/src/*` and the main spec's section 7 for what each screen must do. `docs/power/summary.md` shows what worked and what didn't on the handheld.
@@ -47,7 +47,7 @@ Round 1 (`b6f68bc`, the firmware you start from) against the baseline: map pan 7
 | 5 Network burst | 27 (9 / 3 / 15) | – | – | 25 | – | 30 / 11 | 850 |
 | 6 Mixed | 60 (29 / 17 / 14) | 14.3 | 88 | 66 | 70 | 30 / 47 | 900 |
 
-Round 2 (`ddeb145`) **failed**: a copier task on core 0 copied half bands into PSRAM while core 1 drew. Core 1's copy halved (19 → 10 ms), but its drawing grew 6–7 ms (both cores on PSRAM and the shared cache at once, plus the cost of drawing halves), fps barely moved (map 12.2, picker 17.1), worst frames got 30 ms worse (88 → 118), and core 0 got 20–30 points busier (heat). The handheld's round 3 failed the same way. **Lesson: on this chip, splitting memory-bound work across both cores doesn't pay. Make core 1's own work smaller.**
+Round 2 (`0a200aa`) **failed**: a copier task on core 0 copied half bands into PSRAM while core 1 drew. Core 1's copy halved (19 → 10 ms), but its drawing grew 6–7 ms (both cores on PSRAM and the shared cache at once, plus the cost of drawing halves), fps barely moved (map 12.2, picker 17.1), worst frames got 30 ms worse (88 → 118), and core 0 got 20–30 points busier (heat). The handheld's round 3 failed the same way. **Lesson: on this chip, splitting memory-bound work across both cores doesn't pay. Make core 1's own work smaller.**
 
 What decides the frame rate now:
 - **Panel steps:** a frame ends at the first panel frame (29.3 ms) after its switch: 34, 17, 11.4 fps. The map pan's 83 ms frame needs to get under **58.6 ms for 17 fps**; the picker's 54 ms under **29.3 ms for 34 fps**.

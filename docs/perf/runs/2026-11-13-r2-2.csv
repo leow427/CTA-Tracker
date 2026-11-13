@@ -1,6 +1,6 @@
 # change: r2
 # note: round 2: half-band copies on core 0, faded lines blended once, no sleep after a frame
-# firmware: ddeb145
+# firmware: 0a200aa
 # stress: dock-stress-v1
 # date: 2026-11-13T04:21:55
 # flashed: yes (opening the port reboots the dock: boot times valid)

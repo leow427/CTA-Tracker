@@ -1,6 +1,6 @@
 # change: r3
 # note: round 3: cheaper map/fade drawing, word-store copy, no sleep after a frame, resumed TLS
-# firmware: 7d4d758
+# firmware: 4756d33
 # stress: dock-stress-v1
 # date: 2026-11-13T06:43:11
 # flashed: yes (opening the port reboots the dock: boot times valid)
