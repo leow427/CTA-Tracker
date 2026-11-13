@@ -26,6 +26,8 @@ static void test_train() {
     TEST_ASSERT_TRUE(cta::trainArrivalsUrl(buf, sizeof(buf), "K", "30255"));
     contains("stpid=30255");
     contains("outputType=JSON");
+    TEST_ASSERT_TRUE(cta::trainArrivalsUrl(buf, sizeof(buf), "K", "30104", "Brn"));   // a shared platform, one line
+    TEST_ASSERT_EQUAL_STRING("https://lapi.transitchicago.com/api/1.0/ttarrivals.aspx?key=K&stpid=30104&rt=Brn&outputType=JSON", buf);
     TEST_ASSERT_FALSE(cta::trainArrivalsUrl(buf, sizeof(buf), "K", "12345"));  // neither a station nor a platform
     TEST_ASSERT_FALSE(cta::trainArrivalsUrl(buf, sizeof(buf), "K", ""));
     TEST_ASSERT_TRUE(cta::trainPositionsUrl(buf, sizeof(buf), "K", "Red"));
@@ -140,8 +142,23 @@ static void test_cap_sweep() {
     TEST_ASSERT_EQUAL_STRING("", b);
 }
 
+static void test_dock_picker() {
+    // The dock's bus picker (spec 7.2): routes, then a route's directions, then its stops one way.
+    TEST_ASSERT_TRUE(cta::busRoutesUrl(buf, sizeof(buf), "K"));
+    TEST_ASSERT_EQUAL_STRING("https://www.ctabustracker.com/bustime/api/v2/getroutes?key=K&format=json", buf);
+    TEST_ASSERT_TRUE(cta::busDirectionsUrl(buf, sizeof(buf), "K", "22"));
+    TEST_ASSERT_EQUAL_STRING("https://www.ctabustracker.com/bustime/api/v2/getdirections?key=K&rt=22&format=json", buf);
+    TEST_ASSERT_TRUE(cta::busStopsUrl(buf, sizeof(buf), "K", "22", "Southbound"));
+    TEST_ASSERT_EQUAL_STRING("https://www.ctabustracker.com/bustime/api/v2/getstops?key=K&rt=22&dir=Southbound&format=json", buf);
+    TEST_ASSERT_TRUE(cta::busStopsUrl(buf, sizeof(buf), "K", "X9", "North Bound"));
+    contains("dir=North%20Bound");
+    TEST_ASSERT_FALSE(cta::busStopsUrl(buf, 20, "K", "22", "Southbound"));
+    TEST_ASSERT_EQUAL_STRING("", buf);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_dock_picker);
     RUN_TEST(test_train);
     RUN_TEST(test_bus);
     RUN_TEST(test_alerts_and_weather);

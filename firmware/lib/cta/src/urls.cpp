@@ -75,11 +75,12 @@ bool fail(char* buf, size_t cap) {
 
 }  // namespace
 
-bool trainArrivalsUrl(char* buf, size_t cap, const char* key, const char* id) {
+bool trainArrivalsUrl(char* buf, size_t cap, const char* key, const char* id, const char* route) {
     if (id == nullptr || (id[0] != '4' && id[0] != '3')) return fail(buf, cap);
     return Url(buf, cap)
         .raw(kTrainBase).raw("ttarrivals.aspx?key=").value(key)
         .raw(id[0] == '3' ? "&stpid=" : "&mapid=").value(id)
+        .raw(route && route[0] ? "&rt=" : "").value(route && route[0] ? route : "")
         .raw("&outputType=JSON")
         .done();
 }
@@ -107,6 +108,22 @@ bool busVehiclesUrl(char* buf, size_t cap, const char* key, const char* const* r
 bool busPatternsUrl(char* buf, size_t cap, const char* key, const char* route) {
     return Url(buf, cap).raw(kBusBase).raw("getpatterns?key=").value(key).raw("&rt=").value(route).raw("&format=json").done();
 }
+
+bool busRoutesUrl(char* buf, size_t cap, const char* key) {
+    return Url(buf, cap).raw(kBusBase).raw("getroutes?key=").value(key).raw("&format=json").done();
+}
+
+bool busDirectionsUrl(char* buf, size_t cap, const char* key, const char* route) {
+    return Url(buf, cap).raw(kBusBase).raw("getdirections?key=").value(key).raw("&rt=").value(route).raw("&format=json").done();
+}
+
+bool busStopsUrl(char* buf, size_t cap, const char* key, const char* route, const char* dir) {
+    return Url(buf, cap)
+        .raw(kBusBase).raw("getstops?key=").value(key).raw("&rt=").value(route).raw("&dir=").value(dir).raw("&format=json")
+        .done();
+}
+
+bool geoIpUrl(char* buf, size_t cap) { return Url(buf, cap).raw("https://ipapi.co/json/").done(); }
 
 bool alertsUrl(char* buf, size_t cap, const char* const* routes, size_t n, bool disruptionsOnly) {
     if (n == 0) return fail(buf, cap);

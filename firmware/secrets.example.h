@@ -9,6 +9,10 @@
 #define WIFI_SSID ""
 #define WIFI_PASS ""
 
+// Wi-Fi for the dock (firmware/dock), a WPA2-Personal network of its own, until the app sets it over BLE.
+#define DOCK_WIFI_SSID ""
+#define DOCK_WIFI_PASS ""
+
 // Optional: a replacement Wi-Fi MAC, if a router has blocked the board's own. Keep the first byte's second-lowest
 // bit set (locally administered, like 0x02) and its lowest bit clear.
 // #define WIFI_MAC {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}

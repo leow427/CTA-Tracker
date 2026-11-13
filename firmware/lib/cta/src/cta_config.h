@@ -12,6 +12,7 @@ constexpr uint32_t kHandheldBusPollSec = 60;     // all bus stops, one batched c
 constexpr uint32_t kAlertsPollSec = 300;
 constexpr uint32_t kWeatherPollSec = 900;
 constexpr uint32_t kSlowPollSec = 300;           // night hours or docked
+constexpr uint32_t kGeoLookupSec = 86400;        // the dock's weather location from ipapi.co: at boot, then daily (7.5)
 
 // Moods and staleness (spec 6.3, 6.4, 8.3)
 constexpr int kHypedMaxMin = 3;

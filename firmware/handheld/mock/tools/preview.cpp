@@ -1,7 +1,7 @@
 // Renders the handheld's screens to PNGs on a laptop, from the same ui/mock/live code the device runs.
 // Build and run (from firmware/handheld/mock):
-//   c++ -std=c++17 -O2 -Isrc -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/preview.cpp \
-//       src/gfx2d.cpp src/fonts.cpp src/ui.cpp src/mock_data.cpp src/live_store.cpp src/live_model.cpp \
+//   c++ -std=c++17 -O2 -Isrc -I../../lib/gfx/src -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/preview.cpp \
+//       ../../lib/gfx/src/*.cpp src/ui.cpp src/mock_data.cpp src/live_store.cpp src/live_model.cpp \
 //       ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp -lz -o /tmp/mock_preview
 //   /tmp/mock_preview <out dir> [--strips]               the mock's scenarios
 //   /tmp/mock_preview <out dir> --live <responses> <unix>   live screens from recorded responses

@@ -1,0 +1,15 @@
+{
+  "name": "gfx",
+  "version": "0.1.0",
+  "description": "The devices' shared drawing: a small RGB565 canvas, Nunito atlases, and the app's card theme and pieces.",
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": {
+    "cta": "*",
+    "pet": "*"
+  },
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src"
+  }
+}

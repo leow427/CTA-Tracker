@@ -10,8 +10,8 @@
 //   - the row hash (row_hash.h): a row that changes in any one word always hashes differently.
 // Frames are drawn through the device's strip path (48-row strips in the panel's layout).
 // Build and run (from firmware/handheld/mock):
-//   c++ -std=c++17 -O2 -Isrc -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/frame_test.cpp \
-//       src/gfx2d.cpp src/fonts.cpp src/ui.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp \
+//   c++ -std=c++17 -O2 -Isrc -I../../lib/gfx/src -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/frame_test.cpp \
+//       ../../lib/gfx/src/*.cpp src/ui.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp \
 //       -o /tmp/frame_test && /tmp/frame_test
 #include <math.h>
 #include <stdio.h>

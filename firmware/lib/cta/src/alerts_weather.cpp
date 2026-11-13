@@ -70,6 +70,24 @@ bool parseWeather(const char* json, size_t len, int& wmo, float& tempC) {
     return true;
 }
 
+bool parseGeoIp(const char* json, size_t len, double& lat, double& lon) {
+    if (json == nullptr) return false;
+    JsonDocument filter;
+    filter["latitude"] = true;
+    filter["longitude"] = true;
+    filter["error"] = true;
+    JsonDocument doc;
+    if (deserializeJson(doc, json, len, DeserializationOption::Filter(filter)) != DeserializationError::Ok) return false;
+    if (doc["error"].as<bool>()) return false;
+    JsonVariantConst la = doc["latitude"], lo = doc["longitude"];
+    if (!la.is<double>() || !lo.is<double>()) return false;
+    const double a = la.as<double>(), o = lo.as<double>();
+    if (!(a >= -90 && a <= 90 && o >= -180 && o <= 180)) return false;
+    lat = a;
+    lon = o;
+    return true;
+}
+
 Accessory accessoryFor(int wmo, float tempC) {
     if ((wmo >= 51 && wmo <= 67) || (wmo >= 80 && wmo <= 82) || (wmo >= 95 && wmo <= 99)) return Accessory::Umbrella;
     if ((wmo >= 71 && wmo <= 77) || (wmo >= 85 && wmo <= 86) || tempC < 0) return Accessory::Scarf;

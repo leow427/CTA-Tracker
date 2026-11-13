@@ -9,6 +9,9 @@
 namespace cta {
 namespace json {
 
+// The allocator for big documents (json_heap.h).
+ArduinoJson::Allocator* bigAllocator();
+
 // CTA sends one object instead of a one-item list, and an ArduinoJson array filter drops a lone object (it comes
 // back null). So this tries each filter in turn, in the order of the shapes to expect, until shapeFound(doc) says
 // the lists it needs came through, and only then re-parses without a filter. Order the filters so that the
@@ -66,6 +69,16 @@ inline bool toInt32(JsonVariantConst v, int32_t& out) {
     if (*end != '\0' || n < INT32_MIN || n > INT32_MAX) return false;
     out = static_cast<int32_t>(n);
     return true;
+}
+
+// A Bus Tracker reply with no list: 0 if every error names a stop, route, or pattern (nothing there now), −1 for
+// any other error (a bad key, the daily limit), so a failed fetch isn't read as "nothing there".
+inline int noListResult(JsonVariantConst errors) {
+    int result = 0;
+    forEachItem(errors, [&](JsonObjectConst e) {
+        if (e["stpid"].isNull() && e["rt"].isNull() && e["pid"].isNull()) result = -1;
+    });
+    return result;
 }
 
 // Whole minutes from seconds, floored, clamped to 0–32767.

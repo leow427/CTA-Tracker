@@ -21,13 +21,23 @@ bool errCdIsZero(JsonVariantConst v) {
     return false;
 }
 
+bool sameRouteName(const char* a, const char* b) {
+    if (a == nullptr || b == nullptr) return false;
+    for (; *a && *b; ++a, ++b) {
+        const char x = (*a >= 'A' && *a <= 'Z') ? static_cast<char>(*a - 'A' + 'a') : *a;
+        const char y = (*b >= 'A' && *b <= 'Z') ? static_cast<char>(*b - 'A' + 'a') : *b;
+        if (x != y) return false;
+    }
+    return *a == *b;
+}
+
 void addEtaKeys(JsonObject f) {
     for (const char* key : {"staNm", "rt", "destNm", "arrT", "isSch", "isDly"}) f[key] = true;
 }
 
 }  // namespace
 
-bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out) {
+bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& out, const char* routeFilter) {
     // eta is usually a list; a lone arrival comes as one object, and none as null or missing.
     JsonDocument asList, asObject;
     for (JsonDocument* f : {&asList, &asObject}) {
@@ -60,6 +70,7 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
     } picks[kMaxArrivals];
     size_t n = 0;
     json::forEachItem(etas, [&](JsonObjectConst e) {
+        if (routeFilter && !sameRouteName(e["rt"].as<const char*>(), routeFilter)) return;
         int64_t secs;
         if (!ctaSecondsBetween(tmst, e["arrT"].as<const char*>(), secs)) return;
         size_t at = n;
@@ -86,7 +97,7 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
     }
     if (n > 0) {
         copyTruncated(r.name, picks[0].eta["staNm"].as<const char*>(), kNameLen);
-        copyTruncated(r.route, picks[0].eta["rt"].as<const char*>(), kIdLen);
+        if (!routeFilter) copyTruncated(r.route, picks[0].eta["rt"].as<const char*>(), kIdLen);
     }
     out = r;
     return true;

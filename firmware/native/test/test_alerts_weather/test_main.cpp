@@ -1,6 +1,7 @@
 // Customer Alerts routes, Open-Meteo weather, and the accessory rule (plan 1, task 6).
 #include <unity.h>
 
+#include <math.h>
 #include <string.h>
 
 #include <initializer_list>
@@ -9,6 +10,7 @@
 #include "alerts_weather.h"
 #include "cta_types.h"
 #include "json_util.h"
+#include "urls.h"
 #include "../fixture.h"
 
 void setUp() {}
@@ -149,6 +151,24 @@ static void test_accessory() {
     TEST_ASSERT_EQUAL((int)Accessory::Scarf, (int)cta::accessoryFor(0, -0.1f));
 }
 
+static void test_geoip() {
+    // The dock's weather location (spec 7.5): ipapi.co's latitude and longitude, or false on its error reply.
+    char url[64];
+    TEST_ASSERT_TRUE(cta::geoIpUrl(url, sizeof(url)));
+    TEST_ASSERT_EQUAL_STRING("https://ipapi.co/json/", url);
+    TEST_ASSERT_FALSE(cta::geoIpUrl(url, 10));
+    const std::string ok = readFixture("geoip.json"), bad = readFixture("geoip_error.json");
+    double lat = 1, lon = 2;
+    TEST_ASSERT_TRUE(cta::parseGeoIp(ok.c_str(), ok.size(), lat, lon));
+    TEST_ASSERT_TRUE(fabs(lat - 41.8781) < 1e-4);   // about 11 m, as ArduinoJson may store floats
+    TEST_ASSERT_TRUE(fabs(lon + 87.6298) < 1e-4);   // about 11 m, as ArduinoJson may store floats
+    lat = 1;
+    TEST_ASSERT_FALSE(cta::parseGeoIp(bad.c_str(), bad.size(), lat, lon));
+    for (const char* b : {"{\"latitude\":91,\"longitude\":0}", "{\"latitude\":41}", "{\"latitude\":\"41\",\"longitude\":1}", "{"})
+        TEST_ASSERT_FALSE(cta::parseGeoIp(b, strlen(b), lat, lon));
+    TEST_ASSERT_TRUE(lat == 1);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_alerts_fixtures);
@@ -158,5 +178,6 @@ int main(int, char**) {
     RUN_TEST(test_alerts_stay_filtered);
     RUN_TEST(test_weather);
     RUN_TEST(test_accessory);
+    RUN_TEST(test_geoip);
     return UNITY_END();
 }

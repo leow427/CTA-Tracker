@@ -11,6 +11,8 @@
 
 namespace ui {
 
+constexpr int W = 466, C = 233;   // the round screen: its width and height, and its center
+
 enum class Screen : uint8_t { Home, Stops, Detail, Map, Pair, First };
 constexpr int kRow = 112;   // the Stops list's card pitch: a list at rest sits on a multiple of it
 enum class Tab : uint8_t { Trains = 0, Buses = 1 };

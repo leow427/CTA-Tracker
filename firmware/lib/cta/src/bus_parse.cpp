@@ -16,14 +16,7 @@ namespace {
 
 constexpr size_t kIdLen = sizeof(StopRecord::id) - 1;
 
-// With no list: 0 if every error names a stop, route, or pattern (nothing there now), −1 otherwise.
-int noListResult(JsonVariantConst errors) {
-    int result = 0;
-    json::forEachItem(errors, [&](JsonObjectConst e) {
-        if (e["stpid"].isNull() && e["rt"].isNull() && e["pid"].isNull()) result = -1;
-    });
-    return result;
-}
+using json::noListResult;
 
 // Parses a Bus Tracker body whose list lives under `listKey`; returns false if malformed.
 bool parseBody(const char* json, size_t len, const char* listKey, JsonDocument& filter, JsonDocument& doc) {

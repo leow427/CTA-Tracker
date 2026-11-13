@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dock UI Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=block" rel="stylesheet">
+<style>
+  :root { --bg:#07090f; --panel:#111827; --raised:#17294f; --ink:#e8eef8; --mist:#9db0d8; --dim:#5c6d93; --head:#ffd95a; --line:#22304f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:600 14px/1.45 Nunito, ui-rounded, system-ui, sans-serif; }
+  .wrap { max-width:1400px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-weight:900; font-size:26px; margin:0 0 4px; }
+  h2 { font-weight:900; font-size:19px; margin:40px 0 6px; }
+  h3 { font-weight:900; font-size:15px; margin:0 0 8px; }
+  .lede { color:var(--mist); margin:0 0 20px; max-width:760px; }
+  .top { display:flex; gap:28px; align-items:flex-start; flex-wrap:wrap; }
+  .device { display:flex; gap:14px; align-items:stretch; padding:20px; background:#1d2230; border-radius:22px; box-shadow:0 24px 60px #0009, inset 0 1px 0 #ffffff14; }
+  .device canvas { display:block; image-rendering:pixelated; }
+  #screen { width:480px; height:800px; background:#000; border-radius:4px; outline:none; }
+  #leds { width:340px; height:800px; border-radius:4px; }
+  .device.real #screen { width:288px; height:480px; } /* about a 4.3" panel at 96 dpi-ish */
+  .device.real #leds { width:204px; height:480px; }
+  .panel { flex:1; min-width:280px; max-width:420px; background:var(--panel); border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .lbl { display:block; color:var(--mist); font-size:12px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+  .seg { display:flex; flex-wrap:wrap; gap:6px; }
+  .seg button, .btn { font:inherit; font-weight:800; font-size:13px; color:var(--ink); background:var(--raised); border:0; border-radius:8px; padding:6px 10px; cursor:pointer; }
+  .seg button.on { background:var(--head); color:#0b1a36; }
+  .check { display:flex; gap:8px; align-items:center; margin-top:6px; color:var(--mist); }
+  .hint { color:var(--mist); font-size:12.5px; margin:10px 0 0; max-width:540px; }
+  .toast { min-height:20px; color:var(--head); margin:0; }
+  .sheet { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; }
+  .thumb { background:var(--panel); border-radius:12px; padding:8px; cursor:pointer; border:2px solid transparent; }
+  .thumb:hover { border-color:var(--line); }
+  .thumb canvas { width:100%; height:auto; display:block; border-radius:3px; background:#000; }
+  .thumb span { display:block; font-size:12px; color:var(--mist); margin-top:6px; }
+  .notes { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; }
+  .note { background:var(--panel); border-radius:14px; padding:14px 16px; }
+  .note ul { margin:0; padding-left:18px; color:#cdd6ea; }
+  .note li { margin:3px 0; }
+  code { background:#0b1222; padding:1px 5px; border-radius:4px; font-size:12.5px; }
+  .fonts code.new { background:#5a3a00; color:#ffd95a; }
+  @media (max-width:560px) {
+    .device { padding:10px; gap:8px; }
+    #screen { width:calc(100vw - 80px); height:auto; aspect-ratio:480/800; }
+    #leds { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Dock screen</h1>
+  <p class="lede">The dock's 4.3" Waveshare panel, portrait, 480×800, drawn pixel for pixel with only what the handheld's <code>gfx2d</code> canvas can draw, so each function ports to C++ the way the handheld mockup became <code>firmware/handheld/mock/src/ui.cpp</code>. The faceplate to the right stands in for the three LED rows; it's hardware, not part of the screen.</p>
+
+  <div class="top">
+    <div>
+      <div class="device" id="device">
+        <canvas id="screen" width="480" height="800" tabindex="0" aria-label="Dock screen. Tap an empty section to pick a stop, long-press a section to change it, tap Trackie to ask why."></canvas>
+        <canvas id="leds" width="340" height="800" aria-label="The three LED rows to the right of the screen"></canvas>
+      </div>
+      <p class="hint">Tap the map button in the top bar, or swipe left on the stops, for the map; drag to pan it, tap the pin button to recenter, and swipe right from its left edge (or tap the button again) to come back. Tap Trackie to ask why. Tap an empty section, or long-press any section, to pick a stop. In the picker, tap to choose, scroll the stop list, and tap the chevron to go back.</p>
+    </div>
+
+    <aside class="panel" aria-label="Mockup controls">
+      <div><span class="lbl">Screen</span>
+        <div class="seg" id="segScreen">
+          <button data-v="home">Stops</button><button data-v="map">Map</button><button data-v="picker">Stop picker</button><button data-v="pair">Pairing</button>
+          <button data-v="nowifi">No Wi-Fi saved</button><button data-v="nokey">No API key</button>
+        </div></div>
+      <div><span class="lbl">Picker step</span>
+        <div class="seg" id="segStep"><button data-v="1">1 Kind</button><button data-v="2">2 Line / route</button><button data-v="3">3 Direction</button><button data-v="4">4 Stop</button></div>
+        <div class="seg" id="segKind" style="margin-top:6px"><button data-v="train">Train</button><button data-v="bus">Bus</button></div></div>
+      <div><span class="lbl">Trackie's mood</span>
+        <div class="seg" id="segMood"><button data-v="happy">Happy</button><button data-v="hyped">Hyped</button><button data-v="worried">Worried</button><button data-v="sad">Sad</button><button data-v="sleepy">Sleepy</button></div></div>
+      <div><span class="lbl">Weather</span>
+        <div class="seg" id="segWeather"><button data-v="clear">Clear 41°</button><button data-v="rain">Rain 48°</button><button data-v="snow">Snow 27°</button></div></div>
+      <div><span class="lbl">Data</span>
+        <div class="seg" id="segData"><button data-v="live">Live</button><button data-v="lost">Wi-Fi lost (7 min)</button></div></div>
+      <div><span class="lbl">Picked stops</span>
+        <div class="seg" id="segEmpty"><button data-v="none">All 3</button><button data-v="one">Section 3 empty</button><button data-v="all">None yet</button></div>
+        <label class="check"><input type="checkbox" id="night"> Night hours (veil over the screen, LEDs off)</label></div>
+      <div><span class="lbl">Preview</span>
+        <div class="seg" id="segSize"><button data-v="fit">Pixels 1:1</button><button data-v="real">About real size</button></div>
+        <div class="seg" style="margin-top:6px"><button class="btn" id="savePng">Save PNG of this screen</button></div>
+        <p class="toast" id="toast"></p></div>
+    </aside>
+  </div>
+
+  <h2>Every state</h2>
+  <p class="lede">Each one is drawn by the same code as the screen above. Click one to load it.</p>
+  <div class="sheet" id="sheet"></div>
+
+  <h2>Porting notes</h2>
+  <div class="notes">
+    <div class="note"><h3>Drawing calls</h3><ul>
+      <li>All drawing goes through one small <code>Canvas</code> object whose methods match <code>gfx2d.h</code>: <code>clear</code>, <code>fillRect</code>, <code>fillPixelShape</code>, <code>plate</code>, <code>chip</code>, <code>text</code>, <code>textOutlined</code>, <code>pixelText</code>, <code>ink</code>, <code>sprite</code>, <code>fillCircle</code>, <code>arrowCircle</code>, <code>line</code>. Nothing else touches the HTML canvas.</li>
+      <li>Every coordinate is a whole pixel, and every size is a named constant at the top of the script (<code>STRIP_H</code>, <code>SEC_H</code>, <code>CARD</code>, <code>TILE</code>, <code>PK</code>).</li>
+      <li>Colors are <code>0xRRGGBB</code> numbers. Card colors use the same <code>th()</code> math as <code>ui.cpp</code>: line shades for trains, white with gray text and a light-blue outline for buses, and the deeper Blue.</li>
+      <li>Trackie, his faces, extras, umbrella and scarf are the grids from <code>art/</code>, drawn at 2× (64 px, spec 7.3). On the device they come from <code>pet::kPet</code> through <code>cv.sprite</code>.</li>
+      <li>Taps are plain rectangles collected while drawing (<code>hit()</code>), the way <code>ui.cpp</code> keeps <code>Rect</code>s.</li>
+    </ul></div>
+    <div class="note fonts"><h3>Fonts used across every state</h3>
+      <p class="lede" style="margin:0 0 8px">Nunito, as weight/size. A highlighted size isn't in the handheld's atlases (<code>font_build.html</code>) yet, so it would need adding.</p>
+      <div id="fontsUsed"></div></div>
+    <div class="note"><h3>Open questions to critique</h3><ul>
+      <li>The picker and pairing screens borrow the handheld's list and pairing styles; the spec only gives their steps.</li>
+      <li>The LED rows follow the CAD render: one row of 7 to the right of each section, LED 7 (the picked stop) on the right.</li>
+      <li>The map frames the three approach zones (each pick and the 6 stops before it, the same stops as its LED row), so a vehicle sits where its LED says. Lines nobody picked are dimmed; the 22's line would come from its cached <code>getpatterns</code> points. <code>seg</code> (block lines) and <code>dot</code> are the two new drawing calls.</li>
+      <li>Each tile shows the destination under the minutes. On most train platforms every train goes to the same terminal, so it repeats the direction; it matters for short turns and bus branches.</li>
+    </ul></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+/* ====================================================================================================== */
+/* Layout constants (whole pixels). Everything the C++ port needs to match is here.                       */
+/* ====================================================================================================== */
+const W = 480, H = 800;
+const STRIP_H = 80;                 // status strip: Trackie, bubble, time, weather, Wi-Fi
+const SEC_H = 240;                  // one stop section; section i spans y = STRIP_H + i * SEC_H
+const CARD = { x: 12, dy: 8, w: 456, h: 220 };                    // the stop card inside its section (+5 px edge)
+const PAD = 18;                                                    // card text inset
+const TILE = { w: 120, h: 100, dy: 108 };                          // arrival tiles, spread across the card
+const TILE_GAP = Math.floor((CARD.w - 2 * PAD - 3 * TILE.w) / 2);  // 32
+const PET = { x: 16, y: 14, s: 2 };                                // Trackie at 2× (64 px)
+const BUBBLE = { x: 104, cy: 44 };
+const PK = { top: 96, row: 76, rowH: 64 };                         // picker header height and stop-list pitch
+const MAP_BTN = { x: 306, y: 18, w: 44, h: 40 };                   // in the strip, between the bubble and the time
+const MAP = { top: STRIP_H, padX: 56, padTop: 50, padBottom: 130, track: 6, casing: 12, maxPerLine: 3, car: 3 };
+const RECENTER = { x: W - 16 - 52, y: H - 20 - 48, w: 52, h: 48 };
+const SWIPE_PX = 60;
+const LONG_PRESS_MS = 600;
+
+/* ---------- colors (gfx2d col::) ---------- */
+const col = { bg: 0x000000, navy: 0x0b1a36, raised: 0x17294f, mist: 0x9db0d8, headlight: 0xffd95a, cream: 0xf4ecc8,
+  amber: 0xffb000, white: 0xffffff, dimInk: 0x5c6d93, red: 0xff453a };
+const kBusTop = 0xFFFFFF, kBusCard = 0xEEF3F7, kBusText = 0x5B6573, kBusOutline = 0x7FCBF2, kBusLed = 0x565A5C;
+const kLiveInk = 0x7CF29A, kSchedInk = 0x9AD0FF;
+const hex = n => '#' + (n >>> 0).toString(16).padStart(6, '0').slice(-6);
+
+/* ---------- line colors and card themes: a port of ui.cpp's th() ---------- */
+const LINE = { Red: 0xC60C30, Blue: 0x2F7BFF, Brn: 0x62361B, G: 0x009B3A, Org: 0xF9461C, Pink: 0xE27EA6, P: 0x522398, Y: 0xF9E300 };
+const LINE_NAME = { Red: 'Red', Blue: 'Blue', Brn: 'Brown', G: 'Green', Org: 'Orange', Pink: 'Pink', P: 'Purple', Y: 'Yellow' };
+function lum(rgb) {
+  const ch = s => { const c = ((rgb >> s) & 255) / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0);
+}
+function contrast(a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+function shaded(rgb, target, cap) {
+  const f = Math.min(cap, Math.pow(target / lum(rgb), 1 / 2.2));
+  const s = sh => Math.round(((rgb >> sh) & 255) * f) << sh; return s(16) | s(8) | s(0);
+}
+function mix(rgb, k) { const ch = sh => { const v = (rgb >> sh) & 255; return Math.round(v + (255 - v) * k) << sh; }; return ch(16) | ch(8) | ch(0); }
+function lifted(rgb, bg, min, from) { for (let s = from; s <= 10; s++) { const m = mix(rgb, s / 10); if (contrast(m, bg) >= min) return m; } return 0xFFFFFF; }
+const THEMES = {};
+function th(route, bus) {
+  const key = (bus ? 'b:' : 't:') + route;
+  if (THEMES[key]) return THEMES[key];
+  let t;
+  if (bus) t = { accent: kBusOutline, led: kBusLed, top: kBusTop, card: kBusCard, text: kBusText, outline: kBusOutline, halo: kBusText, tile: 0xFFFFFF, tile2: 0xF6F9FB };
+  else {
+    const a = LINE[route], top = shaded(a, 0.09, 0.95), card = shaded(a, 0.04, 0.85);
+    // Tiles sit a step darker than the card's bottom, so they read as set into it.
+    t = { accent: a, led: a, top, card, text: lifted(a, top, 4.5, 3), outline: 0, halo: 0, tile: shaded(a, 0.03, 0.7), tile2: shaded(a, 0.015, 0.6) };
+  }
+  return (THEMES[key] = t);
+}
+
+/* ---------- fonts: Nunito 800/900 at fixed sizes (gfx2d Canvas::font) ---------- */
+const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
+const ATLAS = new Set([...[11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 24, 34].map(s => `900/${s}`), ...[12, 13, 14, 15, 16, 17, 18].map(s => `800/${s}`),
+  ...[84, 76, 68, 60, 52, 44].map(s => `900/${s}`)]);
+const USED = new Set();
+const F = (w, s) => { USED.add(`${w}/${s}`); return { w, s, css: `${w} ${s}px ${FONT}` }; };
+
+/* ---------- the 5×7 pixel font (CTAKit PixelFont, gfx2d pixelText) ---------- */
+const PF = {
+  '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'], '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'], '3': ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+  '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'], '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+  '6': ['.###.', '#....', '#....', '####.', '#...#', '#...#', '.###.'], '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+  '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'], '9': ['.###.', '#...#', '#...#', '.####', '....#', '....#', '.###.'],
+  ':': ['.', '.', '#', '.', '#', '.', '.'], 'D': ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  'u': ['.....', '.....', '#...#', '#...#', '#...#', '#..##', '.##.#'], 'e': ['.....', '.....', '.###.', '#...#', '#####', '#....', '.###.'],
+  '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'], ' ': ['...', '...', '...', '...', '...', '...', '...'],
+};
+const pixelWidth = (t, s) => { let w = 0; [...t].forEach((ch, i) => { w += (PF[ch] || PF[' '])[0].length + (i ? 1 : 0); }); return w * s; };
+
+/* ---------- glyphs and icons (ui.cpp kLive, kAlert, kIcons) ---------- */
+const LIVE = [['.......K', '.....K..', '..KK.K.K', '.KKKK.K.', '.KKKK.K.', '..KK.K.K', '.....K..', '.......K'],
+  ['........', '........', '..KK....', '.KKKK...', '.KKKK...', '..KK....', '........', '........']];
+const ALERT = ['.......KK.......', '.......KK.......', '......KKKK......', '......KKKK......', '.....KKKKKK.....', '.....KK..KK.....',
+  '....KKK..KKK....', '....KKK..KKK....', '...KKKK..KKKK...', '...KKKK..KKKK...', '..KKKKKKKKKKKK..', '..KKKKKKKKKKKK..',
+  '.KKKKKK..KKKKKK.', '.KKKKKK..KKKKKK.', 'KKKKKKKKKKKKKKKK', 'KKKKKKKKKKKKKKKK'];
+const ICON = {
+  sun: ['..x..', 'x.x.x', '.xxx.', 'xxxxx', '.xxx.', 'x.x.x', '..x..'],
+  cloud: ['.......', '..xx...', '.xxxxx.', 'xxxxxxx', '.......', '.x.x.x.', 'x.x.x..'],
+  snow: ['x.x.x', '.xxx.', 'xx.xx', '.xxx.', 'x.x.x'],
+  wifi: ['.xxxxx.', 'x.....x', '..xxx..', '.x...x.', '...x...'],
+  off: ['x...x', '.x.x.', '..x..', '.x.x.', 'x...x'],
+  plus: ['..x..', '..x..', 'xxxxx', '..x..', '..x..'],
+  map: ['xx..x..xx', 'x.xx.xx.x', 'x.x..x..x', 'x.x..x..x', 'x.x..x..x', 'x.xx.xx.x', 'xx..x..xx'],   // a folded map
+  cards: ['xxxxxxxxx', 'x.......x', 'xxxxxxxxx', '.........', 'xxxxxxxxx', 'x.......x', 'xxxxxxxxx'],  // two stacked cards
+};
+// Map markers (palette letters as in PAL; 'A' is the vehicle's line color).
+const CAR = ['.KKKKKK.', 'KAAAAAAK', 'KAWWWWAK', 'KAWWWWAK', 'KAAAAAAK', 'KAYAAYAK', '.KK..KK.'];          // an L car's front, 8×7
+const BUSCAR = ['KKKKKKKK', 'KWWWWWWK', 'KCCCCCCK', 'KCCCCCCK', 'KWWWWWWK', 'KWYWWYWK', '.KK..KK.'];       // a bus's front, 8×7
+const PIN = ['.......KK', '.....KKKK', '...KKKKKK', '.KKKKKKK.', 'KKKKKKKK.', '....KKK..', '....KKK..', '....KK...', '....K....'];
+
+/* ---------- Trackie: the grids in art/ (palette.txt, body.txt, face_*.txt, extra_*.txt, overlay_*.txt) ---------- */
+const PAL = { K: 0x0B0D14, B: 0x2D6BE6, L: 0x7DB4FF, G: 0xC3C8CE, S: 0x8E949B, W: 0xFFFFFF, D: 0x5A6069, C: 0x9BEFF5, R: 0xE5333D,
+  Y: 0xFFD43B, P: 0xF27DAE, U: 0xA9AEB5, T: 0x7FD3FF, F: 0xF3E6D0, M: 0xFF5F7A, N: 0xB8324B };
+const BODY = [
+  '................................', '..........KKKKKKKKKKKK..........', '.......KBBLLLLLLLLLLLLBBK.......', '.....KBWLLLLKKKKKKKKLLLLBBK.....',
+  '....KBWBBBBBKCCCCCCKBBBBBBBK....', '...KBBBBBBBBKCCCCCCKBBBBBBBBK...', '..KBBBKKKBBBKKKKKKKKBBBKKKBBBK..', '.KGGBKKKKKBBBBBBBBBBBBKKKKKBGGK.',
+  '.KWGBKRWKKBBKKKKKKKKBBKKWRKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.',
+  '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.',
+  '.KWGBKUUUKBKKKKKKKKKKBKUUUKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBKKKKKBKKKKKKKKKKBKKKKKBGSK.', '.KWGBBKKKBBKKKKKKKKKKBBKKKBBGSK.',
+  '.KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.', '.KWGBYYBWWBKKKKKKKKKKBWWBYYBGSK.', '.KWGBBBBBBBKKKKKKKKKKBBBBBBBGSK.', '.KWGGBBBBBBBBBBBBBBBBBBBBBBGGSK.',
+  '.KWGGGGGGGGGGGGGGGGGGGGGGGGGGSK.', '.KGGGGGGGGGGGGGGGGGGGGGGGGGGGGK.', '..KKKKKKKKKKKKKKKKKKKKKKKKKKKK..', '...UUUU.DD...UUUUUU...DD.UUUU...',
+  '...UUUU.DD...UUUUUU...DD.UUUU...', '........DD...UUUUUU...DD........', '........DD............DD........', '................................',
+];
+const FACES = { // 10×8, stamped at columns 11–20, rows 12–19
+  happy: ['..........', '..........', '.WW....WW.', 'W..W..W..W', '..........', 'PP.W..W.PP', '....WW....', '..........'],
+  hyped: ['..........', 'WW......WW', '..W....W..', 'WW......WW', '..........', 'PP.WWWW.PP', '....PP....', '..........'],
+  worried: ['..W....W..', 'WW......WW', '..........', '.WW....WW.', '.WW....WW.', '..........', '...W.W.W..', '..W.W.W...'],
+  sad: ['..........', '..........', 'WWW....WWW', '.T......T.', '.T......T.', '.T..WW..T.', '.T.W..W.T.', '..........'],
+  sleepy: ['..........', '..........', '..........', 'WWW....WWW', '..........', '..........', '....WW....', '..........'],
+};
+const EXTRAS = { // 7×7 at (33, -6); Sad has none
+  happy: ['.PP.PP.', 'PPPPPPP', 'PPPPPPP', '.PPPPP.', '..PPP..', '...P...', '.......'],
+  hyped: ['....WW.', '..WW...', '.......', '..WWWW.', '.......', '..WW...', '....WW.'],
+  worried: ['...T...', '..TT...', '..TT...', '.TTTT..', '.TTWT..', '..TT...', '.......'],
+  sleepy: ['WWWW...', '..W....', '.W.....', 'WWWW...', '....WWW', '.....W.', '....WWW'],
+};
+const UMBRELLA = { dx: 0, dy: -6, rows: ['............MMMMMMMM............', '........MMMMMMMMMMMMMMMM........', '.....MMMMMMMMMMMMMMMMMMMMMM.....',
+  '...MMMMMMMMMMMMMMMMMMMMMMMMMM...', '...NNNN.NNNN.NNNN.NNNN.NNNN.N...', '...............K................', '...............K................'] };
+const SCARF = { dx: 0, dy: 22, rows: ['..RRFFRRFFRRFFRRFFRRFFRRFFRRFF..', '..RRFFRRFFRRFFRRFFRRFFRRFFRRFF..', '......................FF........',
+  '......................RR........', '......................FF........'] };
+const PET_ROWS = {};
+for (const [mood, face] of Object.entries(FACES)) {
+  const rows = BODY.map(r => r.split(''));
+  face.forEach((row, dy) => [...row].forEach((c, dx) => { if (c !== '.') rows[12 + dy][11 + dx] = c; }));
+  PET_ROWS[mood] = rows.map(r => r.join(''));
+}
+
+/* ====================================================================================================== */
+/* Canvas: the gfx2d API over an HTML canvas. The C++ port swaps this object for ui::Canvas.             */
+/* ====================================================================================================== */
+const SMALL = { block: 3, steps: [2, 1] };
+class Canvas {
+  constructor(ctx) { this.c = ctx; this.alpha = 1; }
+  ga(a = 1) { this.c.globalAlpha = Math.max(0, Math.min(1, this.alpha * a)); }
+  clear(rgb = 0) { this.c.globalAlpha = 1; this.c.fillStyle = hex(rgb); this.c.fillRect(0, 0, W, H); }
+  fillRect(x, y, w, h, rgb, a = 1) { this.ga(a); this.c.fillStyle = hex(rgb); this.c.fillRect(x, y, w, h); }
+  path(x, y, w, h, block, steps, bottom = true) {
+    const corner = [];
+    steps.forEach((d, n) => corner.push([d * block, n * block], [d * block, (n + 1) * block]));
+    corner.push([0, steps.length * block]);
+    const low = bottom ? corner : [[0, 0]];
+    const pts = [...corner.map(([a, b]) => [x + w - a, y + b]), ...[...low].reverse().map(([a, b]) => [x + w - a, y + h - b]),
+      ...low.map(([a, b]) => [x + a, y + h - b]), ...[...corner].reverse().map(([a, b]) => [x + a, y + b])];
+    const c = this.c; c.beginPath(); pts.forEach(([px, py], i) => i ? c.lineTo(px, py) : c.moveTo(px, py)); c.closePath();
+  }
+  fillPixelShape(x, y, w, h, block, steps, rgb, a = 1, bottom = true) { this.path(x, y, w, h, block, steps, bottom); this.ga(a); this.c.fillStyle = hex(rgb); this.c.fill(); }
+  // ps: { fill, fill2, rim, rimAlpha, rimW, edge, block, steps, highlight }
+  plate(x, y, w, h, ps = {}) {
+    const { fill = col.raised, fill2 = fill, rim = col.white, rimAlpha = 0.22, rimW = 2, edge = 5, block = 4, steps = [3, 1, 1], highlight = true } = ps;
+    const c = this.c;
+    if (edge) { this.path(x, y + edge, w, h, block, steps); this.ga(); c.fillStyle = hex(fill2); c.fill(); this.ga(0.45); c.fillStyle = '#000'; c.fill(); }
+    this.path(x, y, w, h, block, steps); this.ga();
+    if (fill === fill2) c.fillStyle = hex(fill);
+    else { const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, hex(fill)); g.addColorStop(1, hex(fill2)); c.fillStyle = g; }
+    c.fill();
+    if (highlight) { const hi = c.createLinearGradient(0, y, 0, y + h / 2); hi.addColorStop(0, 'rgba(255,255,255,0.12)'); hi.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = hi; c.fill(); }
+    if (rimW) { c.save(); c.clip(); c.lineWidth = rimW * 2; this.ga(rimAlpha); c.strokeStyle = hex(rim); c.stroke(); c.restore(); }
+  }
+  measure(f, t) { this.c.font = f.css; return this.c.measureText(t).width; }
+  fit(f, t, maxW) {
+    if (this.measure(f, t) <= maxW) return t;
+    let s = t; while (s.length > 1 && this.measure(f, s + '…') > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+  text(f, t, x, y, rgb, al = 'left', base = 'top', a = 1) {
+    const c = this.c; c.font = f.css; c.textAlign = al; c.textBaseline = base; this.ga(a); c.fillStyle = hex(rgb); c.fillText(t, x, y);
+    return c.measureText(t).width;
+  }
+  textOutlined(f, t, x, y, rgb, outline, r, al = 'left', base = 'top') {
+    const c = this.c; c.font = f.css; c.textAlign = al; c.textBaseline = base; this.ga();
+    c.lineJoin = 'round'; c.lineWidth = r * 2; c.strokeStyle = hex(outline); c.strokeText(t, x, y);
+    c.fillStyle = hex(rgb); c.fillText(t, x, y); return c.measureText(t).width;
+  }
+  chip(t, x, y, bg, fg) { // a small solid pixel chip ("DELAYED", "SCHED"); returns its width
+    const f = F(900, 11), w = Math.ceil(this.measure(f, t)) + 12;
+    this.fillPixelShape(x, y, w, 18, 2, [1], bg);
+    this.text(f, t, x + 6, y + 9.5, fg, 'left', 'middle'); return w;
+  }
+  pixelText(t, x, y, s, rgb, al = 'left', grow = 0) { // y is the top; returns the width
+    const w = pixelWidth(t, s); let cx = Math.round(al === 'center' ? x - w / 2 : al === 'right' ? x - w : x);
+    this.ga(); this.c.fillStyle = hex(rgb);
+    for (const ch of t) {
+      const g = PF[ch] || PF[' '];
+      for (let r = 0; r < 7; r++) for (let k = 0; k < g[r].length; k++)
+        if (g[r][k] === '#') this.c.fillRect(cx + k * s - grow, y + r * s - grow, s + 2 * grow, s + 2 * grow);
+      cx += (g[0].length + 1) * s;
+    }
+    return w;
+  }
+  ink(rows, x, y, s, rgb, a = 1) { this.ga(a); this.c.fillStyle = hex(rgb); rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] !== '.') this.c.fillRect(x + i * s, y + j * s, s, s); }); }
+  sprite(rows, x, y, s, dx = 0, dy = 0) { // indexed art: one palette character per pixel, '.' transparent
+    this.ga();
+    rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) { const k = r[i]; if (k === '.') continue; this.c.fillStyle = hex(PAL[k]); this.c.fillRect(x + (i + dx) * s, y + (j + dy) * s, s, s); } });
+  }
+  fillCircle(cx, cy, r, rgb, a = 1) { this.ga(a); this.c.fillStyle = hex(rgb); this.c.beginPath(); this.c.arc(cx, cy, r, 0, Math.PI * 2); this.c.fill(); }
+  arrowCircle(cx, cy, r, rgb, ink) { // SF Symbols' arrow.right.circle.fill
+    const c = this.c; this.fillCircle(cx, cy, r, rgb);
+    c.strokeStyle = hex(ink); c.lineWidth = r * 0.26; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.beginPath(); c.moveTo(cx - r * 0.45, cy); c.lineTo(cx + r * 0.42, cy);
+    c.moveTo(cx + r * 0.05, cy - r * 0.4); c.lineTo(cx + r * 0.45, cy); c.lineTo(cx + r * 0.05, cy + r * 0.4); c.stroke(); c.lineCap = 'butt';
+  }
+  // A crisp line of b×b blocks (Bresenham), for the map's track: no anti-aliasing, so it matches the pixel art.
+  // New for the dock; the handheld drew this on its own half-resolution layer.
+  seg(x0, y0, x1, y1, b, rgb, a = 1) {
+    x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, h = b >> 1; let e = dx + dy;
+    this.ga(a); this.c.fillStyle = hex(rgb);
+    for (let n = 0; n < 4000; n++) {
+      this.c.fillRect(x0 - h, y0 - h, b, b); if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; }
+    }
+  }
+  // A square dot with its corners knocked off (the map's stations).
+  dot(x, y, size, rgb, a = 1) { const h = size >> 1; x = Math.round(x); y = Math.round(y); this.fillRect(x - h + 1, y - h, size - 2, size, rgb, a); this.fillRect(x - h, y - h + 1, size, size - 2, rgb, a); }
+  line(x0, y0, x1, y1, w, rgb) { const c = this.c; this.ga(); c.strokeStyle = hex(rgb); c.lineWidth = w; c.lineCap = 'round'; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.lineCap = 'butt'; }
+}
+
+/* ---------- hit rectangles (ui.cpp Rect), collected while drawing the live screen ---------- */
+let HITS = null;
+function hit(x, y, w, h, tap, hold) { if (HITS) HITS.push({ x, y, w, h, tap, hold }); }
+
+/* ====================================================================================================== */
+/* Mock data                                                                                              */
+/* ====================================================================================================== */
+const DIRS = { Red: ['Howard', '95th/Dan Ryan'], Blue: ["O'Hare", 'Forest Park'], Brn: ['Kimball', 'Loop'], G: ['Harlem/Lake', 'Ashland/63rd'],
+  Org: ['Midway', 'Loop'], Pink: ['54th/Cermak', 'Loop'], P: ['Linden', 'Howard'], Y: ['Skokie', 'Howard'] };
+const BASE = [
+  { bus: false, route: 'Red', stop: 'Belmont', head: 'To 95th/Dan Ryan', arr: [{ min: 3, dest: '95th/Dan Ryan' }, { min: 9, dest: '95th/Dan Ryan' }, { min: 15, dest: 'Roosevelt' }], leds: [2, 5] },
+  { bus: false, route: 'Brn', stop: 'Diversey', head: 'To Loop', arr: [{ min: 6, dest: 'Loop' }, { min: 13, dest: 'Loop' }, { min: 21, dest: 'Loop' }], leds: [1, 4] },
+  { bus: true, route: '22', name: 'Clark', compass: 'S', stop: 'Clark & Belmont', head: 'To Harrison', arr: [{ min: 4, dest: 'Harrison' }, { min: 12, dest: 'Harrison' }, { min: 23, dest: 'Polk' }], leds: [3, 6] },
+];
+// Each pick's approach zone, farthest first, the picked stop last: the same 7 stops as its LED row (spec 6.4).
+// Trains from data/stops.json in train_lines.json order; the 22's from its Southbound stops. On the device they come
+// from train_sequences.h and the cached getpatterns response.
+const ZONES = [
+  [['Berwyn', 41.977984, -87.658668], ['Argyle', 41.973322, -87.658528], ['Lawrence', 41.968976, -87.658487], ['Wilson', 41.965482, -87.657926],
+    ['Sheridan', 41.953905, -87.654661], ['Addison', 41.947316, -87.653624], ['Belmont', 41.939751, -87.65338]],
+  [['Irving Park', 41.954521, -87.674868], ['Addison', 41.947028, -87.674642], ['Paulina', 41.943623, -87.670907], ['Southport', 41.943744, -87.663619],
+    ['Belmont', 41.939751, -87.65338], ['Wellington', 41.936033, -87.653266], ['Diversey', 41.932732, -87.653131]],
+  [['Clark & Grace', 41.950917, -87.659607], ['Clark & Waveland', 41.949106, -87.658133], ['Clark & Addison', 41.947362, -87.656756],
+    ['Clark & Cornelia', 41.945662, -87.655361], ['Clark & Roscoe', 41.943617, -87.653725], ['Clark & School/Aldine', 41.941897, -87.652317], ['Clark & Belmont', 41.940088, -87.650909]],
+];
+// The L near the zones: data/train_shapes.json clipped to the area (on the device: the whole 15 KB table, culled per frame).
+const SHAPES = {"Brn":[[[41.96605,-87.71269],[41.96626,-87.68851],[41.96643,-87.67767],[41.96639,-87.67696],[41.96624,-87.67639],[41.9658,-87.6757],[41.96548,-87.67545],[41.96492,-87.67523],[41.94514,-87.67467],[41.94456,-87.67451],[41.94424,-87.6743],[41.94387,-87.67368],[41.94369,-87.67264],[41.94395,-87.65522],[41.94375,-87.65442],[41.94343,-87.65401],[41.94269,-87.65356],[41.94218,-87.65346],[41.91407,-87.65251]]],"P":[[[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91407,-87.65251]]],"Red":[[[41.99367,-87.65921],[41.96689,-87.65839],[41.96428,-87.65759],[41.96182,-87.657],[41.95417,-87.65672],[41.95381,-87.65635],[41.95374,-87.65408],[41.95365,-87.65386],[41.95344,-87.6537],[41.9469,-87.65363],[41.94448,-87.65352],[41.94422,-87.65343],[41.94318,-87.65337],[41.94218,-87.65346],[41.93866,-87.65337],[41.91309,-87.65249]]]};
+// The 22 along Clark (on the device: the getpatterns points, already cached for the LED row).
+const BUS_SHAPE = [[41.9614, -87.6681], [41.954247, -87.662197], [41.95267, -87.661014], [41.950917, -87.659607], [41.947362, -87.656756],
+  [41.943617, -87.653725], [41.940088, -87.650909], [41.9363, -87.6479], [41.9325, -87.6455], [41.9259, -87.6405]];
+const MOOD_SAYS = { happy: 'All on time', hyped: 'Go now!', worried: 'Running late', sad: 'Uh oh…', sleepy: 'Sleepy…' };
+const REASON = { happy: 'Red in 3 min', hyped: 'Red in 2 min!', worried: '22 is 4 min late', sad: 'Red Line alert', sleepy: 'Night hours' };
+const WEATHER = { clear: ['sun', '41°', 0xffd95a, 0], rain: ['cloud', '48°', 0x9db0d8, 61], snow: ['snow', '27°', 0xe8eef8, 73] };
+const BUS_ROUTES = [['22', 'Clark'], ['36', 'Broadway'], ['8', 'Halsted'], ['77', 'Belmont'], ['151', 'Sheridan'], ['9', 'Ashland'], ['152', 'Addison'], ['146', 'Inner Drive']];
+const STATIONS = { Red: ['Howard', 'Jarvis', 'Morse', 'Loyola', 'Granville', 'Thorndale', 'Bryn Mawr', 'Berwyn', 'Argyle', 'Lawrence', 'Wilson', 'Sheridan', 'Addison', 'Belmont', 'Fullerton', 'North/Clybourn', 'Clark/Division', 'Chicago'] };
+const BUS_STOPS = ['Clark & Devon', 'Clark & Granville', 'Clark & Foster', 'Clark & Lawrence', 'Clark & Montrose', 'Clark & Irving Park', 'Clark & Addison', 'Clark & Belmont', 'Clark & Diversey', 'Clark & Fullerton', 'Clark & Armitage', 'Clark & North'];
+
+function clockText(offsetMin = 0, base = '2026-11-11T19:42:00') { // a fixed evening, so screenshots are stable
+  const d = new Date(new Date(base).getTime() + offsetMin * 60000);
+  return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+const moodOf = st => st.night ? 'sleepy' : st.mood;
+function sectionsFor(st) {
+  const mood = moodOf(st);
+  const secs = BASE.map(s => ({ ...s, arr: s.arr.map(a => ({ ...a, live: true, delayed: false })), alert: false, leds: [...s.leds] }));
+  if (mood === 'hyped') { secs[0].arr[0].min = 2; }
+  if (mood === 'worried') { secs[2].arr[0].delayed = true; secs[2].arr[0].min += 4; secs[2].arr[1].min += 4; }
+  if (mood === 'sad') { secs[0].alert = true; }
+  if (mood === 'sleepy') secs.forEach((s, i) => s.arr.forEach((a, k) => { a.live = false; a.min = 18 + i * 7 + k * 15; }));
+  if (st.empty === 'one') secs[2] = null;
+  if (st.empty === 'all') secs.fill(null);
+  return secs;
+}
+
+/* ====================================================================================================== */
+/* Pieces                                                                                                 */
+/* ====================================================================================================== */
+function cardText(cv, f, t, x, y, th_, al = 'left', base = 'top') {
+  if (!th_.outline) return cv.text(f, t, x, y, th_.text, al, base);
+  return cv.textOutlined(f, t, x, y, th_.text, th_.outline, f.s >= 20 ? 2 : 1, al, base);
+}
+function cardDigits(cv, t, x, y, s, th_, al = 'left') { if (th_.outline) cv.pixelText(t, x, y, s, th_.outline, al, 2); return cv.pixelText(t, x, y, s, th_.text, al); }
+function cardArrow(cv, cx, cy, r, th_) { if (th_.outline) cv.fillCircle(cx, cy, r + 1.5, th_.outline); cv.arrowCircle(cx, cy, r, th_.text, th_.card); }
+function inkRing(cv, rows, x, y, s, rgb, ring) {
+  if (ring) { cv.ink(rows, x + s, y, s, ring); cv.ink(rows, x - s, y, s, ring); cv.ink(rows, x, y + s, s, ring); cv.ink(rows, x, y - s, s, ring); }
+  cv.ink(rows, x, y, s, rgb);
+}
+function liveGlyph(cv, x, y, live, blinks, ms, halo) { inkRing(cv, LIVE[live && blinks && Math.floor(ms / 500) % 2 ? 1 : 0], x, y, 2, live ? kLiveInk : kSchedInk, halo); }
+function icon(cv, name, cx, cy, s, rgb) { const g = ICON[name]; cv.ink(g, Math.round(cx - g[0].length * s / 2), Math.round(cy - g.length * s / 2), s, rgb); }
+function chevron(cv, x0, y0, x1, y1, x2, y2, rgb) { cv.line(x0, y0, x1, y1, 3, rgb); cv.line(x1, y1, x2, y2, 3, rgb); }
+// The route shield: a small square in the text color with the letter or number cut out of it (ui.cpp compassBadge).
+function badge(cv, label, x, cy, h, th_) {
+  const f = F(900, h >= 24 ? 16 : 14), w = Math.max(h, Math.ceil(cv.measure(f, label)) + 10);
+  if (th_.outline) cv.fillPixelShape(x - 1, Math.round(cy - h / 2) - 1, w + 2, h + 2, 2, [1], th_.outline);
+  cv.fillPixelShape(x, Math.round(cy - h / 2), w, h, 2, [1], th_.text);
+  cv.text(f, label, x + w / 2, cy + 0.5, th_.card, 'center', 'middle');
+  return w;
+}
+
+function drawPet(cv, mood, x, y, s, weather, extra = true) {
+  cv.sprite(PET_ROWS[mood], x, y, s);
+  const wx = WEATHER[weather][3];
+  if (wx >= 71) cv.sprite(SCARF.rows, x, y, s, SCARF.dx, SCARF.dy);
+  else if (wx >= 51) cv.sprite(UMBRELLA.rows, x, y, s, UMBRELLA.dx, UMBRELLA.dy);
+  if (extra && EXTRAS[mood]) cv.sprite(EXTRAS[mood], x, y, s, 33, -6);
+}
+function bubble(cv, t, x, cy, label = 'TRACKIE') { // the cream pixel speech bubble, its tail pointing left
+  const f = F(900, 20), w = Math.ceil(Math.min(170, cv.measure(f, t))) + 26, h = 56, y = Math.round(cy - h / 2);
+  cv.plate(x, y, w, h, { fill: col.cream, rim: col.navy, rimAlpha: 1, rimW: 2, edge: 4, ...SMALL });
+  cv.fillRect(x - 6, y + h / 2 - 6, 10, 4, col.cream); cv.fillRect(x - 2, y + h / 2 - 8, 6, 12, col.cream); cv.fillRect(x - 6, y + h / 2 - 2, 4, 4, col.cream);
+  cv.text(F(900, 11), label, x + 13, y + 8, col.navy, 'left', 'top', 0.6);
+  cv.text(f, cv.fit(f, t, 170), x + 13, y + 22, col.navy);
+}
+
+/* ---------- status strip: y 0–80 ---------- */
+function drawStrip(cv, st, ms) {
+  const mood = moodOf(st), lost = st.data === 'lost';
+  const bob = Math.floor(ms / 500) % 2 ? 0 : -PET.s;
+  drawPet(cv, mood, PET.x, PET.y + bob, PET.s, st.weather);
+  hit(PET.x, 0, 80, STRIP_H, () => poke());
+  const poked = st.poke && ms - st.poke < 2600;
+  const say = lost ? (poked ? 'Data is 7 min old' : 'No signal') : poked ? REASON[mood] : MOOD_SAYS[mood];
+  bubble(cv, say, BUBBLE.x, BUBBLE.cy);
+  // right: the time, then weather and Wi-Fi under it
+  const R = W - 16;
+  cv.pixelText(clockText(), R, 12, 4, col.white, 'right');
+  const wifiCx = R - 11;
+  icon(cv, lost ? 'off' : 'wifi', wifiCx, 60, 3, lost ? col.red : col.dimInk);
+  const [ic, temp, rgb] = WEATHER[st.weather];
+  const tw = cv.text(F(800, 18), temp, wifiCx - 22, 61, col.mist, 'right', 'middle');
+  icon(cv, ic, wifiCx - 22 - tw - 14, 60, 3, rgb);
+  // the map button: a folded map that turns headlight yellow while the map is up (then it shows the cards icon)
+  const onMap = st.screen === 'map', b = MAP_BTN;
+  cv.plate(b.x, b.y, b.w, b.h, { fill: onMap ? col.headlight : col.raised, rim: onMap ? col.navy : col.white, rimAlpha: onMap ? 1 : 0.22, edge: 4, ...SMALL });
+  icon(cv, onMap ? 'cards' : 'map', b.x + b.w / 2, b.y + b.h / 2, 3, onMap ? col.navy : col.white);
+  hit(b.x - 6, 0, b.w + 12, STRIP_H, () => setScreen(onMap ? 'home' : 'map'));
+}
+
+/* ---------- one arrival tile ---------- */
+function tile(cv, x, y, a, lead, t, stale, ms) {
+  const cx = x + TILE.w / 2;
+  cv.plate(x, y, TILE.w, TILE.h, { fill: t.tile, fill2: t.tile2, rim: t.outline || t.text, rimAlpha: t.outline ? 1 : lead ? 1 : 0.25, rimW: lead ? 3 : 2, edge: 4 });
+  const sched = !a.live;
+  const big = sched ? clockText(a.min) : a.min <= 1 ? 'Due' : String(a.min);
+  const sc = sched ? 3 : a.min <= 1 ? 4 : lead ? 5 : 4;
+  const minW = sched || a.min <= 1 ? 0 : Math.ceil(cv.measure(F(800, 13), 'min')) + 4;
+  const gw = sched || !stale ? 20 : 0;
+  const dw = pixelWidth(big, sc), gx = Math.round(cx - (dw + minW + gw) / 2);
+  const dy = y + 14 + (sc === 5 ? 0 : sc === 4 ? 4 : 8);
+  cardDigits(cv, big, gx, dy, sc, t);
+  if (minW) cardText(cv, F(800, 13), 'min', gx + dw + 4, dy + 7 * sc, t, 'left', 'alphabetic');
+  if (gw) liveGlyph(cv, gx + dw + minW + 4, y + 14, !sched, !stale, ms, t.halo);
+  cardText(cv, F(800, 13), cv.fit(F(800, 13), a.dest, TILE.w - 16), cx, y + 56, t, 'center');
+  if (a.delayed) { const w = Math.ceil(cv.measure(F(900, 11), 'DELAYED')) + 12; cv.chip('DELAYED', Math.round(cx - w / 2), y + TILE.h - 26, col.amber, 0x000000); }
+  else if (sched) { const w = Math.ceil(cv.measure(F(900, 11), 'SCHED')) + 12; cv.chip('SCHED', Math.round(cx - w / 2), y + TILE.h - 26, t.text, t.card); }
+}
+
+/* ---------- one stop section: y = STRIP_H + i * SEC_H ---------- */
+function drawSection(cv, st, i, s, ms) {
+  const top = STRIP_H + i * SEC_H, x = CARD.x, y = top + CARD.dy, w = CARD.w, h = CARD.h;
+  const open = () => openPicker(i);
+  if (!s) return drawEmpty(cv, i, x, y, w, h, open);
+  hit(x, y, w, h, null, open);
+  const t = th(s.route, s.bus), stale = st.data === 'lost';
+  const saved = cv.alpha; if (stale) cv.alpha *= 0.55;
+  cv.plate(x, y, w, h, { fill: t.top, fill2: t.card, rim: t.outline || t.text, rimAlpha: t.outline ? 1 : 0.25, rimW: t.outline ? 3 : 2 });
+  const L = x + PAD, R = x + w - PAD;
+  // row 1: the line or route, and how fresh the data is
+  let lx = L;
+  if (s.bus) { lx += badge(cv, s.route, L, y + 24, 24, t) + 8; cardText(cv, F(900, 16), s.name.toUpperCase(), lx, y + 24, t, 'left', 'middle'); }
+  else cardText(cv, F(900, 16), `${LINE_NAME[s.route].toUpperCase()} LINE`, L, y + 24, t, 'left', 'middle');
+  if (stale) cardText(cv, F(800, 13), 'Updated 7 min ago', R, y + 24, t, 'right', 'middle');
+  // row 2: the stop, large, with the alert sign
+  let fName = F(900, 34); for (const sz of [24, 21]) if (cv.measure(fName, s.stop) > w - 2 * PAD - 30) fName = F(900, sz);
+  const nw = cardText(cv, fName, cv.fit(fName, s.stop, w - 2 * PAD - 30), L, y + 38 + (34 - fName.s) / 2, t);
+  if (s.alert) inkRing(cv, ALERT, Math.round(L + nw + 10), y + 50, 1, t.text, t.outline);
+  // row 3: where it goes
+  cardArrow(cv, L + 9, y + 89, 9, t);
+  cardText(cv, F(900, 20), cv.fit(F(900, 20), s.head, w - 2 * PAD - 28), L + 26, y + 78, t);
+  // row 4: three equal tiles
+  for (let k = 0; k < 3; k++) tile(cv, L + k * (TILE.w + TILE_GAP), y + TILE.dy, s.arr[k], k === 0, t, stale, ms);
+  cv.alpha = saved;
+}
+function drawEmpty(cv, i, x, y, w, h, open) {
+  hit(x, y, w, h, open, open);
+  cv.plate(x, y, w, h, { fill: col.navy, fill2: 0x060d1d, rim: col.mist, rimAlpha: 0.18, rimW: 2, highlight: false });
+  const cy = y + h / 2 - 14;
+  cv.fillCircle(x + w / 2, cy - 22, 22, col.raised);
+  icon(cv, 'plus', x + w / 2, cy - 22, 4, col.headlight);
+  cv.text(F(900, 21), 'Tap to pick a stop', x + w / 2, cy + 16, col.white, 'center');
+  cv.text(F(800, 14), `Shows on LED row ${i + 1}`, x + w / 2, cy + 46, col.mist, 'center');
+}
+
+function drawHome(cv, st, ms) {
+  drawStrip(cv, st, ms);
+  sectionsFor(st).forEach((s, i) => drawSection(cv, st, i, s, ms));
+}
+
+/* ---------- stop picker (spec 7.2): Train or Bus → line or route → direction → stop ---------- */
+function pickerHeader(cv, st, title, sub) {
+  const p = st.picker;
+  chevron(cv, 30, 30, 20, 42, 30, 54, col.mist);
+  hit(0, 0, 70, 84, () => pickerBack());
+  cv.text(F(900, 24), title, 48, 22, col.white);
+  cv.text(F(800, 14), sub, 48, 54, col.mist);
+  for (let k = 0; k < 4; k++) cv.fillPixelShape(W - 24 - (4 - k) * 18, 38, 12, 12, 2, [1], k < p.step ? col.headlight : col.raised);
+}
+function drawPicker(cv, st, ms) {
+  const p = st.picker, bus = p.kind === 'bus';
+  const kindName = bus ? 'Bus' : 'Train';
+  const t = bus ? th('22', true) : th(p.line, false);
+  if (p.step === 1) {
+    pickerHeader(cv, st, 'Pick a stop', `Section ${p.section + 1} · what kind?`);
+    const tr = th('Red', false), bt = th('22', true);
+    cv.plate(24, 120, 432, 250, { fill: tr.top, fill2: tr.card, rim: tr.text, rimAlpha: 0.25 });
+    drawPet(cv, 'happy', 300, 170, 4, 'clear', false);
+    cv.text(F(900, 34), 'Train', 48, 150, tr.text);
+    cv.text(F(800, 16), "8 'L' lines", 48, 196, tr.text);
+    hit(24, 120, 432, 250, () => pickerChoose({ kind: 'train', step: 2 }));
+    cv.plate(24, 400, 432, 250, { fill: bt.top, fill2: bt.card, rim: bt.outline, rimAlpha: 1, rimW: 3 });
+    cardText(cv, F(900, 34), 'Bus', 48, 430, bt);
+    cardText(cv, F(800, 16), 'Routes come live from Bus Tracker', 48, 476, bt);
+    hit(24, 400, 432, 250, () => pickerChoose({ kind: 'bus', step: 2 }));
+    return;
+  }
+  if (p.step === 2 && !bus) {
+    pickerHeader(cv, st, 'Which line?', `Section ${p.section + 1} · ${kindName}`);
+    Object.keys(LINE).forEach((ln, k) => {
+      const lt = th(ln, false), x = 24 + (k % 2) * 224, y = PK.top + 16 + Math.floor(k / 2) * 140;
+      cv.plate(x, y, 208, 124, { fill: lt.top, fill2: lt.card, rim: lt.text, rimAlpha: ln === p.line ? 1 : 0.25, rimW: ln === p.line ? 3 : 2 });
+      cv.text(F(900, 24), LINE_NAME[ln], x + 18, y + 18, lt.text);
+      cv.text(F(800, 14), `To ${DIRS[ln][0]}`, x + 18, y + 60, lt.text);
+      cv.text(F(800, 14), `To ${DIRS[ln][1]}`, x + 18, y + 82, lt.text);
+      hit(x, y, 208, 124, () => pickerChoose({ line: ln, step: 3 }));
+    });
+    return;
+  }
+  if (p.step === 2 && bus) {
+    pickerHeader(cv, st, 'Which route?', `Section ${p.section + 1} · ${kindName}`);
+    BUS_ROUTES.forEach(([rt, name], k) => {
+      const y = PK.top + 12 + k * 84;
+      cv.plate(24, y, 432, 70, { fill: t.top, fill2: t.card, rim: t.outline, rimAlpha: 1, rimW: 3 });
+      const bw = badge(cv, rt, 44, y + 35, 30, t);
+      cardText(cv, F(900, 24), name, 44 + bw + 14, y + 35, t, 'left', 'middle');
+      hit(24, y, 432, 70, () => pickerChoose({ step: 3 }));
+    });
+    return;
+  }
+  if (p.step === 3) {
+    pickerHeader(cv, st, 'Which way?', bus ? `Section ${p.section + 1} · 22 Clark` : `Section ${p.section + 1} · ${LINE_NAME[p.line]} Line`);
+    const dirs = bus ? [['Northbound', 'To Howard'], ['Southbound', 'To Harrison']] : DIRS[p.line].map(d => [`To ${d}`, `Toward the ${d} end`]);
+    dirs.forEach(([a, b], k) => {
+      const y = 132 + k * 230;
+      cv.plate(24, y, 432, 200, { fill: t.top, fill2: t.card, rim: t.outline || t.text, rimAlpha: t.outline ? 1 : 0.25, rimW: t.outline ? 3 : 2 });
+      cardArrow(cv, 60, y + 80, 18, t);
+      cardText(cv, F(900, 34), cv.fit(F(900, 34), a, 340), 92, y + 60, t);
+      cardText(cv, F(800, 16), b, 92, y + 110, t);
+      hit(24, y, 432, 200, () => pickerChoose({ dir: k, step: 4 }));
+    });
+    return;
+  }
+  // step 4: a scrolling stop list
+  const names = bus ? BUS_STOPS : (STATIONS[p.line] || STATIONS.Red);
+  const dirName = bus ? (p.dir ? 'Southbound' : 'Northbound') : `To ${DIRS[p.line][p.dir]}`;
+  pickerHeader(cv, st, 'Which stop?', `${bus ? '22 Clark' : LINE_NAME[p.line] + ' Line'} · ${dirName}`);
+  const top = PK.top + 8;
+  cv.c.save(); cv.c.beginPath(); cv.c.rect(0, top, W, H - top); cv.c.clip();
+  names.forEach((n, k) => {
+    const y = top + 8 + k * PK.row - Math.round(p.scroll);
+    if (y > H || y + PK.rowH < top) return;
+    cv.plate(24, y, 432, PK.rowH, { fill: t.top, fill2: t.card, rim: t.outline || t.text, rimAlpha: t.outline ? 1 : 0.25, rimW: t.outline ? 3 : 2, edge: 4 });
+    cardText(cv, F(900, 21), n, 44, y + PK.rowH / 2, t, 'left', 'middle');
+    hit(24, Math.max(y, top), 432, PK.rowH, () => pickerDone(n));
+  });
+  cv.c.restore();
+  // a fade at the bottom says the list goes on
+  for (let k = 0; k < 12; k++) cv.fillRect(0, H - 48 + k * 4, W, 4, col.bg, (k + 1) / 12);
+}
+const pickerMaxScroll = st => { const n = (st.picker.kind === 'bus' ? BUS_STOPS : STATIONS[st.picker.line] || STATIONS.Red).length; return Math.max(0, n * PK.row + 24 - (H - PK.top - 8)); };
+
+/* ---------- map mode: the 3 picked stops' approach zones, their lines, and up to 3 live vehicles per line ---------- */
+const ON_BLACK = {};
+const onBlack = route => ON_BLACK[route] ??= lifted(LINE[route], 0x000000, 3, 0);   // big line color on black (the app's rule)
+const OFFSET = { Brn: 6, P: 12 };   // lines sharing the North Side tracks sit side by side, like a transit map
+const CASING = 0x050d1d;
+// The frame: every picked zone fits between the pads, at one scale for both axes. Recomputed only when picks change.
+function mapFrame(secs) {
+  const zs = secs.map((s, i) => s && ZONES[i]).filter(Boolean), pts = (zs.length ? zs : ZONES).flat();
+  const la = pts.map(p => p[1]), lo = pts.map(p => p[2]);
+  const lat0 = (Math.min(...la) + Math.max(...la)) / 2, lon0 = (Math.min(...lo) + Math.max(...lo)) / 2;
+  const kmX = 111.32 * Math.cos(lat0 * Math.PI / 180), kmY = 111.32;   // km per degree
+  const spanX = (Math.max(...lo) - Math.min(...lo)) * kmX, spanY = (Math.max(...la) - Math.min(...la)) * kmY;
+  const boxW = W - 2 * MAP.padX, boxH = H - MAP.top - MAP.padTop - MAP.padBottom;
+  const pxPerKm = Math.min(boxW / Math.max(spanX, 0.5), boxH / Math.max(spanY, 0.5));
+  const cx = W / 2, cy = MAP.top + MAP.padTop + boxH / 2;
+  return { proj: (lat, lon, pan) => [Math.round(cx + (lon - lon0) * kmX * pxPerKm + pan.x), Math.round(cy - (lat - lat0) * kmY * pxPerKm + pan.y)], pxPerKm };
+}
+// Where a vehicle sits: one that lights LED k is between stop k-1 and stop k (its next stop), so the map and the
+// LEDs always agree. LED 1's vehicle is still short of the zone's first stop.
+function vehicleAt(zone, k, f = 0.55) {
+  const b = zone[k - 1], a = k > 1 ? zone[k - 2] : [null, 2 * zone[0][1] - zone[1][1], 2 * zone[0][2] - zone[1][2]];
+  return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+function vehiclesFor(s) {   // up to MAP.maxPerLine, nearest the stop first
+  const ks = [...s.leds]; if (s.arr[0].live && s.arr[0].min <= 3 && !ks.includes(7)) ks.push(7);
+  return ks.sort((a, b) => b - a).slice(0, MAP.maxPerLine);
+}
+function drawMap(cv, st, ms) {
+  drawStrip(cv, st, ms);
+  const secs = sectionsFor(st), stale = st.data === 'lost', pan = st.mapPan;
+  const { proj } = mapFrame(secs);
+  const picked = new Set(secs.filter(s => s && !s.bus).map(s => s.route)), busPicked = secs.some(s => s && s.bus);
+  cv.c.save(); cv.c.beginPath(); cv.c.rect(0, MAP.top, W, H - MAP.top); cv.c.clip();
+  const lineAt = (pts, off, b, rgb, a) => { let prev = null; for (const [la, lo] of pts) { const [x, y] = proj(la, lo, pan); if (prev) cv.seg(prev[0] + off, prev[1], x + off, y, b, rgb, a); prev = [x, y]; } };
+  // track: casings under everything, then the lines; lines nobody picked are dimmed
+  const order = ['P', 'Red', 'Brn'];
+  for (const r of order) for (const run of SHAPES[r] || []) lineAt(run, OFFSET[r] || 0, MAP.casing, CASING, 1);
+  if (busPicked) lineAt(BUS_SHAPE, 0, 10, CASING, 1);
+  for (const r of order) for (const run of SHAPES[r] || []) lineAt(run, OFFSET[r] || 0, MAP.track, onBlack(r), picked.has(r) ? 1 : 0.3);
+  if (busPicked) lineAt(BUS_SHAPE, 0, 4, kBusOutline, 1);
+  // each zone's stops: small stations along the approach
+  secs.forEach((s, i) => { if (!s) return; const off = s.bus ? 0 : OFFSET[s.route] || 0;
+    ZONES[i].slice(0, 6).forEach(([, la, lo]) => { const [x, y] = proj(la, lo, pan); cv.dot(x + off, y, s.bus ? 9 : 11, CASING); cv.dot(x + off, y, s.bus ? 5 : 7, col.white); }); });
+  // live vehicles, at most 3 per line, faded when the data is old
+  secs.forEach((s, i) => { if (!s) return; const off = s.bus ? 0 : OFFSET[s.route] || 0, lineRgb = s.bus ? kBusOutline : onBlack(s.route);
+    for (const k of vehiclesFor(s)) {
+      const [la, lo] = vehicleAt(ZONES[i], k), [x, y] = proj(la, lo, pan), rows = s.bus ? BUSCAR : CAR;
+      const saved = cv.alpha; if (stale) cv.alpha *= 0.4;
+      PAL.A = lineRgb; cv.sprite(rows, x + off - 4 * MAP.car, y - Math.floor(3.5 * MAP.car), MAP.car); cv.alpha = saved;
+    } });
+  // the picked stops: numbered like their section and LED row, with the stop and its next arrival
+  const pins = secs.map((s, i) => { if (!s) return null; const z = ZONES[i][6], [x, y] = proj(z[1], z[2], pan); const ox = x + (s.bus ? 0 : OFFSET[s.route] || 0); return { s, i, x: ox, y, ax: ox, ay: y }; }).filter(Boolean);
+  // Pins closer than a pin apart (Belmont's Red platform and Clark & Belmont are 200 m apart) spread sideways, with a
+  // short leader back to the real spot.
+  for (let it = 0; it < 4; it++) for (const p of pins) for (const q of pins) {
+    if (p === q || Math.abs(p.y - q.y) >= 34) continue;
+    const d = q.x - p.x, need = 40 - Math.abs(d);
+    if (need > 0) { const s = d >= 0 ? 1 : -1; p.x -= s * Math.ceil(need / 2); q.x += s * Math.ceil(need / 2); }
+  }
+  for (const p of pins) if (p.x !== p.ax) { cv.seg(p.ax, p.ay, p.x, p.y, 4, CASING); cv.seg(p.ax, p.ay, p.x, p.y, 2, th(p.s.route, p.s.bus).text); cv.dot(p.ax, p.ay, 7, th(p.s.route, p.s.bus).text); }
+  // Labels: beside the pin (right, then left), else a row above or below, kept on screen and off every other pin
+  // and label. Placed once per frame in pick order; on the device, once per frame change.
+  const PIN_S = 30, placed = pins.map(p => ({ x: p.x - PIN_S / 2 - 2, y: p.y - PIN_S / 2 - 2, w: PIN_S + 4, h: PIN_S + 4 }));
+  const overlaps = r => placed.some(q => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h);
+  for (const p of pins) {
+    const t = th(p.s.route, p.s.bus), size = PIN_S, px = p.x - size / 2, py = p.y - size / 2;
+    const a0 = p.s.arr[0], when = !a0.live ? clockText(a0.min) : a0.min <= 1 ? 'Due' : `${a0.min} min`;
+    const fN = F(900, 15), fW = F(800, 14), nameW = Math.ceil(cv.measure(fN, p.s.stop)), whenW = Math.ceil(cv.measure(fW, when));
+    const lw = nameW + whenW + 30, lh = 32;
+    const cands = [[px + size + 8, 0], [px - 8 - lw, 0], [px + size + 8, -40], [px - 8 - lw, -40], [px + size + 8, 40], [px - 8 - lw, 40], [p.x - lw / 2, -44], [p.x - lw / 2, 44]];
+    let lx = 0, ly = 0;
+    for (const [cx0, dy] of cands) {
+      const r = { x: cx0, y: p.y - lh / 2 + dy, w: lw, h: lh };
+      if (r.x < 8 || r.x + lw > W - 8 || r.y < MAP.top + 6 || r.y + lh > H - 6 || overlaps(r)) continue;
+      lx = r.x; ly = r.y; break;
+    }
+    if (!lx) { lx = Math.max(8, Math.min(W - 8 - lw, px + size + 8)); ly = p.y - lh / 2 - 40; }
+    placed.push({ x: lx, y: ly, w: lw, h: lh });
+    const saved = cv.alpha; if (stale) cv.alpha *= 0.55;
+    cv.plate(lx, ly, lw, lh, { fill: t.top, fill2: t.card, rim: t.outline || t.text, rimAlpha: t.outline ? 1 : 0.3, rimW: 2, edge: 3, ...SMALL });
+    cardText(cv, fN, p.s.stop, lx + 10, ly + lh / 2 + 1, t, 'left', 'middle');
+    cardText(cv, fW, when, lx + 20 + nameW, ly + lh / 2 + 1, t, 'left', 'middle');
+    cv.plate(px, py, size, size, { fill: t.text, rim: CASING, rimAlpha: 1, rimW: 2, edge: 3, ...SMALL });
+    cv.pixelText(String(p.i + 1), p.x + 1, py + 8, 2, t.outline ? 0xffffff : t.card, 'center');
+    cv.alpha = saved;
+    hit(px, py, size, size, () => setScreen('home')); hit(lx, ly, lw, lh, () => setScreen('home'));
+  }
+  cv.c.restore();
+  if (!pins.length) {
+    cv.plate(W / 2 - 150, 380, 300, 70, { fill: col.navy, rim: col.mist, rimAlpha: 0.25 });
+    cv.text(F(900, 20), 'No stops picked yet', W / 2, 396, col.white, 'center');
+    cv.text(F(800, 14), 'Pick one on the stops screen', W / 2, 424, col.mist, 'center');
+  }
+  if (stale) {
+    const f = F(800, 14), tw = Math.ceil(cv.measure(f, 'Updated 7 min ago')) + 24;
+    cv.plate(16, H - 20 - 40, tw, 40, { fill: col.raised, rim: col.amber, rimAlpha: 0.6, edge: 4, ...SMALL });
+    cv.text(f, 'Updated 7 min ago', 28, H - 20 - 19, col.amber, 'left', 'middle');
+  }
+  // recenter: headlight yellow while the frame is on the picks, like the app's button
+  const rc = RECENTER, follow = !pan.x && !pan.y;
+  cv.plate(rc.x, rc.y, rc.w, rc.h, { fill: follow ? col.headlight : col.raised, rim: follow ? col.navy : col.white, rimAlpha: follow ? 1 : 0.22, edge: 4, ...SMALL });
+  cv.ink(PIN, rc.x + rc.w / 2 - 9, rc.y + rc.h / 2 - 9, 2, follow ? col.navy : col.white);
+  hit(rc.x, rc.y, rc.w, rc.h, () => { S.mapPan = { x: 0, y: 0 }; });
+}
+
+/* ---------- full-screen messages: pairing, setup, no key ---------- */
+function drawMessage(cv, st, ms, title, body, foot) {
+  const bob = Math.floor(ms / 500) % 2 ? 0 : -4;
+  drawPet(cv, st.screen === 'nokey' ? 'worried' : 'happy', W / 2 - 64, 196 + bob, 4, 'clear');
+  cv.text(F(900, 34), title, W / 2, 380, col.white, 'center');
+  body.forEach((ln, k) => cv.text(F(800, 18), ln, W / 2, 436 + k * 28, col.mist, 'center'));
+  if (foot) cv.text(F(900, 16), foot, W / 2, 436 + body.length * 28 + 24, col.headlight, 'center');
+}
+function drawPair(cv, ms) {
+  const bob = Math.floor(ms / 500) % 2 ? 0 : -4;
+  drawPet(cv, 'happy', W / 2 - 64, 150 + bob, 4, 'clear');
+  cv.text(F(900, 24), 'Pairing', W / 2, 320, col.white, 'center');
+  cv.pixelText('482 913', W / 2, 380, 8, col.white, 'center');
+  cv.text(F(800, 18), 'Type this code on your iPhone', W / 2, 470, col.mist, 'center');
+  cv.text(F(900, 16), 'CTA-Dock-3F2A', W / 2, 502, col.headlight, 'center');
+}
+
+function drawFrame(cv, st, ms) {
+  cv.clear(col.bg); cv.alpha = 1;
+  if (st.screen === 'picker') drawPicker(cv, st, ms);
+  else if (st.screen === 'map') drawMap(cv, st, ms);
+  else if (st.screen === 'pair') drawPair(cv, ms);
+  else if (st.screen === 'nowifi') drawMessage(cv, st, ms, 'Set up Wi-Fi', ['Open the CTA app on your iPhone', 'to set up Wi-Fi.'], 'CTA-Dock-3F2A is waiting');
+  else if (st.screen === 'nokey') drawMessage(cv, st, ms, 'No API key', ['This dock was built without', 'CTA API keys.'], 'Add them to secrets.h and reflash');
+  else drawHome(cv, st, ms);
+  if (st.night) cv.fillRect(0, 0, W, H, col.bg, 0.62); // the backlight is on/off only, so night dims with a black veil
+  cv.alpha = 1;
+}
+
+/* ---------- the LED rows beside the screen (hardware; for context only) ---------- */
+// As in the dock's CAD: a light faceplate to the right of the screen, one row of 7 per section, level with it,
+// LED 1 (farthest stop) on the left and LED 7 (the picked stop) on the right.
+const LED = { w: 340, x0: 34, pitch: 44, r: 11 };
+function drawLeds(ctx, st, ms) {
+  ctx.globalAlpha = 1; ctx.fillStyle = '#c4c7cd'; ctx.fillRect(0, 0, LED.w, H);
+  const g = ctx.createLinearGradient(0, 0, LED.w, H); g.addColorStop(0, 'rgba(255,255,255,0.25)'); g.addColorStop(1, 'rgba(0,0,0,0.12)'); ctx.fillStyle = g; ctx.fillRect(0, 0, LED.w, H);
+  const secs = st.screen === 'home' || st.screen === 'map' ? sectionsFor(st) : [null, null, null];
+  for (let i = 0; i < 3; i++) {
+    const s = secs[i], cy = STRIP_H + i * SEC_H + CARD.dy + CARD.h / 2;
+    for (let k = 1; k <= 7; k++) {
+      const cx = LED.x0 + (k - 1) * LED.pitch;
+      const on = s && !st.night && st.data !== 'lost' && (s.leds.includes(k) || (k === 7 && s.arr[0].live && s.arr[0].min <= 3));
+      let a = on ? 1 : 0;
+      if (on && k === 7) a = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(ms / 300));
+      ctx.globalAlpha = 1; ctx.fillStyle = '#16181d'; ctx.beginPath(); ctx.roundRect(cx - 17, cy - 17, 34, 34, 6); ctx.fill();   // the housing
+      ctx.fillStyle = '#e9ebee'; ctx.beginPath(); ctx.arc(cx, cy, LED.r, 0, 7); ctx.fill();                                     // the diffuser, off
+      if (a) { const c = hex(th(s.route, s.bus).led); ctx.globalAlpha = a; ctx.fillStyle = c; ctx.beginPath(); ctx.arc(cx, cy, LED.r, 0, 7); ctx.fill();
+        ctx.globalAlpha = a * 0.3; ctx.beginPath(); ctx.arc(cx, cy, LED.r + 7, 0, 7); ctx.fill(); }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ====================================================================================================== */
+/* App                                                                                                    */
+/* ====================================================================================================== */
+const $ = id => document.getElementById(id);
+const scr = $('screen'), cv = new Canvas(scr.getContext('2d')), ledCtx = $('leds').getContext('2d');
+const S = { screen: 'home', mood: 'happy', weather: 'clear', data: 'live', empty: 'none', night: false, poke: 0, mapPan: { x: 0, y: 0 },
+  picker: { step: 1, kind: 'train', line: 'Red', dir: 1, section: 0, scroll: 0 } };
+let hits = [];
+function poke() { S.poke = performance.now(); }
+function setScreen(v) { S.screen = v; if (v === 'map') S.mapPan = { x: 0, y: 0 }; syncUI(); }   // the map opens framed on the picks
+function openPicker(i) { S.screen = 'picker'; S.picker = { ...S.picker, step: 1, section: i, scroll: 0 }; syncUI(); }
+function pickerChoose(o) { Object.assign(S.picker, o, { scroll: 0 }); syncUI(); }
+function pickerBack() { if (S.picker.step > 1) { S.picker.step--; S.picker.scroll = 0; } else S.screen = 'home'; syncUI(); }
+function pickerDone(name) { S.screen = 'home'; if (S.empty === 'all') S.empty = 'one'; else if (S.empty === 'one' && S.picker.section === 2) S.empty = 'none'; toast(`Section ${S.picker.section + 1} now shows ${name}`); syncUI(); }
+
+function loop() {
+  const now = performance.now();
+  HITS = []; drawFrame(cv, S, now); hits = HITS; HITS = null;
+  drawLeds(ledCtx, S, now);
+  requestAnimationFrame(loop);
+}
+
+function pt(e) { const r = scr.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
+const find = (p, key) => [...hits].reverse().find(h => h[key] && p.x >= h.x && p.x < h.x + h.w && p.y >= h.y && p.y < h.y + h.h);
+let press = null;
+scr.addEventListener('pointerdown', e => {
+  const p = pt(e); press = { p, x0: p.x, y0: p.y, s0: S.picker.scroll, pan0: { ...S.mapPan }, edge: p.x < 40, moved: false, timer: null };
+  const h = find(p, 'hold');
+  if (h && S.screen === 'home') press.timer = setTimeout(() => { press && (press.held = true); h.hold(); }, LONG_PRESS_MS);
+  scr.setPointerCapture(e.pointerId);
+});
+scr.addEventListener('pointermove', e => {
+  if (!press) return; const p = pt(e);
+  if (Math.hypot(p.x - press.x0, p.y - press.y0) > 8) { press.moved = true; clearTimeout(press.timer); }
+  // On the map a drag pans it, except one that starts at the left edge: that swipes back to the stops.
+  if (press.moved && S.screen === 'map' && !press.edge && press.y0 > STRIP_H) S.mapPan = { x: Math.round(press.pan0.x + p.x - press.x0), y: Math.round(press.pan0.y + p.y - press.y0) };
+  if (press.moved && S.screen === 'picker' && S.picker.step === 4) S.picker.scroll = Math.max(0, Math.min(pickerMaxScroll(S), press.s0 - (p.y - press.y0)));
+});
+scr.addEventListener('pointerup', e => {
+  if (!press) return; clearTimeout(press.timer);
+  const p = pt(e), dx = p.x - press.x0, dy = p.y - press.y0, sideways = Math.abs(dx) > SWIPE_PX && Math.abs(dx) > 1.5 * Math.abs(dy);
+  if (!press.moved && !press.held) { const h = find(p, 'tap'); if (h) h.tap(); }
+  else if (sideways && S.screen === 'home' && dx < 0) setScreen('map');                // swipe left: the map
+  else if (sideways && S.screen === 'map' && dx > 0 && press.edge) setScreen('home');  // swipe right from the edge: the stops
+  press = null;
+});
+scr.addEventListener('wheel', e => { if (S.screen === 'picker' && S.picker.step === 4) { e.preventDefault(); S.picker.scroll = Math.max(0, Math.min(pickerMaxScroll(S), S.picker.scroll + e.deltaY)); } }, { passive: false });
+
+let toastT; function toast(m) { $('toast').textContent = m; clearTimeout(toastT); toastT = setTimeout(() => $('toast').textContent = '', 3000); }
+function bindSeg(id, fn) { $(id).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (b) { fn(b.dataset.v); syncUI(); } }); }
+bindSeg('segScreen', v => { setScreen(v); if (v === 'picker') S.picker.scroll = 0; });
+bindSeg('segStep', v => { S.screen = 'picker'; S.picker.step = +v; S.picker.scroll = 0; });
+bindSeg('segKind', v => { S.screen = 'picker'; S.picker.kind = v; S.picker.scroll = 0; if (S.picker.step === 1) S.picker.step = 2; });
+bindSeg('segMood', v => { S.mood = v; S.night = false; if (S.screen !== 'map') S.screen = 'home'; });
+bindSeg('segWeather', v => { S.weather = v; });
+bindSeg('segData', v => { S.data = v; if (S.screen !== 'map') S.screen = 'home'; });
+bindSeg('segEmpty', v => { S.empty = v; if (S.screen !== 'map') S.screen = 'home'; });
+bindSeg('segSize', v => $('device').classList.toggle('real', v === 'real'));
+$('night').addEventListener('change', e => { S.night = e.target.checked; if (S.screen !== 'map') S.screen = 'home'; syncUI(); });
+$('savePng').addEventListener('click', () => { const a = document.createElement('a'); a.download = `dock-${S.screen}.png`; a.href = scr.toDataURL('image/png'); a.click(); });
+function syncUI() {
+  const set = (id, v) => $(id).querySelectorAll('button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === String(v)));
+  set('segScreen', S.screen); set('segStep', S.screen === 'picker' ? S.picker.step : ''); set('segKind', S.screen === 'picker' ? S.picker.kind : '');
+  set('segMood', S.night ? '' : S.mood); set('segWeather', S.weather); set('segData', S.data); set('segEmpty', S.empty);
+  set('segSize', $('device').classList.contains('real') ? 'real' : 'fit'); $('night').checked = S.night;
+}
+
+/* ---------- every state, drawn by the same code ---------- */
+const STATES = [
+  ['Happy, clear', {}], ['Hyped, rain', { mood: 'hyped', weather: 'rain' }], ['Worried (bus delayed), snow', { mood: 'worried', weather: 'snow' }],
+  ['Sad (Red Line alert)', { mood: 'sad' }], ['Sleepy (timetable times)', { mood: 'sleepy' }], ['Night hours', { night: true }],
+  ['Wi-Fi lost', { data: 'lost' }], ['Section 3 empty', { empty: 'one' }], ['No stops picked yet', { empty: 'all' }],
+  ['Map', { screen: 'map' }], ['Map, hyped, rain', { screen: 'map', mood: 'hyped', weather: 'rain' }], ['Map, Wi-Fi lost', { screen: 'map', data: 'lost' }],
+  ['Map, section 3 empty', { screen: 'map', empty: 'one' }],
+  ['Picker 1: kind', { screen: 'picker', picker: { step: 1 } }], ['Picker 2: train line', { screen: 'picker', picker: { step: 2 } }],
+  ['Picker 2: bus route', { screen: 'picker', picker: { step: 2, kind: 'bus' } }], ['Picker 3: direction', { screen: 'picker', picker: { step: 3 } }],
+  ['Picker 4: stop', { screen: 'picker', picker: { step: 4, scroll: 532 } }], ['Pairing passkey', { screen: 'pair' }],
+  ['No Wi-Fi saved', { screen: 'nowifi' }], ['No API key', { screen: 'nokey' }],
+];
+function stateFor(o) { return { ...S, mood: 'happy', weather: 'clear', data: 'live', empty: 'none', night: false, poke: 0, screen: 'home', mapPan: { x: 0, y: 0 }, ...o,
+  picker: { step: 1, kind: 'train', line: 'Red', dir: 1, section: 0, scroll: 0, ...(o.picker || {}) } }; }
+function buildSheet() {
+  const off = document.createElement('canvas'); off.width = W; off.height = H; const ocv = new Canvas(off.getContext('2d'));
+  const sheet = $('sheet'); sheet.textContent = '';
+  for (const [label, o] of STATES) {
+    const st = stateFor(o); drawFrame(ocv, st, 600);
+    const div = document.createElement('div'); div.className = 'thumb';
+    const c = document.createElement('canvas'); c.width = 240; c.height = 400; c.getContext('2d').drawImage(off, 0, 0, 240, 400);
+    const sp = document.createElement('span'); sp.textContent = label; div.append(c, sp);
+    div.addEventListener('click', () => { Object.assign(S, stateFor(o)); syncUI(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    sheet.append(div);
+  }
+  const used = [...USED].sort((a, b) => a.split('/')[0] - b.split('/')[0] || a.split('/')[1] - b.split('/')[1]);
+  $('fontsUsed').innerHTML = used.map(k => `<code class="${ATLAS.has(k) ? '' : 'new'}">${k}</code>`).join(' ');
+}
+
+// URL hash picks a state for screenshots: #state=3
+Promise.race([Promise.all([document.fonts.load('900 34px Nunito'), document.fonts.load('800 16px Nunito')]), new Promise(r => setTimeout(r, 2500))]).catch(() => {}).then(() => {
+  const m = location.hash.match(/state=(\d+)/); if (m && STATES[+m[1]]) Object.assign(S, stateFor(STATES[+m[1]][1]));
+  syncUI(); buildSheet();
+  if (/device/.test(location.hash)) { // the screen with the LED faceplate, for PNG exports: #state=0&device
+    const d = $('device'); document.body.style.cssText = 'margin:0;background:#0b0d12'; document.body.replaceChildren(d);
+    d.style.cssText = 'display:inline-flex;margin:0;border-radius:0;box-shadow:none';
+  } else if (/solo/.test(location.hash)) { // just the screen at 0,0, for PNG exports: #state=0&solo
+    document.body.style.cssText = 'margin:0;background:#000'; document.body.replaceChildren(scr);
+    scr.style.cssText = 'width:480px;height:800px;display:block;border-radius:0';
+  }
+  drawFrame(cv, S, 600); // one frame now, so a headless screenshot has it before the first animation frame
+  loop();
+});
+})();
+</script>
+</body>
+</html>

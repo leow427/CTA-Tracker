@@ -1,7 +1,8 @@
 #pragma once
-// A small 2D canvas over an RGB565 buffer: just the drawing the handheld mockup's HTML canvas uses (pixel plates,
-// Nunito text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs). Plain C++ so the screens can
-// be rendered on a laptop for previews (tools/preview.cpp) as well as on the device.
+// A small 2D canvas over an RGB565 buffer: just the drawing the handheld's and the dock's HTML mockups use (pixel
+// plates, Nunito text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs, and the dock map's
+// block lines and dots). Plain C++ so the screens can be rendered on a laptop for previews (each device's
+// tools/preview.cpp) as well as on the device. Shared by the handheld and the dock (firmware/lib/gfx).
 //
 // A canvas covers either a whole row-major screen or one band of screen rows stored the way the panel wants it
 // (rotated a quarter turn right and byte-swapped), so the device can draw a frame band by band in internal RAM
@@ -10,8 +11,6 @@
 #include <stdint.h>
 
 namespace ui {
-
-constexpr int W = 466, C = 233;
 
 // 0xRRGGBB colors.
 namespace col {
@@ -46,6 +45,10 @@ public:
     // Only screen columns [x0, x1) of such a band: px holds (x1 - x0) * rows pixels, buffer row r being screen column
     // x0 + r. That is the panel window for columns [screenW - y0 - rows, screenW - y0), rows [x0, x1).
     static Canvas panelWindow(uint16_t* px, int screenW, int x0, int x1, int y0, int rows);
+    // Any layout: screen pixel (x, y), for x in [x0, x1) and y in [y0, y1), is px[org + x * sx + y * sy], native byte
+    // order (the dock draws bands of its portrait screen straight in its landscape panel's order). px holds exactly
+    // (x1 - x0) * (y1 - y0) pixels, which clear() fills.
+    static Canvas strided(uint16_t* px, int org, int sx, int sy, int x0, int y0, int x1, int y1);
 
     // State, like ctx.save()/restore() in the mockup: a translation, a clip rectangle, and a global alpha.
     int ox = 0, oy = 0;
@@ -68,7 +71,7 @@ public:
     void plate(int x, int y, int w, int h, const PlateStyle& s);
     int chip(const char* text, int x, int y, uint32_t bg, uint32_t fg);   // returns its width
 
-    // Nunito text. weight 800 or 900; sizes are the ones tools/font_build.html renders.
+    // Nunito text. weight 800 or 900; sizes are the ones firmware/lib/gfx/tools/font_build.html renders.
     static const Font* font(int weight, int size);
     static float measure(const Font* f, const char* text);
     // Whether the font has a glyph for every character (the large title sizes carry letters and digits only).
@@ -101,6 +104,12 @@ public:
              bool roundCaps = false);
     void arrowCircle(float cx, float cy, float r, uint32_t rgb, uint32_t inkRgb);   // arrow.right.circle.fill
 
+    // Crisp, not anti-aliased (the dock map's track, to match the pixel art). seg: a Bresenham line from the rounded
+    // ends, a b × b block (top left b/2 up and left of each point) at every step. dot: a size × size square centered
+    // on the rounded (x, y) (top left size/2 up and left) with its four corner pixels knocked off.
+    void seg(float x0, float y0, float x1, float y1, int b, uint32_t rgb, float a = 1.f);
+    void dot(float x, float y, int size, uint32_t rgb, float a = 1.f);
+
     // Scaled blits of a native row-major RGB565 image centered on (cx, cy), with `key` pixels transparent and
     // global alpha a: bilinear, and nearest (rougher, much cheaper, for frames in motion). overBlack promises the
     // image lands on black, so fading it needn't read what's under it (same result, faster).
@@ -126,7 +135,7 @@ private:
 
 // Optional timing of the drawing primitives (the device's "p" command): point clock at a cycle counter and each
 // top-level call adds its cycles to its primitive's slot. Null (the default) costs a branch per call.
-enum class Prim : uint8_t { Clear, Rect, Shape, Plate, Text, Digits, Ink, Sprite, Circle, Line, Arc, Smooth, Nearest, Count };
+enum class Prim : uint8_t { Clear, Rect, Shape, Plate, Text, Digits, Ink, Sprite, Circle, Line, Arc, Smooth, Nearest, Seg, Count };
 extern uint32_t (*gfxClock)();
 extern uint32_t gfxCycles[static_cast<int>(Prim::Count)];
 extern const char* const kPrimNames[static_cast<int>(Prim::Count)];

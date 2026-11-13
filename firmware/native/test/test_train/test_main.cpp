@@ -244,9 +244,36 @@ static void test_positions_shapes() {
     TEST_ASSERT_EQUAL_INT(0, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 0));
 }
 
+static void test_route_filter_on_a_shared_platform() {
+    // Belmont's Loop-bound platform (30258) serves Brown and Purple: a Brown pick keeps Brown's trains only, and its
+    // own route, whichever line comes first (recorded 2026-11-09, filtered to that platform).
+    const std::string f = readFixture("train_arrivals_belmont_loop_platform.json");
+    cta::StopRecord r;
+    memset(&r, 0, sizeof(r));
+    strcpy(r.route, "Brn");
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1000, r, "Brn"));
+    TEST_ASSERT_EQUAL_UINT8(3, r.count);
+    TEST_ASSERT_EQUAL_INT16(0, r.arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(6, r.arrivals[1].min);
+    TEST_ASSERT_EQUAL_INT16(12, r.arrivals[2].min);
+    TEST_ASSERT_EQUAL_STRING("Brn", r.route);
+    strcpy(r.route, "P");
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1000, r, "p"));   // matched as ttpositions spells it
+    TEST_ASSERT_EQUAL_UINT8(4, r.count);
+    TEST_ASSERT_EQUAL_INT16(2, r.arrivals[0].min);
+    TEST_ASSERT_EQUAL_STRING("P", r.route);
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1000, r, "Red"));   // none of its trains here
+    TEST_ASSERT_EQUAL_UINT8(0, r.count);
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1000, r));          // no filter: every train
+    TEST_ASSERT_EQUAL_UINT8(4, r.count);
+    TEST_ASSERT_EQUAL_INT16(0, r.arrivals[0].min);
+    TEST_ASSERT_EQUAL_INT16(2, r.arrivals[1].min);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_station_fixture);
+    RUN_TEST(test_route_filter_on_a_shared_platform);
     RUN_TEST(test_midnight_fixture);
     RUN_TEST(test_error_fixture);
     RUN_TEST(test_single_eta_object);

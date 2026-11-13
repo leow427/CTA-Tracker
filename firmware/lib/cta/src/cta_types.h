@@ -46,6 +46,7 @@ struct ApproachRow {
     int32_t pdist[7];
     int32_t before;
     int32_t pid;
+    float lat[7], lon[7];  // where each stop is, for the dock's map; 0, 0 when unknown
 };
 
 }  // namespace cta

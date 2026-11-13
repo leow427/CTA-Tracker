@@ -131,7 +131,7 @@ struct Timed {
 uint32_t (*gfxClock)() = nullptr;
 uint32_t gfxCycles[static_cast<int>(Prim::Count)] = {};
 const char* const kPrimNames[static_cast<int>(Prim::Count)] = {"clear", "rect", "shape", "plate", "text", "digits", "ink",
-                                                               "sprite", "circle", "line", "arc", "smooth", "nearest"};
+                                                               "sprite", "circle", "line", "arc", "smooth", "nearest", "seg"};
 
 PlateStyle smallPlate() {
     PlateStyle s;
@@ -165,6 +165,18 @@ Canvas Canvas::panelWindow(uint16_t* px, int screenW, int x0, int x1, int y0, in
     c.org_ -= x0 * rows;
     c.bx0_ = x0;
     c.bx1_ = x1;
+    c.resetClip();
+    return c;
+}
+
+Canvas Canvas::strided(uint16_t* px, int org, int sx, int sy, int x0, int y0, int x1, int y1) {
+    Canvas c;
+    c.px_ = px;
+    c.org_ = org;
+    c.sx_ = sx;
+    c.sy_ = sy;
+    c.swap_ = false;
+    c.bx0_ = x0; c.by0_ = y0; c.bx1_ = x1; c.by1_ = y1;
     c.resetClip();
     return c;
 }
@@ -596,6 +608,74 @@ void Canvas::arrowCircle(float cx, float cy, float r, uint32_t rgb, uint32_t ink
     line(cx - r * 0.45f, cy, cx + r * 0.42f, cy, lw, inkRgb);
     line(cx + r * 0.05f, cy - r * 0.4f, cx + r * 0.45f, cy, lw, inkRgb);
     line(cx + r * 0.45f, cy, cx + r * 0.05f, cy + r * 0.4f, lw, inkRgb);
+}
+
+// ---------- crisp block lines and dots (the dock's map) ----------
+
+void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb, float a) {
+    const Timed timed(Prim::Seg);
+    int x0 = static_cast<int>(lroundf(x0f)), y0 = static_cast<int>(lroundf(y0f));
+    const int x1 = static_cast<int>(lroundf(x1f)), y1 = static_cast<int>(lroundf(y1f)), h = b >> 1;
+    if (outside(mini(x0, x1) - h + ox, mini(y0, y1) - h + oy, maxi(x0, x1) - h + b + ox, maxi(y0, y1) - h + b + oy)) return;
+    const int a255 = static_cast<int>(lroundf(255 * a * alpha));
+    if (a255 <= 0) return;
+    const uint16_t c = to565(rgb);
+    // The mockup's Bresenham (Zingl's form: e = dx - |dy|, x steps when 2e >= -|dy|, y when 2e <= dx) visits, at
+    // step n of a line whose major axis is y (|dy| >= dx), y0 + sy * n and x0 + sx * floor((2n dx + |dy|) / 2|dy|);
+    // along x, x0 + sx * n and y0 + sy * floor((2n |dy| + dx) / 2dx). Working the steps out directly lets a long
+    // line visit only the steps whose block can touch the clip (one band of the screen, on the dock).
+    const int dx = x1 > x0 ? x1 - x0 : x0 - x1, ady = y1 > y0 ? y1 - y0 : y0 - y1;
+    const int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    const bool steep = ady >= dx;
+    const int steps = mini(steep ? ady : dx, 3999);   // the mockup's cap: at most 4000 blocks
+    // The steps whose major coordinate puts the block within the clip, plus one either side.
+    int lo = 0, hi = steps;
+    {
+        const int m0 = steep ? y0 : x0, sm = steep ? sy : sx;
+        const int c0 = (steep ? cy0_ - oy : cx0_ - ox) - b + h, c1 = (steep ? cy1_ - oy : cx1_ - ox) + h;   // block meets the clip
+        int a = (c0 - m0) * sm, z = (c1 - m0) * sm;
+        if (a > z) { const int t = a; a = z; z = t; }
+        lo = maxi(lo, a - 1);
+        hi = mini(hi, z + 1);
+    }
+    int lastN = -2, lastX = 0, lastY = 0;   // the last opaque block drawn
+    for (int n = lo; n <= hi; ++n) {
+        int x, y;
+        if (steep) {
+            y = y0 + sy * n;
+            x = x0 + sx * (ady ? static_cast<int>((2LL * n * dx + ady) / (2LL * ady)) : 0);
+        } else {
+            x = x0 + sx * n;
+            y = y0 + sy * static_cast<int>((2LL * n * ady + dx) / (2LL * dx));
+        }
+        // Each block as fillRect(x - h, y - h, b, b, rgb, a) would draw it. Opaque, a block one step from the last
+        // only adds its leading row and column (the rest is the same color already), so a thick line costs about b
+        // pixels a step instead of b * b.
+        const int X = x - h + ox, Y = y - h + oy;
+        if (X < cx1_ && X + b > cx0_ && Y < cy1_ && Y + b > cy0_) {
+            if (a255 >= 255) {
+                if (n > lo && n - 1 == lastN) {
+                    if (X != lastX) { const int cx = X > lastX ? X + b - 1 : X; fill565(cx, Y, cx + 1, Y + b, c); }
+                    if (Y != lastY) { const int ry = Y > lastY ? Y + b - 1 : Y; fill565(X, ry, X + b, ry + 1, c); }
+                } else {
+                    fill565(X, Y, X + b, Y + b, c);
+                }
+                lastN = n; lastX = X; lastY = Y;
+            } else
+                for (int j = maxi(Y, cy0_); j < mini(Y + b, cy1_); ++j)
+                    for (int i = maxi(X, cx0_); i < mini(X + b, cx1_); ++i) {
+                        uint16_t& d = at(i, j);
+                        d = enc(mix565(dec(d), rgb, a255));
+                    }
+        }
+    }
+}
+
+void Canvas::dot(float xf, float yf, int size, uint32_t rgb, float a) {
+    const int h = size >> 1, x = static_cast<int>(lroundf(xf)), y = static_cast<int>(lroundf(yf));
+    fillRect(x - h + 1, y - h, size - 2, size, rgb, a);
+    fillRect(x - h, y - h + 1, 1, size - 2, rgb, a);          // the two side columns, so a faded dot fades evenly
+    fillRect(x - h + size - 1, y - h + 1, 1, size - 2, rgb, a);
 }
 
 // ---------- scaled blits ----------

@@ -18,6 +18,10 @@ int parseAlertRoutes(const char* json, size_t len, const char* const* wanted, si
 // if either is missing or the JSON is malformed.
 bool parseWeather(const char* json, size_t len, int& wmo, float& tempC);
 
+// ipapi.co's reply (spec 7.5): latitude and longitude, both numbers within range. False, leaving both untouched,
+// on its error reply ({"error": true, ...}), anything missing, or malformed JSON.
+bool parseGeoIp(const char* json, size_t len, double& lat, double& lon);
+
 // Umbrella for WMO codes 51–67, 80–82, 95–99; otherwise Scarf for 71–77, 85–86, or tempC < 0; otherwise None.
 Accessory accessoryFor(int wmo, float tempC);
 
