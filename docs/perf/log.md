@@ -76,3 +76,30 @@ After boot: Wi-Fi up 4.2 s, clock set 5.3 s, every stop loaded 9.7 s. Lowest fre
 3. **Frame rate moves in panel steps** (a frame ends at the panel frame after the switch, 29.3 ms each: 34, 17, 11.4, 8.5 fps). The map pan now sits at 84 ms, just over the 58.6 ms needed for 17 fps; the picker sits at 54 ms, well over the 29.3 ms needed for 34 fps.
 4. **The copy into PSRAM (17–18 ms) and the panel wait (13–19 ms) are now as big as the drawing** on moving frames. That's round 2's target, with the map's 46 ms of drawing.
 5. Leo should look at the panel for any 32-row strip that lags or doesn't update (bob, clock minute, blink glyphs, the poke bubble, greyed cards when Wi-Fi drops, map pan and recenter, picker scroll, a real pick, the night veil), and for tearing.
+
+## Round 2: half-band copies on core 0, faded lines blended once (2026-11-13): fails, reverted
+
+- **Change:** `ddeb145` (worker 2; review round 1 found one Should fix, the copier's priority against the idle task, fixed by moving every core 0 task up one; round 2 found nothing).
+  - Each band drawn in two halves; a new copier task on core 0 copies one half into the frame buffer while core 1 draws the other, and core 1 copies whatever the copier hasn't reached.
+  - Faded map lines blended once a pixel; a line's first step in 32 bits (no 64-bit divisions); no 2 ms sleep after a pass that showed a frame. New last column `copier_ms`.
+  - Byte-identical to round 1 on the laptop (1014 frames, with stand-in copiers).
+- **Why:** after round 1 the copy into PSRAM (17–18 ms) was as large as the drawing on moving frames, and core 0 was mostly idle.
+- **Runs, interleaved:** `ref1-1`, `r2-1`, `ref1-2`, `r2-2` (ref1 = round 1's firmware `b6f68bc`). Report: `reports/r2.html`, table: `reports/r2.md`.
+
+| Phase | Frame ms ref1 → r2 | Draw ms | Copy ms (core 1) | FPS dragging | Worst frame ms | Busy c0 % | Tap ms |
+|---|---|---|---|---|---|---|---|
+| 3 Map pan | 83 → 79 | 44 → **51** | 19 → 10 | 11.4 → 12.2 | 88 → **118** | 11 → **33** | 85 → 88 |
+| 4 Picker scroll | 54 → 56 | 23 → **29** | 19 → 9 | 17.1 → 17.1 | 59 → **88** | 10 → **40** | 56 → 58 |
+| 5 Network burst | 27 → 31 | 9 → 15 | 3 → 1 | – | – | 30 → 30 | 25 → **33** |
+| 6 Mixed | 60 → 61 | 29 → **35** | 17 → 11 | 14.3 → 14.5 | 88 → **118** | 30 → **45** | 66 → 67 |
+
+**Result: fails** (8 better, 17 worse beyond noise). Reverted in `0653c11`; kept on branch `dock-perf-r2`.
+
+**Findings**
+
+1. **The copy moved but the frame didn't get faster.** Core 1's copy halved (19 → 10 ms), but its drawing grew by 6–7 ms: both cores now hit PSRAM and the shared cache at once, and drawing in halves costs its own setup. The copier also didn't keep up, so core 1 still copied half the rows itself.
+2. **Worst frames got 30 ms worse** (88 → 118 ms in map pan and mixed; 59 → 88 in the picker): some frames now miss a panel step they used to make.
+3. **Core 0 got 20–30 points busier while dragging**, which is heat for no visible gain.
+4. Lesson, same as the handheld's round 3: on this chip, splitting one memory-bound job across both cores doesn't pay; PSRAM bandwidth is shared. Round 3 should make each core's own work smaller.
+5. The pieces that don't touch the copy (faded lines blended once, 32-bit line starts, no sleep after a frame) are worth salvaging on their own.
+6. Boot came out faster in the r2 runs (every stop loaded 8.3 vs 11.0 s), but nothing in round 2 touched the network: that's the network's own variation.
