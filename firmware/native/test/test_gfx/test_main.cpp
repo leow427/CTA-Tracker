@@ -136,6 +136,44 @@ static void test_seg_matches_the_mockup_in_bands() {
     }
 }
 
+static void test_faded_seg_blends_like_each_block() {
+    // A faded seg counts how many of its blocks cover each pixel and blends it that many times: it must leave every
+    // pixel exactly as the mockup's block-by-block fills do, over any background, in any color and alpha, any width
+    // (those too wide to count are blended block by block), translated and clipped, on a whole canvas and on a
+    // band laid out a quarter turn (the dock's), from either end.
+    static uint16_t a[N * N], b[N * N], under[N * N];
+    uint32_t seed = 2026;
+    auto rnd = [&](int lo, int hi) { seed = seed * 1103515245u + 12345u; return lo + static_cast<int>((seed >> 8) % (hi - lo + 1)); };
+    for (int t = 0; t < 6000; ++t) {
+        const int x0 = rnd(-40, 70), y0 = rnd(-40, 70), w = rnd(1, 20);
+        const int x1 = t % 4 ? rnd(-40, 70) : x0 + rnd(-3, 3), y1 = t % 5 ? rnd(-40, 70) : y0 + rnd(-3, 3);   // short ones too
+        const uint32_t rgb = static_cast<uint32_t>(rnd(0, 0xFFFFFF));
+        const float al = rnd(1, 254) / 255.f, canvasAlpha = t % 3 ? 1.f : rnd(30, 100) / 100.f;
+        for (int i = 0; i < N * N; ++i) under[i] = static_cast<uint16_t>(rnd(0, 0xFFFF));
+        const bool band = t % 2;
+        const int y0band = rnd(0, 16), ox = rnd(-5, 5), oy = rnd(-5, 5);
+        auto canvas = [&](uint16_t* px) {
+            return band ? ui::Canvas::strided(px, (N - 1) * 16 - y0band, -16, 1, 0, y0band, N, y0band + 16) : ui::Canvas(px, N, N);
+        };
+        memcpy(a, under, sizeof(a));
+        memcpy(b, under, sizeof(b));
+        ui::Canvas ca = canvas(a), cb = canvas(b);
+        const int cx = rnd(-5, N), cy = rnd(-5, N), cw = rnd(0, N + 10), ch = rnd(0, N + 10);
+        ui::Canvas* both[2] = {&ca, &cb};
+        for (ui::Canvas* cv : both) {
+            cv->ox = ox;
+            cv->oy = oy;
+            cv->alpha = canvasAlpha;
+            if (t % 7) cv->clip(cx, cy, cw, ch);
+        }
+        refSeg(ca, x0, y0, x1, y1, w, rgb, al);
+        cb.seg(x0, y0, x1, y1, w, rgb, al);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "t %d: (%d,%d)-(%d,%d) width %d, %s", t, x0, y0, x1, y1, w, band ? "band" : "whole");
+        TEST_ASSERT_EQUAL_MEMORY_MESSAGE(a, b, sizeof(a), msg);
+    }
+}
+
 // ---------- recording (the dock draws a frame recorded once, then played band by band) ----------
 
 namespace {
@@ -156,8 +194,8 @@ const uint16_t kPal[4] = {0x0000, 0xF800, 0x07E0, 0x001F};
 const char* const kTexts[] = {"Belmont", "To 95th/Dan Ryan", "Due", "3 min", "Clark \xE2\x80\xA6", "12:05", "", " "};
 
 // Every drawing call, with arguments reaching past the screen's edges, faded and not, under random clips,
-// translations and alphas. Deterministic for a seed.
-void scene(ui::Canvas& cv, uint32_t seed, int calls) {
+// translations and alphas. Deterministic for a seed. plateWidthsAtLeast0: no plate narrower than nothing (below).
+void scene(ui::Canvas& cv, uint32_t seed, int calls, bool plateWidthsAtLeast0 = false) {
     Rng r{seed};
     cv.clear(r.rgb());
     for (int k = 0; k < calls; ++k) {
@@ -174,7 +212,12 @@ void scene(ui::Canvas& cv, uint32_t seed, int calls) {
                 ui::PlateStyle ps = r(0, 1) ? ui::smallPlate() : ui::PlateStyle();
                 ps.fill = r.rgb(); ps.fill2 = r(0, 1) ? ps.fill : r.rgb(); ps.rim = r.rgb(); ps.rimAlpha = r.f(0, 1);
                 ps.rimW = r(0, 3); ps.edge = r(-2, 6); ps.highlight = r(0, 1);
-                cv.plate(static_cast<int>(x), static_cast<int>(y), r(-2, 70), r(-2, 70), ps);
+                if (plateWidthsAtLeast0) {
+                    const int w = r(-2, 70), h = r(-2, 70);
+                    cv.plate(static_cast<int>(x), static_cast<int>(y), w < 0 ? 0 : w, h, ps);
+                } else {
+                    cv.plate(static_cast<int>(x), static_cast<int>(y), r(-2, 70), r(-2, 70), ps);
+                }
                 break;
             }
             case 4: cv.chip(kTexts[r(0, 7)], static_cast<int>(x), static_cast<int>(y), rgb, r.rgb()); break;
@@ -226,7 +269,49 @@ void checkScene(uint32_t seed, int calls, int rows, bool cw) {
     snprintf(msg, sizeof(msg), "seed %u, %d rows, %s", static_cast<unsigned>(seed), rows, cw ? "cw" : "ccw");
     TEST_ASSERT_EQUAL_MEMORY_MESSAGE(whole, banded, sizeof(whole), msg);
 }
+
+// The dock draws a recorded band in two parts of its panel rows (portrait columns), each into its own buffer, so one
+// can be copied while the other is drawn (dock bands.cpp): each part plays the band's calls clipped to its columns.
+// The parts put together must be the whole picture, wherever the split falls. One call is left out: a plate of
+// negative width (no screen draws one) leaves a stray column one pixel left of x on some rows, unless x is past the
+// clip's right edge, so where it shows depends on the split.
+void checkSceneInParts(uint32_t seed, int calls, int rows, bool cw, int split) {
+    static uint16_t part[2][RW * 24];
+    ui::Canvas plain(whole, RW, RH);
+    scene(plain, seed, calls, true);
+    ui::Canvas rc = rec.begin(RW, RH, rows);
+    scene(rc, seed, calls, true);
+    TEST_ASSERT_TRUE(rec.end());
+    memset(banded, 0, sizeof(banded));
+    for (int b = 0; b < rec.bands(); ++b) {
+        const int y0 = b * rows;
+        for (int h = 0; h < 2; ++h) {
+            const int p0 = h ? split : 0, p1 = h ? RW : split;   // panel rows; portrait x = RW - 1 - p (cw), p (ccw)
+            if (p0 == p1) continue;
+            ui::Canvas cv = cw ? ui::Canvas::strided(part[h], (RW - 1 - p0) * rows - y0, -rows, 1, RW - p1, y0, RW - p0, y0 + rows)
+                               : ui::Canvas::strided(part[h], y0 + rows - 1 - p0 * rows, rows, -1, p0, y0, p1, y0 + rows);
+            memset(part[h], 0xA5, sizeof(part[h]));   // what the last part left: the clear must cover it
+            rec.play(cv, b);
+            for (int p = p0; p < p1; ++p)
+                for (int y = y0; y < y0 + rows; ++y) {
+                    const int x = cw ? RW - 1 - p : p;
+                    banded[y * RW + x] = part[h][(p - p0) * rows + (cw ? y - y0 : y0 + rows - 1 - y)];
+                }
+        }
+    }
+    char msg[80];
+    snprintf(msg, sizeof(msg), "seed %u, %d rows, %s, split at %d", static_cast<unsigned>(seed), rows, cw ? "cw" : "ccw", split);
+    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(whole, banded, sizeof(whole), msg);
+}
 }  // namespace
+
+static void test_recording_plays_back_in_parts() {
+    // As below, but each band played in two parts of its columns: every call must clip to a part's columns exactly
+    // (the dock splits its 480 columns in halves; here the split falls anywhere, an empty part included).
+    for (uint32_t seed = 1; seed <= 300; ++seed)
+        checkSceneInParts(seed, 40, seed % 3 == 0 ? 8 : seed % 3 == 1 ? 16 : 24, seed % 2,
+                          static_cast<int>((seed * 37) % (RW + 1)));
+}
 
 static void test_recording_plays_back_exactly() {
     // Thousands of random calls of every kind: each band plays only the calls whose rows reach it, so a call whose
@@ -332,7 +417,9 @@ int main() {
     RUN_TEST(test_seg_clipped);
     RUN_TEST(test_strided_matches_row_major);
     RUN_TEST(test_seg_matches_the_mockup_in_bands);
+    RUN_TEST(test_faded_seg_blends_like_each_block);
     RUN_TEST(test_recording_plays_back_exactly);
+    RUN_TEST(test_recording_plays_back_in_parts);
     RUN_TEST(test_recording_band_hashes);
     RUN_TEST(test_plate_is_its_shadow_then_itself);
     RUN_TEST(test_recording_refuses_what_it_cannot_play);

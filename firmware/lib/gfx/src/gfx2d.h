@@ -130,6 +130,9 @@ private:
     // On a band, where a column's rows run along memory, each column is written a word (two pixels) at a time.
     static constexpr int kRun = 48;   // the most rows written that way (a band: the dock's 32, the handheld's 48)
     void fillPattern(int x0, int y0, int x1, int y1, const uint16_t* col);
+    // seg's faded blocks, each pixel visited once (gfx2d.cpp).
+    void fadedSeg(int lo, int hi, int b, bool steep, int sm, int sn, int m0, int n0, int64_t q, int64_t rem,
+                  int64_t major2, int64_t minor2, uint16_t c, int a255);
     bool outside(int x0, int y0, int x1, int y1) const { return x1 <= cx0_ || x0 >= cx1_ || y1 <= cy0_ || y0 >= cy1_; }
 
     uint16_t* px_ = nullptr;

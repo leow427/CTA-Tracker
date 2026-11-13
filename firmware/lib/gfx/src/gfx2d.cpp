@@ -39,6 +39,34 @@ inline uint32_t spread(uint32_t c) { return (c | c << 16) & kSpread; }
 inline uint16_t unspread(uint32_t x) { return static_cast<uint16_t>(x | x >> 16); }
 inline uint32_t lerpS(uint32_t y, uint32_t x, uint32_t a32) { return ((((x - y) * a32) >> 5) + y) & kSpread; }
 inline uint16_t swap16(uint32_t c) { return static_cast<uint16_t>((c << 8) | ((c >> 8) & 0xFF)); }
+// The widest block a faded seg counts its overlaps for (Canvas::seg); wider ones are blended block by block.
+constexpr int kFadeBlockMax = 16;
+// A seg whose doubled major extent is at most this works out its first step in 32 bits (Canvas::seg).
+constexpr int64_t kSeg32Max = 500000;
+// lerpS k times over (0 <= k <= kFadeBlockMax), unrolled: each case blends once and falls through to the next.
+inline uint32_t lerpTimes(uint32_t v, uint32_t x, uint32_t a32, int k) {
+    switch (k) {
+        case 16: v = lerpS(v, x, a32); [[fallthrough]];
+        case 15: v = lerpS(v, x, a32); [[fallthrough]];
+        case 14: v = lerpS(v, x, a32); [[fallthrough]];
+        case 13: v = lerpS(v, x, a32); [[fallthrough]];
+        case 12: v = lerpS(v, x, a32); [[fallthrough]];
+        case 11: v = lerpS(v, x, a32); [[fallthrough]];
+        case 10: v = lerpS(v, x, a32); [[fallthrough]];
+        case 9: v = lerpS(v, x, a32); [[fallthrough]];
+        case 8: v = lerpS(v, x, a32); [[fallthrough]];
+        case 7: v = lerpS(v, x, a32); [[fallthrough]];
+        case 6: v = lerpS(v, x, a32); [[fallthrough]];
+        case 5: v = lerpS(v, x, a32); [[fallthrough]];
+        case 4: v = lerpS(v, x, a32); [[fallthrough]];
+        case 3: v = lerpS(v, x, a32); [[fallthrough]];
+        case 2: v = lerpS(v, x, a32); [[fallthrough]];
+        case 1: v = lerpS(v, x, a32); [[fallthrough]];
+        default: break;
+    }
+    return v;
+}
+static_assert(kFadeBlockMax == 16, "lerpTimes unrolls up to kFadeBlockMax");
 // Native RGB565 d blended toward rgb by a/255.
 inline uint16_t mix565(uint16_t d, uint32_t rgb, int a) {
     if (a >= 255) return to565(rgb);
@@ -952,15 +980,27 @@ void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb
         lo = maxi(lo, a - 1);
         hi = mini(hi, z + 1);
     }
+    if (lo > hi) return;   // no block reaches the clip
     int lastN = -2, lastX = 0, lastY = 0;   // the last opaque block drawn
     // The minor coordinate's floor((2n minor + major) / 2 major), kept as a quotient q and remainder rem from step lo
     // on: each step adds 2 minor to the numerator, at most one carry since minor <= major (no division a step).
     const int64_t major2 = 2LL * (steep ? ady : dx), minor2 = 2LL * (steep ? dx : ady);
     int64_t q = 0, rem = 0;
-    if (major2) {
+    if (major2 > kSeg32Max) {
         const int64_t num = minor2 * lo + major2 / 2;
         q = num / major2;
         rem = num % major2;
+    } else if (major2) {
+        // In 32 bits (any line that fits a screen): the same quotient, without a 64-bit division (a library call on
+        // the device, at every band a line reaches). lo <= 3999 and minor2 <= major2, so num < 4000 * major2 < 2^31.
+        const int32_t m = static_cast<int32_t>(major2), num = static_cast<int32_t>(minor2) * lo + m / 2;
+        q = num / m;
+        rem = num % m;
+    }
+    if (a255 < 255 && b <= kFadeBlockMax) {
+        fadedSeg(lo, hi, b, steep, steep ? sy : sx, steep ? sx : sy, (steep ? y0 + oy : x0 + ox) - h,
+                 (steep ? x0 + ox : y0 + oy) - h, q, rem, major2, minor2, c, a255);
+        return;
     }
     for (int n = lo; n <= hi; ++n) {
         int x, y;
@@ -994,6 +1034,66 @@ void Canvas::seg(float x0f, float y0f, float x1f, float y1f, int b, uint32_t rgb
                         uint16_t& d = at(i, j);
                         d = enc(mix565(dec(d), rgb, a255));
                     }
+        }
+    }
+}
+
+// A faded seg (see seg): each block is blended over what's there, as fillRect(x - h, y - h, b, b, rgb, a) would blend
+// it, so a pixel under k of the blocks is blended k times (the line builds up where they overlap). Here the blocks
+// over each pixel are counted first and the pixel blended k times in a row: the same pixels, visiting each once
+// instead of once per block (b * b blends a step, one at a time). Steps lo..hi; step n's block covers major lines
+// [m0 + sm * n, + b) and minor lines [n0 + sn * minor(n), + b), minor(n) being q at step lo and stepping as in seg. A
+// line of the major axis has seen every block over it once the steps reach the block that starts it (stepping
+// backwards, the one that ends it): blocks start a line apart.
+void Canvas::fadedSeg(int lo, int hi, int b, bool steep, int sm, int sn, int m0, int n0, int64_t q, int64_t rem,
+                      int64_t major2, int64_t minor2, uint16_t c, int a255) {
+    if (b < 1) return;   // blocks of no pixels
+    const uint32_t cs = spread(c), a32 = static_cast<uint32_t>(a255 * 32 + 128) >> 8;
+    const int majLo = steep ? cy0_ : cx0_, majHi = steep ? cy1_ : cx1_, minLo = steep ? cx0_ : cy0_,
+              minHi = steep ? cx1_ : cy1_;
+    // The canvas's addressing in locals (the stores below would otherwise reload it every pixel): pixel (major line L,
+    // minor line p) is px[org + L * stepMaj + p * stepMin], as at() has it.
+    uint16_t* const px = px_;
+    const int org = org_, stepMaj = steep ? sy_ : sx_, stepMin = steep ? sx_ : sy_;
+    const bool swap = swap_;
+    int first[kFadeBlockMax];   // the first minor line of each of the last b blocks, step n's at n % b
+    int slot = lo % b;          // n % b
+    for (int n = lo; n <= hi + b - 1; ++n, slot = slot + 1 == b ? 0 : slot + 1) {
+        if (n <= hi) {
+            first[slot] = n0 + sn * static_cast<int>(q);
+            if (major2 && (rem += minor2) >= major2) {
+                rem -= major2;
+                ++q;
+            }
+        }
+        // The line every block over it has now been seen for, and the steps whose blocks cover it.
+        const int line = sm > 0 ? m0 + n : m0 - n + b - 1;
+        const int nA = maxi(lo, n - b + 1), nB = mini(hi, n);
+        if (line < majLo || line >= majHi || nA > nB) continue;
+        // Along the line, the blocks' spans [first, first + b) as a count: +1 where one starts, -1 past its end. The
+        // starts move at most one line a step, one way, so the at most b of them lie within b - 1 lines of each other:
+        // every index below is under 2b - 1.
+        const int iA = (slot - (n - nA) + b) % b, iB = (slot - (n - nB) + b) % b;   // nA % b, nB % b
+        const int fa = first[iA], fb = first[iB], base = mini(fa, fb), span = maxi(fa, fb) - base + b;
+        int cnt[2 * kFadeBlockMax];
+        for (int t = 0; t < span; ++t) cnt[t] = 0;
+        for (int k = nA, i = iA; k <= nB; ++k, i = i + 1 == b ? 0 : i + 1) {
+            const int s = first[i] - base;
+            ++cnt[s];
+            --cnt[s + b];
+        }
+        // The count up to the clip, then each pixel inside it blended as many times as blocks cover it.
+        const int t0 = maxi(0, minLo - base), t1 = mini(span, minHi - base);
+        if (t0 >= t1) continue;
+        int k = 0;
+        for (int t = 0; t < t0; ++t) k += cnt[t];
+        uint16_t* d = px + org + line * stepMaj + (base + t0) * stepMin;
+        for (int t = t0; t < t1; ++t, d += stepMin) {
+            k += cnt[t];
+            if (k <= 0) continue;
+            uint32_t v = swap ? swap16(*d) : *d;
+            v = unspread(lerpTimes(spread(v), cs, a32, k));
+            *d = static_cast<uint16_t>(swap ? swap16(v) : v);
         }
     }
 }

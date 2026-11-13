@@ -1,8 +1,9 @@
 // Renders the dock's screens to PNGs on a laptop, from the same dock_ui code the device runs, with the mockup's
 // sample data (docs/ideas/2026-11-11-dock-ui-mockup.html): the stops screen in each mood, Wi-Fi lost, night, empty
 // sections, the map, the picker's steps, and the setup messages. Each is also drawn the device's way (bands.cpp:
-// recorded once and played band by band, and every band drawn directly, straight in the landscape panel's order, both
-// mountings, at both halves of Trackie's bob and the blinks) and checked against the plain picture. Then a run of
+// recorded once and played band by band in halves, copied every way the device's copier can, and every band drawn
+// directly, straight in the landscape panel's order, both mountings, at both halves of Trackie's bob and the blinks)
+// and checked against the plain picture. Then a run of
 // frames goes through the device's two frame buffers, each drawing only the bands it doesn't hold, and every frame is
 // checked against the plain picture; it prints how many bands each kind of frame drew.
 // Build and run (from firmware/dock):
@@ -206,6 +207,32 @@ void drawFrameCb(ui::Canvas& cv, void* p) {
     dock::draw(cv, *f.a, *f.d, *f.pl, *f.c, f.ms);
 }
 
+// Stand-ins for the device's copier (display.cpp), which copies a half band at any time between drawFrame handing it
+// over (put) and taking the slot back (take): here all of it at once (put), none of it until take (lazy), or the
+// first rows at put and the rest at take (split). The frame must come out the same every way. A slot is scribbled
+// over once taken back, as the next half drawn into it would, so a copy left for later shows up wrong.
+enum class CopyMode { Put, Lazy, Split };
+struct FakeCopier {
+    CopyMode mode;
+    dock::CopyJob job[2];
+    int done[2], end[2];
+};
+void fakePut(void* p, int slot, const dock::CopyJob& j) {
+    FakeCopier& f = *static_cast<FakeCopier*>(p);
+    f.job[slot] = j;
+    f.end[slot] = j.rows;
+    f.done[slot] = f.mode == CopyMode::Put ? j.rows : f.mode == CopyMode::Split ? j.rows / 3 + slot : 0;
+    dock::runCopy(j, 0, f.done[slot]);
+}
+void fakeTake(void* p, int slot) {
+    FakeCopier& f = *static_cast<FakeCopier*>(p);
+    if (f.done[slot] < f.end[slot]) dock::runCopy(f.job[slot], f.done[slot], f.end[slot]);
+    if (f.end[slot]) memset(const_cast<uint16_t*>(f.job[slot].src), 0x5A, dock::kHalfPx * sizeof(uint16_t));
+    f.done[slot] = f.end[slot] = 0;
+}
+FakeCopier fake[3] = {{CopyMode::Put, {}, {}, {}}, {CopyMode::Lazy, {}, {}, {}}, {CopyMode::Split, {}, {}, {}}};
+const dock::Copier kFakeCopiers[3] = {{fakePut, fakeTake, &fake[0]}, {fakePut, fakeTake, &fake[1]}, {fakePut, fakeTake, &fake[2]}};
+
 // A panel frame buffer against the plain picture, through bands.h's mapping.
 bool samePicture(const uint16_t* panel, const uint16_t* fb, bool cw) {
     for (int y = 0; y < dock::H; ++y)
@@ -216,19 +243,21 @@ bool samePicture(const uint16_t* panel, const uint16_t* fb, bool cw) {
     return true;
 }
 
-// The frame drawn the device's way into a blank frame buffer, both mountings: recorded and played band by band, and
-// (for a frame that can't be recorded) every band drawn directly.
+// The frame drawn the device's way into a blank frame buffer, both mountings: recorded and played band by band in
+// halves (copied at once, and through each stand-in copier), and (for a frame that can't be recorded) every band
+// drawn directly.
 bool bandsMatch(const uint16_t* fb, dock::App& a, const dock::Data& d, const dock::PickerLists& pl,
                 const dock::Clock& c, uint32_t ms) {
     static uint16_t panel[dock::W * dock::H];
     static dock::BandMemo memo;
     Frame f = {&a, &d, &pl, &c, ms};
     for (int cw = 0; cw < 2; ++cw)
-        for (int recorded = 0; recorded < 2; ++recorded) {
+        for (int way = 0; way < 5; ++way) {   // 0 direct, 1 recorded, 2-4 recorded through a stand-in copier
             memset(panel, 0, sizeof(panel));
             memo.forget();
             dock::FrameStats st;
-            dock::drawFrame(drawFrameCb, &f, recorded ? &rec : nullptr, memo, 0, band, panel, cw != 0, noClock, st);
+            dock::drawFrame(drawFrameCb, &f, way ? &rec : nullptr, memo, 0, band, panel, cw != 0, noClock, st,
+                            way >= 2 ? &kFakeCopiers[way - 2] : nullptr);
             if (st.drawn != dock::BandMemo::kBands || !samePicture(panel, fb, cw != 0)) return false;
         }
     return true;
@@ -287,7 +316,8 @@ bool sequenceMatches() {
             s.apply(d, a, c, ms);
             Frame f = {&a, &d, &pl, &c, ms};
             dock::FrameStats st;
-            dock::drawFrame(drawFrameCb, &f, &rec, memo, back, band, panels[back], true, noClock, st);
+            // Through the copier that copies nothing until a slot is taken back: the strictest.
+            dock::drawFrame(drawFrameCb, &f, &rec, memo, back, band, panels[back], true, noClock, st, &kFakeCopiers[1]);
             drawn += st.drawn;
             copied += st.copied;
             dock::App plain = a;

@@ -83,8 +83,8 @@ void ledTask(void*) {
 
 void begin() {
     mailbox = xQueueCreate(1, sizeof(Input));
-    // Priority 2: above the network task (1), below touch (3).
-    xTaskCreatePinnedToCore(ledTask, "leds", 3072, nullptr, 2, nullptr, 0);
+    // Priority 3: above the network task (2) and the band copier (1), below touch (4).
+    xTaskCreatePinnedToCore(ledTask, "leds", 3072, nullptr, 3, nullptr, 0);
 }
 
 void post(const cta::LedRow rows[cta::kLedRows], uint32_t now, bool night) {
