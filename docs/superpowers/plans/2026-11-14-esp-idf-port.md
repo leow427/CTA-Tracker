@@ -420,12 +420,30 @@ if that fails); on the laptop they use plain malloc.
   `firmware/dock/sdkconfig.defaults`, `firmware/dock/partitions.csv`
 - Modify: `.gitignore` (D owns the edit; W rebases onto it)
 
-- [ ] **Step 1:** Write the project files from the shared reference, with BLE off.
-- [ ] **Step 2:** `main.cpp`: `app_main` runs today's setup and loop. `perf_log`'s boot line keeps its format, so
+- [x] **Step 1:** Write the project files from the shared reference, with BLE off.
+- [x] **Step 2:** `main.cpp`: `app_main` runs today's setup and loop. `perf_log`'s boot line keeps its format, so
   `tools/dock_perf_report.py` still parses it.
-- [ ] **Step 3:** `pio run` builds once the Arduino includes are stubbed out file by file (D2 replaces them). Flash
+- [x] **Step 3:** `pio run` builds once the Arduino includes are stubbed out file by file (D2 replaces them). Flash
   it with `--upload-port` on the dock's CH343 port. The serial boot line shows IDF 5.4.1, XIP from PSRAM, and a
   64-byte data cache line (verify on board).
+
+**As built (2026-11-14), where the code showed a better way than this plan:**
+- **The repo path has a space** ("Final Project"). PlatformIO's ESP-IDF builder refuses a build folder with one, so
+  `platformio.ini` sets `build_dir = ~/.platformio-dock/build/dock`; and `-fmacro-prefix-map` can't take one, so
+  `CONFIG_COMPILER_HIDE_PATHS_MACROS=n`. The wearable needs the same two lines.
+- **sdkconfig parity came from high_perf's own `sdkconfig.h`**
+  (`framework-arduinoespressif32-libs/esp32s3/qio_opi/include/sdkconfig.h`), not the shared block's guesses:
+  - Wi-Fi TX buffers **dynamic** ×32 (they go to PSRAM), which needs `CONFIG_SPIRAM_IGNORE_NOTFOUND=y`;
+  - block-ack windows 6/6;
+  - `ESP_WIFI_IRAM_OPT`, `ESP_WIFI_RX_IRAM_OPT` and the SPI/GDMA/periph "in IRAM" options **off** (the IDF defaults
+    cost about 17 KB of internal heap);
+  - `CONFIG_SPIRAM_MEMTEST=n`;
+  - `CONFIG_LWIP_TCPIP_CORE_LOCKING=y` and `CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y`;
+  - `CONFIG_LWIP_SNTP_MAX_SERVERS=3` (the default 1 silently drops the other two servers).
+- **`CONFIG_FREERTOS_USE_TRACE_FACILITY` and `GENERATE_RUN_TIME_STATS`** are needed for the perf log's busy columns.
+- **mbedTLS records are 16 KB both ways**, not asymmetric with 4 KB out: the bus API's ~4 KB session tickets don't fit
+  a 4 KB ClientHello (handshake error -0x6A00). It is all in PSRAM.
+- **After any `sdkconfig.defaults` change, delete `sdkconfig.dock` / `sdkconfig.perf`**: an existing one wins.
 
 ### Task D2: Replace every Arduino API on the dock
 
@@ -436,10 +454,10 @@ and CH422G over `i2c_master`), `leds.cpp`, `perf_log.cpp`, `stress.cpp`, and a n
 **Interfaces:** every module's header stays as it is today (`net::`, `link::`, `store::`, `display::`), so the UI and
 `main.cpp` logic don't change.
 
-- [ ] **Step 1:** Make the mechanical swaps: `millis`, `delay`, `ESP.*`, `Serial`, includes.
-- [ ] **Step 2:** `store.cpp` → NVS (same keys and types; geo floats as blobs). `link.cpp`: mDNS with underscores;
+- [x] **Step 1:** Make the mechanical swaps: `millis`, `delay`, `ESP.*`, `Serial`, includes.
+- [x] **Step 2:** `store.cpp` → NVS (same keys and types; geo floats as blobs). `link.cpp`: mDNS with underscores;
   httpd `task_caps` in PSRAM.
-- [ ] **Step 3:** `net.cpp`:
+- [x] **Step 3:** `net.cpp`:
   - esp_wifi with event flags, the same backoff, and the serial `w` scan check;
   - `esp_http_client` per decision D4, with one handle kept per host (trains, alerts, weather, location; the bus
     host gets a fresh handle per request, as today);
@@ -447,22 +465,37 @@ and CH422G over `i2c_master`), `leds.cpp`, `perf_log.cpp`, `stress.cpp`, and a n
   - `Date` taken from the header event;
   - `resolve()` kept;
   - `tlsCalloc` and `mbedtls_platform_set_calloc_free` deleted (`CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC`).
-- [ ] **Step 4:** `display.cpp`: `Wire` → `i2c_master` (one handle per address). The RGB panel and bounce-buffer code
+- [x] **Step 4:** `display.cpp`: `Wire` → `i2c_master` (one handle per address). The RGB panel and bounce-buffer code
   stays as is.
-- [ ] **Step 5:** `pio run -e dock` and `-e perf` build. `grep -rn "Arduino\|WiFi\.\|Serial\.\|String\b\|millis"
+- [x] **As built:**
+  - **Join:** `WIFI_FAST_SCAN`, as Arduino 3.2.0's `STA.cpp` did, not all-channel. The SSID and PSK are copied at
+    their full 32/64 bytes.
+  - **Clients:** every host keeps its client, the bus host too. Only one connection is open at a time, and opening one
+    closes the others. A client whose response body wasn't read to its end is freed: `close`/`open` keep body bytes
+    that came in with the headers, and they would lead the host's next response. A connect that fails fast while
+    offering a ticket is retried once with a fresh client.
+  - **Resumption:** the perf log's `tls,…,resumed|full` comes from a counted wrapper around the bundle's verify
+    callback. Only a full handshake checks certificates. This replaces the plan's connect-time guess.
+  - **Logging:** the `HTTP_CLIENT` log tag is set to NONE, because its errors can print a URL.
+  - **UART:** the driver has no TX buffer in the dock build, as Arduino's Serial had. The perf build has a 4 KB one,
+    which `perf::flush` fills a whole line at a time with `uart_write_bytes`, once the UART is idle.
+    `uart_get_tx_buffer_free_size` doesn't count queued bytes, and the VFS queues one ring entry per character.
+- [x] **Step 5:** `pio run -e dock` and `-e perf` build. `grep -rn "Arduino\|WiFi\.\|Serial\.\|String\b\|millis"
   firmware/dock/src` finds nothing but comments.
 
 ### Task D3: Dock board checks against the gates
 
 Run on the board, with Wi-Fi from `secrets.h` and the token set with serial `T <hex>`.
 
-- [ ] **Boot and pixels:** with no picks, then with 3 picks, grab `python3 firmware/dock/tools/frame_grab.py <port>
+- [x] **Boot and pixels:** with no picks, then with 3 picks, grab `python3 firmware/dock/tools/frame_grab.py <port>
   out.png` on the Home, map and picker screens. Each must be byte-identical to the same grab from the `arduino-final`
   build at the same data (use the stress test's fixed data, or freeze with the mock picks).
+  Done with 3 picks and Wi-Fi off (serial `3`, so no data arrives): Home, map and picker byte-identical to the Arduino
+  Task 6 build, both bob phases. The no-picks grab was skipped: the drawing code is unchanged.
 - [ ] **Touch:** taps and the picker scroll respond; the 3-finger 10 s reset works.
-- [ ] **Network:** Wi-Fi up ≤ 4.5 s, all stops loaded ≤ 10.1 s after boot. `link_send.py cta-dock-xxxx.local info`,
+- [x] **Network:** Wi-Fi up ≤ 4.5 s, all stops loaded ≤ 10.1 s after boot. `link_send.py cta-dock-xxxx.local info`,
   `config` and `--garbage` behave as Task 6's Step 3. `dns-sd -B _ctatracker._tcp` lists the dock.
-- [ ] **Gates:** `python3 tools/dock_perf_run.py`, 3 runs. Pass means all of:
+- [x] **Gates:** `python3 tools/dock_perf_run.py`, 3 runs. Pass means all of:
   - lowest internal RAM **≥ 40 KB** (Arduino 35.8);
   - picker **≥ 34 fps**, map **≥ 16 fps** (Arduino 15.7);
   - taps no worse than 24–63 ms, requests no worse than 431–716 ms;
@@ -470,7 +503,9 @@ Run on the board, with Wi-Fi from `secrets.h` and the token set with serial `T <
   - perf log `tls,t,resumed` on the train host's reopens.
   - If the map is still under 16, it is a drawing problem, not the port; flag it to the orchestrator for B2 rather
     than tuning inside this task.
-- [ ] **Commit:** review first, then `feat(dock): native ESP-IDF build, no Arduino (with the Task 6 link)`, and
+  - **Result** (`docs/perf/log.md`, "ESP-IDF port"): RAM 73–74 KB, picker 34.0, map 15.7 (B2), taps 20–58 ms, no late
+    frames, the train host resumes. Requests 563–829 ms miss the 716 ms gate; not settled whether that's the port.
+- [x] **Commit:** review first, then `feat(dock): native ESP-IDF build, no Arduino (with the Task 6 link)`, and
   write the run results into `docs/perf/log.md`.
 
 ### Task D4: Measure BLE on the dock

@@ -1,7 +1,16 @@
 #include "display.h"
+#include "serial_out.h"
 
-#include <Arduino.h>
-#include <Wire.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
+#include <driver/gpio.h>
+#include <driver/i2c_master.h>
+#include <driver/uart.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <sdkconfig.h>
@@ -50,31 +59,41 @@ bool autoRecover = true;
 uint32_t recoverCount = 0;
 bool frozen = false;   // Freeze or Pattern: drawn once, then left alone
 
-uint32_t usNow() { return micros(); }
+uint32_t usNow() { return static_cast<uint32_t>(esp_timer_get_time()); }
+
+// The I2C bus (GT911 and CH422G). One device handle per 7-bit address: the CH422G answers on several. The bus has
+// its own lock, so the touch task (core 0) and the backlight (the loop, core 1) can share it.
+constexpr int kI2cTimeoutMs = 50;
+i2c_master_bus_handle_t i2cBus = nullptr;
+i2c_master_dev_handle_t chMode = nullptr, chOut = nullptr, gtDev = nullptr;
+
+i2c_master_dev_handle_t i2cDevice(uint8_t addr) {
+    i2c_device_config_t c = {};
+    c.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    c.device_address = addr;
+    c.scl_speed_hz = 400000;
+    i2c_master_dev_handle_t h = nullptr;
+    return i2c_master_bus_add_device(i2cBus, &c, &h) == ESP_OK ? h : nullptr;
+}
+
+bool i2cSend(i2c_master_dev_handle_t d, const uint8_t* b, size_t n) {
+    return d && i2c_master_transmit(d, b, n, kI2cTimeoutMs) == ESP_OK;
+}
 
 void exioWrite(int pin, bool high) {
     exio = high ? (exio | (1 << pin)) : (exio & ~(1 << pin));
-    Wire.beginTransmission(kCh422Out);
-    Wire.write(exio);
-    Wire.endTransmission();
+    i2cSend(chOut, &exio, 1);
 }
 
+// The register address, a repeated start, then the bytes.
 bool gtRead(uint16_t reg, uint8_t* out, size_t n) {
-    Wire.beginTransmission(kGt911);
-    Wire.write(reg >> 8);
-    Wire.write(reg & 0xFF);
-    if (Wire.endTransmission(false) != 0) return false;
-    if (Wire.requestFrom(static_cast<int>(kGt911), static_cast<int>(n)) != static_cast<int>(n)) return false;
-    for (size_t i = 0; i < n; ++i) out[i] = Wire.read();
-    return true;
+    const uint8_t r[2] = {static_cast<uint8_t>(reg >> 8), static_cast<uint8_t>(reg & 0xFF)};
+    return gtDev && i2c_master_transmit_receive(gtDev, r, 2, out, n, kI2cTimeoutMs) == ESP_OK;
 }
 
 void gtClear() {
-    Wire.beginTransmission(kGt911);
-    Wire.write(0x81);
-    Wire.write(0x4E);
-    Wire.write(0);
-    Wire.endTransmission();
+    const uint8_t b[3] = {0x81, 0x4E, 0};
+    i2cSend(gtDev, b, 3);
 }
 
 // The panel's landscape point to the portrait UI (the inverse of rotateToPanel).
@@ -139,7 +158,7 @@ void touchTask(void*) {
         const int n = status & 0x0F;
         uint8_t p[8];
         Touch t{};
-        t.ms = millis();
+        t.ms = nowMs();
         t.fingers = static_cast<uint8_t>(n);
         if (n > 0 && n <= 5 && gtRead(0x814F, p, 8)) {
             int x, y;
@@ -221,7 +240,7 @@ bool createPanel(const Timing& t) {
     cfg.flags.fb_in_psram = 1;
     if (esp_lcd_new_rgb_panel(&cfg, &panel) != ESP_OK || esp_lcd_panel_reset(panel) != ESP_OK ||
         esp_lcd_panel_init(panel) != ESP_OK) {
-        Serial.println("display: RGB panel init failed");
+        uprintf("display: RGB panel init failed\n");
         panel = nullptr;
         return false;
     }
@@ -229,7 +248,7 @@ bool createPanel(const Timing& t) {
     esp_lcd_rgb_panel_get_frame_buffer(panel, 2, &a, &b);
     fbs[0] = static_cast<uint16_t*>(a);
     fbs[1] = static_cast<uint16_t*>(b);
-    if (!fbs[0] || !fbs[1]) { Serial.println("display: no frame buffers"); return false; }
+    if (!fbs[0] || !fbs[1]) { uprintf("display: no frame buffers\n"); return false; }
     memset(fbs[0], 0, kPanelW * kPanelH * 2);
     memset(fbs[1], 0, kPanelW * kPanelH * 2);
     dmacopy::writeBack(fbs[0]);   // the CPU wrote them: out of the cache before any DMA copy (dma_copy.h)
@@ -257,24 +276,36 @@ bool createPanel(const Timing& t) {
 bool beginHere() {
     frameDone = xSemaphoreCreateBinary();
     touches = xQueueCreate(32, sizeof(Touch));
-    Wire.begin(I2C_SDA, I2C_SCL, 400000);
-    Wire.beginTransmission(kCh422Mode);
-    Wire.write(0x01);   // IO0–7 as outputs
-    Wire.endTransmission();
+    i2c_master_bus_config_t bc = {};
+    bc.i2c_port = I2C_NUM_0;
+    bc.sda_io_num = static_cast<gpio_num_t>(I2C_SDA);
+    bc.scl_io_num = static_cast<gpio_num_t>(I2C_SCL);
+    bc.clk_source = I2C_CLK_SRC_DEFAULT;
+    bc.glitch_ignore_cnt = 7;
+    bc.flags.enable_internal_pullup = true;
+    if (i2c_new_master_bus(&bc, &i2cBus) != ESP_OK) { uprintf("display: I2C bus setup failed\n"); return false; }
+    chMode = i2cDevice(kCh422Mode);
+    chOut = i2cDevice(kCh422Out);
+    gtDev = i2cDevice(kGt911);
+    const uint8_t outputs = 0x01;   // IO0–7 as outputs
+    i2cSend(chMode, &outputs, 1);
     // The GT911's reset with INT held low selects address 0x5D.
-    pinMode(TOUCH_INT, OUTPUT);
-    digitalWrite(TOUCH_INT, LOW);
+    gpio_config_t io = {};
+    io.pin_bit_mask = 1ULL << TOUCH_INT;
+    io.mode = GPIO_MODE_OUTPUT;
+    gpio_config(&io);
+    gpio_set_level(static_cast<gpio_num_t>(TOUCH_INT), 0);
     exio = (1 << EXIO_LCD_RST) | (1 << EXIO_SD_CS);
     exioWrite(EXIO_TOUCH_RST, false);
-    delay(20);
+    vTaskDelay(pdMS_TO_TICKS(20));
     exioWrite(EXIO_TOUCH_RST, true);
-    delay(60);
-    pinMode(TOUCH_INT, INPUT);
-    delay(50);
+    vTaskDelay(pdMS_TO_TICKS(60));
+    gpio_set_direction(static_cast<gpio_num_t>(TOUCH_INT), GPIO_MODE_INPUT);
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     if (!createPanel(kTimings[kBootTiming])) return false;
     band = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
-    if (!band) { Serial.println("display: no RAM for the band"); return false; }
+    if (!band) { uprintf("display: no RAM for the band\n"); return false; }
     // Without them every band is copied by the CPU, as before (slower, same pixels).
     band2 = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     if (band2 && dmacopy::begin()) {
@@ -282,18 +313,23 @@ bool beginHere() {
     } else {
         heap_caps_free(band2);   // unused without the DMA: its 30 KB back to the heap
         band2 = nullptr;
-        Serial.println("display: no DMA band copies (CPU copies)");
+        uprintf("display: no DMA band copies (CPU copies)\n");
     }
-    Serial.printf("display: internal RAM free %u after the band buffers\n", static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+    uprintf("display: internal RAM free %u after the band buffers\n", static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     // Without it every band is drawn by calling the screens' code, as before (slower, same pixels).
     if (void* p = heap_caps_malloc(sizeof(ui::Recording), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) rec = new (p) ui::Recording();
-    else Serial.println("display: no PSRAM for the frame recording");
+    else uprintf("display: no PSRAM for the frame recording\n");
     exioWrite(EXIO_BACKLIGHT, true);
 
     uint8_t id[4] = {};
     gtOk = gtRead(0x8140, id, 4);
-    if (!gtOk) { kGt911 = 0x14; gtOk = gtRead(0x8140, id, 4); }
-    Serial.printf("display: panel up, timing %d (%s); touch %s\n", timingIndex, kTimings[timingIndex].name, gtOk ? "GT911 found" : "not answering");
+    if (!gtOk) {
+        kGt911 = 0x14;
+        i2c_master_bus_rm_device(gtDev);
+        gtDev = i2cDevice(kGt911);
+        gtOk = gtRead(0x8140, id, 4);
+    }
+    uprintf("display: panel up, timing %d (%s); touch %s\n", timingIndex, kTimings[timingIndex].name, gtOk ? "GT911 found" : "not answering");
     // Proof the high_perf SDK is the one linked: without XIP from PSRAM a flash write stalls the bounce-buffer refill.
 #if defined(CONFIG_SPIRAM_XIP_FROM_PSRAM) || (defined(CONFIG_SPIRAM_FETCH_INSTRUCTIONS) && defined(CONFIG_SPIRAM_RODATA))
     const bool xip = true;
@@ -310,7 +346,7 @@ bool beginHere() {
 #else
     const bool isrIram = false;
 #endif
-    Serial.printf("display: SDK %s, XIP from PSRAM %s, data cache line %d B, panel ISR IRAM-safe %s\n", esp_get_idf_version(),
+    uprintf("display: SDK %s, XIP from PSRAM %s, data cache line %d B, panel ISR IRAM-safe %s\n", esp_get_idf_version(),
                   xip ? "on" : "OFF", cacheLine, isrIram ? "yes" : "no");
     // Core 0 at a priority above the network task: a slow TLS handshake never delays a touch sample.
     xTaskCreatePinnedToCore(touchTask, "touch", 3072, nullptr, 3, nullptr, 0);
@@ -346,7 +382,7 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     dock::FrameStats st;
     dock::drawFrame(draw, ctx, diagMode == Diag::Pattern ? nullptr : rec, memo, back, band, fbs[back], DISPLAY_ROTATE_CW,
                     usNow, st, band2, copier);
-    const uint32_t w0 = micros();
+    const uint32_t w0 = static_cast<uint32_t>(esp_timer_get_time());
     // Without bounce buffers the DMA reads the frame buffer from PSRAM itself, past the CPU's cache: draw_bitmap
     // writes the cache back for the rectangle it's given (the whole frame) before the switch.
     // Switch to the new buffer (one of the panel's own: no copy, it takes effect at the start of the next frame), then
@@ -360,7 +396,7 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     lastDrawUs = st.drawUs;
     lastBandsCopied = st.copied;
     lastDrawnBands = st.drawn;
-    lastWaitUs = micros() - w0;
+    lastWaitUs = static_cast<uint32_t>(esp_timer_get_time()) - w0;
     }
     return true;
 }
@@ -374,14 +410,14 @@ uint32_t dmaFallbacks() { return dmacopy::fallbacks(); }
 
 void recover() {
     if (!panel) return;
-    const uint32_t t0 = millis();
+    const uint32_t t0 = nowMs();
     esp_lcd_panel_del(panel);
     panel = nullptr;
     fbs[0] = fbs[1] = nullptr;
     const bool ok = createPanel(kTimings[timingIndex]);
     frozen = false;   // the frozen picture (or pattern) went with the old buffers: it's drawn again
     ++recoverCount;
-    Serial.printf("display: panel restarted (%u ms)%s\n", static_cast<unsigned>(millis() - t0), ok ? "" : " FAILED");
+    uprintf("display: panel restarted (%u ms)%s\n", static_cast<unsigned>(nowMs() - t0), ok ? "" : " FAILED");
 }
 
 void setDiag(Diag d) {
@@ -405,7 +441,7 @@ bool setTiming(int i) {
     timingIndex = i;
     const bool ok = createPanel(kTimings[i]);
     frozen = false;
-    Serial.printf("display: timing %d: %s%s\n", i, kTimings[i].name, ok ? "" : " FAILED");
+    uprintf("display: timing %d: %s%s\n", i, kTimings[i].name, ok ? "" : " FAILED");
     return ok;
 }
 
@@ -445,7 +481,7 @@ void dumpFrame() {
     const uint16_t* fb = fbs[back ^ 1];   // the one on screen
     // Lines of run-length pairs (count, color) in hex, "F:<first pixel>:" first; whole lines per write, so the network task's log
     // lines can come between them but never inside one.
-    Serial.printf("FRAME %d %d\n", kPanelW, kPanelH);
+    uprintf("FRAME %d %d\n", kPanelW, kPanelH);
     static const char kHex[] = "0123456789abcdef";
     char line[2 + 9 + 48 * 8 + 2];
     int n = 0;
@@ -465,11 +501,11 @@ void dumpFrame() {
         i += run;
         if (n >= 2 + 9 + 48 * 8 || i >= total) {
             line[n++] = '\n';
-            Serial.write(reinterpret_cast<const uint8_t*>(line), n);
+            uart_write_bytes(UART_NUM_0, line, n);
             n = 0;
         }
     }
-    Serial.println("END");
+    uprintf("END\n");
 }
 int lastBands() { return lastBandsCopied; }
 int lastBandsDrawn() { return lastDrawnBands; }

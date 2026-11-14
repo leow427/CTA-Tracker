@@ -1,6 +1,11 @@
 #include "dma_copy.h"
 
-#include <Arduino.h>
+#include <stdio.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
 #include <esp_cache.h>
 #include <esp_heap_caps.h>
 #include <esp_private/gdma.h>
@@ -46,9 +51,9 @@ void wait() {
     if (!busy) return;
     busy = false;
     volatile dma_descriptor_t* last = &rxd[kPanelH - 1];
-    const uint32_t t0 = micros();
+    const uint32_t t0 = static_cast<uint32_t>(esp_timer_get_time());
     while (!last->dw0.suc_eof) {
-        if (micros() - t0 > kTimeoutUs) {
+        if (static_cast<uint32_t>(esp_timer_get_time()) - t0 > kTimeoutUs) {
             gdma_stop(tx);
             gdma_stop(rx);
             gdma_reset(tx);

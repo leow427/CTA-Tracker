@@ -28,6 +28,8 @@ bool readLists(dock::PickerLists& out, uint32_t& version);
 void checkWifi();
 // Diagnostic: the radio off (nothing polled) or back on.
 void setWifiOff(bool off);
+// Wi-Fi joined with an IP (any task).
+bool wifiUp();
 // Unix time once the clock is set, else 0.
 uint32_t unixNow();
 // CTA requests since boot, against the keys' daily limits.

@@ -1,9 +1,17 @@
 #include "perf_log.h"
+#include "serial_out.h"
 
 #ifdef PERF_LOG
 
-#include <Arduino.h>
-#include <WiFi.h>
+#include <stdio.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
+#include <driver/temperature_sensor.h>
+#include <esp_wifi.h>
+#include <driver/uart.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -13,6 +21,7 @@
 #include <string.h>
 
 #include "display.h"
+#include "net.h"
 
 namespace perf {
 
@@ -70,6 +79,13 @@ bool havePendingTap = false, havePendingMove = false;
 uint32_t tapSum = 0, tapN = 0, tapMax = 0, dragSum = 0, dragN = 0, dragMax = 0;
 int32_t listMs = -1;
 
+temperature_sensor_handle_t tempSensor = nullptr;
+float temperature() {
+    float c = 0;
+    if (tempSensor) temperature_sensor_get_celsius(tempSensor, &c);
+    return c;
+}
+
 uint32_t nextSampleMs = 0;
 int64_t lastSampleUs = 0;
 uint32_t lastIdle[2] = {0, 0};
@@ -84,10 +100,13 @@ void header() {
 
 void begin() {
     ring = static_cast<char*>(heap_caps_malloc(kRing, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!ring) Serial.println("perf log: no memory for the ring");
+    if (!ring) uprintf("perf log: no memory for the ring\n");
     lastSampleUs = esp_timer_get_time();
     for (int c = 0; c < 2; ++c) lastIdle[c] = ulTaskGetIdleRunTimeCounterForCore(c);
-    temperatureRead();   // installs the sensor now, not mid-run
+    // The chip's sensor, installed now, not mid-run (the range Arduino's temperatureRead used)
+    const temperature_sensor_config_t tc = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
+    if (temperature_sensor_install(&tc, &tempSensor) != ESP_OK || temperature_sensor_enable(tempSensor) != ESP_OK)
+        tempSensor = nullptr;
     event("boot,reset_reason=%d", static_cast<int>(esp_reset_reason()));
     header();
 }
@@ -96,7 +115,7 @@ bool due(uint32_t ms) { return static_cast<int32_t>(ms - nextSampleMs) >= 0; }
 
 void event(const char* fmt, ...) {
     char line[256];
-    int n = snprintf(line, sizeof(line), "E,%u,", static_cast<unsigned>(millis()));
+    int n = snprintf(line, sizeof(line), "E,%u,", static_cast<unsigned>(nowMs()));
     va_list ap;
     va_start(ap, fmt);
     n += vsnprintf(line + n, sizeof(line) - n - 1, fmt, ap);
@@ -131,8 +150,11 @@ void sample(uint32_t ms, const Inputs& in) {
     reqActiveUs = 0;
     portEXIT_CRITICAL(&lock);
 
-    const int status = static_cast<int>(WiFi.status());
-    const int rssi = status == WL_CONNECTED ? WiFi.RSSI() : 0;
+    // Arduino's WiFi.status() numbers, which earlier runs logged: 3 connected, 6 disconnected.
+    wifi_ap_record_t ap;
+    const bool up = net::wifiUp() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+    const int status = up ? 3 : 6;
+    const int rssi = up ? ap.rssi : 0;
 
     char fps[12] = "", slow[12] = "", tap[12] = "", tapM[12] = "", drag[12] = "", dragM[12] = "", list[12] = "",
          age[12] = "";
@@ -154,7 +176,7 @@ void sample(uint32_t ms, const Inputs& in) {
     const int n = snprintf(
         line, sizeof(line),
         "P,%u,%u,%u,%.1f,%.1f,%.1f,%u,%u,%.1f,%.1f,%.1f,%s,%s,%s,%s,%s,%s,%u,%s,%u,%u,%u,%u,%d,%d,%u,%u,%u,%u,%u,%u,%d,%d,%s,%u,%u\n",
-        static_cast<unsigned>(ms), in.phase, in.screen, temperatureRead(), busy[0], busy[1],
+        static_cast<unsigned>(ms), in.phase, in.screen, temperature(), busy[0], busy[1],
         static_cast<unsigned>(frames), static_cast<unsigned>(bands), drawUs / 1000.0, copyUs / 1000.0, waitUs / 1000.0,
         fps, slow, tap, tapM, drag, dragM, static_cast<unsigned>(touches), list, static_cast<unsigned>(rs),
         static_cast<unsigned>(rd), static_cast<unsigned>(ra / 1000), static_cast<unsigned>(rb), status, rssi,
@@ -182,6 +204,10 @@ void sample(uint32_t ms, const Inputs& in) {
 void flush() {
     if (!ring) return;
     static char line[512];
+    // Only once the UART has sent everything (its driver can't say how much room its buffer has left), then at most
+    // 3 KB of whole lines, each one driver write (serial_out.h).
+    if (uart_wait_tx_done(UART_NUM_0, 0) != ESP_OK) return;
+    size_t sent = 0;
     for (int k = 0; k < 16; ++k) {
         size_t n = 0;
         portENTER_CRITICAL(&ringLock);
@@ -190,9 +216,9 @@ void flush() {
             if (ring[i] == '\n') break;
         }
         portEXIT_CRITICAL(&ringLock);
-        if (n == 0 || line[n - 1] != '\n') break;   // empty
-        if (Serial.availableForWrite() < static_cast<int>(n)) break;
-        Serial.write(reinterpret_cast<const uint8_t*>(line), n);
+        if (n == 0 || line[n - 1] != '\n' || sent + n > 3072) break;   // empty, or this flush's share sent
+        uart_write_bytes(UART_NUM_0, line, n);
+        sent += n;
         portENTER_CRITICAL(&ringLock);
         tail = (tail + n) % kRing;
         portEXIT_CRITICAL(&ringLock);
@@ -267,13 +293,13 @@ void reqEnd(char kind, int code, uint32_t bytes, uint32_t ms) {
 
 void setBurst(bool on) {
     burst = on;
-    lastBurstMs = millis();
+    lastBurstMs = nowMs();
     if (!on) burstCount = 0;   // the cap is per burst phase (60 + 90 a run at most)
 }
 
 bool burstDue() {
     if (!burst || burstCount >= kBurstMax) return false;
-    const uint32_t ms = millis();
+    const uint32_t ms = nowMs();
     if (ms - lastBurstMs < kBurstEveryMs) return false;
     lastBurstMs = ms;
     ++burstCount;

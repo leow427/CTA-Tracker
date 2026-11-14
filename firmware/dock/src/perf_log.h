@@ -18,7 +18,7 @@ struct Inputs {
     uint8_t screen = 0;   // dock::Screen
 };
 
-void begin();                    // after Serial.begin(); prints the column header
+void begin();                    // after the UART driver is installed; prints the column header
 void header();                   // the column header again (at the start of a stress run)
 bool due(uint32_t ms);           // a sample is due this loop
 void sample(uint32_t ms, const Inputs& in);

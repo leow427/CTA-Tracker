@@ -3,6 +3,7 @@
 // POST /reset on port 80, announced over mDNS as _ctatracker._tcp. Handlers run on the httpd task (core 0): they
 // check the body's size (413), the token (401) and the JSON (400), copy a good write into an inbox under a mutex and
 // answer at once; the frame loop only drains the inbox (take) and publishes what GET serves (setInfo, setConfig).
+#include <stddef.h>
 #include <stdint.h>
 
 #include "link_msg.h"
@@ -28,6 +29,8 @@ void setInfo(const cta::InfoMsg& info);
 void setConfig(const cta::ConfigMsg& c);
 // The loop drains writes; false if none.
 bool take(Inbox& out);
+// What GET /info answers, as JSON (BLE's info read serves it too); 0 if it didn't fit.
+size_t infoJson(char* buf, size_t cap);
 // The httpd task's least free stack seen after a request, in bytes (0 = no request yet).
 uint32_t stackLeft();
 

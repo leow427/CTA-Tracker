@@ -30,3 +30,8 @@ art/build/
 
 # OpenStreetMap download cache (tools/basemap_build.py input)
 data/osm/
+
+# ESP-IDF builds (sdkconfig.defaults is the source; the rest is generated)
+firmware/**/sdkconfig.*
+!firmware/**/sdkconfig.defaults
+firmware/**/managed_components/

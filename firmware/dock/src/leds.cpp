@@ -1,6 +1,12 @@
 #include "leds.h"
+#include "serial_out.h"
 
-#include <Arduino.h>
+#include <stdio.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
 #include <driver/rmt_encoder.h>
 #include <driver/rmt_tx.h>
 #include <freertos/queue.h>
@@ -61,7 +67,7 @@ void show(const uint32_t* rgb) {
 
 void ledTask(void*) {
     if (!setUp()) {
-        Serial.println("leds: RMT channel setup failed");
+        uprintf("leds: RMT channel setup failed\n");
         vTaskDelete(nullptr);
     }
     static Input in;
@@ -71,7 +77,7 @@ void ledTask(void*) {
     for (;;) {
         if (xQueueReceive(mailbox, &in, pdMS_TO_TICKS(40)) == pdTRUE) have = true;   // a new state, or 25 Hz
         if (!have) continue;
-        const uint32_t ms = millis();
+        const uint32_t ms = nowMs();
         cta::ledFrame(in.rows, in.now ? in.now + (ms - in.postedMs) / 1000 : 0, in.night, LED_MAX_BRIGHTNESS, ms, rgb);
         if (memcmp(rgb, last, sizeof(rgb)) == 0) continue;
         memcpy(last, rgb, sizeof(rgb));
@@ -92,7 +98,7 @@ void post(const cta::LedRow rows[cta::kLedRows], uint32_t now, bool night) {
     static Input in;
     memcpy(in.rows, rows, sizeof(in.rows));
     in.now = now;
-    in.postedMs = millis();
+    in.postedMs = nowMs();
     in.night = night;
     xQueueOverwrite(mailbox, &in);
 }

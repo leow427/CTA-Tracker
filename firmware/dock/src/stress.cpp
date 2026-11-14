@@ -2,7 +2,12 @@
 
 #ifdef PERF_LOG
 
-#include <Arduino.h>
+#include <stdio.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
 #include <math.h>
 #include <string.h>
 
@@ -228,14 +233,14 @@ void tick(dock::App& a, uint32_t ms, bool ready) {
 }
 
 bool nextTouch(display::Touch& t) {
-    if (qEmpty() || static_cast<int32_t>(millis() - q[qHead].at) < 0) return false;
+    if (qEmpty() || static_cast<int32_t>(nowMs() - q[qHead].at) < 0) return false;
     const Ev& e = q[qHead];
     qHead = (qHead + 1) % kQ;
     t.kind = e.kind;
     t.fingers = e.kind == display::Touch::Up ? 0 : 1;
     t.x = e.x;
     t.y = e.y;
-    t.ms = millis();
+    t.ms = nowMs();
     fingerDown = e.kind != display::Touch::Up;
     lastX = e.x;
     lastY = e.y;

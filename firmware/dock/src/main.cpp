@@ -15,11 +15,23 @@
 // air, "x" swaps sections 1 and 2 (a real flash write), "z" powers down (LEDs and backlight off, deep sleep).
 // The link (ecosystem spec 5.4): "R" forgets the Wi-Fi network and token and reboots (as POST /reset and three fingers
 // held 10 s anywhere on screen do); "T <32 hex>" sets the household token until BLE setup exists (never echoed).
-#include <Arduino.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "clock_ms.h"
+#include "serial_out.h"
+#include <driver/uart.h>
+#include <driver/uart_vfs.h>
+#include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include <esp_mac.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <esp_task_wdt.h>
+#include <nvs_flash.h>
 #include <time.h>
 
 #include <new>
@@ -101,7 +113,7 @@ void drawPattern(ui::Canvas& cv) {
     cv.fillRect(0, 0, 2, dock::H, 0x00ff00);
     cv.fillRect(dock::W - 2, 0, 2, dock::H, 0x00ff00);
     char buf[48];
-    snprintf(buf, sizeof(buf), "PATTERN at %u ms", static_cast<unsigned>(millis()));
+    snprintf(buf, sizeof(buf), "PATTERN at %u ms", static_cast<unsigned>(nowMs()));
     cv.fillRect(150, 380, 180, 40, 0x000000);
     cv.text(ui::Canvas::font(900, 16), buf, dock::W / 2.f, 400, 0xffffff, ui::Align::Center, ui::Base::Middle);
     diagLabel(cv);
@@ -109,11 +121,19 @@ void drawPattern(ui::Canvas& cv) {
 
 void printDiag() {
     const display::Diag d = display::diag();
-    Serial.printf("diag: %s, Wi-Fi %s, timing %d (%s), %u panel restarts\n",
+    uprintf("diag: %s, Wi-Fi %s, timing %d (%s), %u panel restarts\n",
                   d == display::Diag::Freeze ? "freeze" : d == display::Diag::Pattern ? "pattern" : d == display::Diag::Single ? "single buffer" : "normal",
                   wifiOffDiag ? "off" : "on", display::timing(), display::timingName(display::timing()), display::recoveries());
 }
-uint32_t cycles() { return ESP.getCycleCount(); }
+// UART0 (the CH343 port) through its driver, so serial commands are read without waiting. As on Arduino, output
+// (uprintf, serial_out.h) waits for the UART; the perf build adds a 4 KB TX buffer, which perf::flush fills with whole
+// lines (perf_log.cpp).
+constexpr uart_port_t kUart = UART_NUM_0;
+void flushSerial() {
+    uart_wait_tx_done(kUart, pdMS_TO_TICKS(1000));
+}
+
+uint32_t cycles() { return esp_cpu_get_cycle_count(); }
 
 // cJSON's nodes (and the big model structs) in PSRAM, internal only if PSRAM runs out: internal RAM is for Wi-Fi
 // and TLS.
@@ -135,8 +155,8 @@ int localMinute(uint32_t now) {
 void printPicks() {
     for (int i = 0; i < cta::kDockStops; ++i) {
         const cta::PickedStop& p = picks[i];
-        if (!p.id[0]) Serial.printf("pick %d: empty\n", i + 1);
-        else Serial.printf("pick %d: %s %s %s, %s (%s)\n", i + 1, p.type == cta::Kind::Bus ? "bus" : "train", p.route,
+        if (!p.id[0]) uprintf("pick %d: empty\n", i + 1);
+        else uprintf("pick %d: %s %s %s, %s (%s)\n", i + 1, p.type == cta::Kind::Bus ? "bus" : "train", p.route,
                            p.id, p.name, p.dir);
     }
 }
@@ -153,7 +173,7 @@ void publishLink() {
 
 void setPicks() {
     bool wrote = false;   // unchanged picks never touch flash
-    if (!store::savePicks(picks, &wrote)) Serial.println("store: saving the picks failed");
+    if (!store::savePicks(picks, &wrote)) uprintf("store: saving the picks failed\n");
     net::setPicks(picks);
     ++info.picksVer;   // every pick, from the screen or the app (ecosystem spec 5.3)
     publishLink();
@@ -188,45 +208,55 @@ uint32_t ledScaled(uint32_t rgb) {
 
 // Forgets the Wi-Fi network and the token, then boots fresh (POST /reset, serial "R", the three-finger hold).
 void resetLink(const char* why) {
-    Serial.printf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    uprintf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
     store::wipeLink();
-    Serial.flush();
-    ESP.restart();
+    flushSerial();
+    esp_restart();
 }
 
 // Serial "T <32 lowercase hex>": the household token, saved and used at once. Never echoed.
 void readToken() {
-    String s = Serial.readStringUntil('\n');   // the whole line, so nothing left over runs as commands
-    s.trim();
-    bool ok = s.length() == cta::kTokenLen;
-    for (size_t i = 0; ok && i < s.length(); ++i) ok = (s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f');
-    if (!ok) { Serial.println("link: a token is 32 lowercase hex characters; not set"); return; }
-    if (!store::saveToken(s.c_str())) Serial.println("store: saving the token failed");
-    lan::setToken(s.c_str());
-    Serial.println("link: token set");
+    // The whole line (up to 1 s, as Arduino's readStringUntil waited), so nothing left over runs as commands.
+    char s[80];
+    size_t n = 0;
+    const uint32_t t0 = nowMs();
+    for (uint8_t c; nowMs() - t0 < 1000;) {
+        if (uart_read_bytes(kUart, &c, 1, pdMS_TO_TICKS(10)) != 1) continue;
+        if (c == '\n') break;
+        if (n < sizeof(s) - 1) s[n++] = static_cast<char>(c);
+    }
+    s[n] = 0;
+    const char* b = s;   // trimmed, as String::trim did
+    while (*b == ' ' || *b == '\t' || *b == '\r') ++b;
+    while (n && (s[n - 1] == ' ' || s[n - 1] == '\t' || s[n - 1] == '\r')) s[--n] = 0;
+    bool ok = strlen(b) == cta::kTokenLen;
+    for (size_t i = 0; ok && b[i]; ++i) ok = (b[i] >= '0' && b[i] <= '9') || (b[i] >= 'a' && b[i] <= 'f');
+    if (!ok) { uprintf("link: a token is 32 lowercase hex characters; not set\n"); return; }
+    if (!store::saveToken(b)) uprintf("store: saving the token failed\n");
+    lan::setToken(b);
+    uprintf("link: token set\n");
 }
 
 void pollSerial() {
-    while (Serial.available()) {
-        const int c = Serial.read();
+    for (uint8_t c; uart_read_bytes(kUart, &c, 1, 0) == 1;) {
 #ifdef PERF_LOG
         if (c == 'S') { stress::start(); continue; }   // the stress test (dock performance analysis)
         if (c == 'X') { stress::stop(); continue; }
 #endif
         if (c == 'm') {
             app.debugMood = app.debugMood >= static_cast<int>(cta::Mood::Hyped) ? -1 : app.debugMood + 1;
-            Serial.printf("debug: mood %d%s\n", app.debugMood, app.debugMood < 0 ? " (live)" : "");
+            uprintf("debug: mood %d%s\n", app.debugMood, app.debugMood < 0 ? " (live)" : "");
         } else if (c == 'p') {
             printPicks();
         } else if (c == 'h') {   // the stops screen
             app.screen = dock::Screen::Home;
-            Serial.println("debug: screen 0");
+            uprintf("debug: screen 0\n");
         } else if (c == 's') {   // the next screen: stops, map, picker
             app.screen = app.screen == dock::Screen::Home ? dock::Screen::Map
                        : app.screen == dock::Screen::Map ? dock::Screen::Picker : dock::Screen::Home;
             app.picker.step = 1;
             app.panX = app.panY = 0;
-            Serial.printf("debug: screen %d\n", static_cast<int>(app.screen));
+            uprintf("debug: screen %d\n", static_cast<int>(app.screen));
         } else if (c == 'x') {   // swaps sections 1 and 2: a real flash write, for checking the panel through one
             const cta::PickedStop t = picks[0];
             picks[0] = picks[1];
@@ -234,7 +264,7 @@ void pollSerial() {
             setPicks();
         } else if (c == '6') {
             display::setAutoRecover(!display::autoRecovering());
-            Serial.printf("diag: panel restart after a late frame %s\n", display::autoRecovering() ? "on" : "off");
+            uprintf("diag: panel restart after a late frame %s\n", display::autoRecovering() ? "on" : "off");
         } else if (c >= '0' && c <= '5') {
             if (c == '0') { display::setDiag(display::Diag::Normal); wifiOffDiag = false; net::setWifiOff(false); display::setTiming(display::bootTiming()); }
             if (c == '1') display::setDiag(display::Diag::Freeze);
@@ -251,7 +281,7 @@ void pollSerial() {
         } else if ((c >= 'A' && c <= 'Z') || c == '.') {   // test step letter on screen ('.' clears it)
             diagStep = c == '.' ? 0 : static_cast<char>(c);
             forceFrame = true;
-            Serial.printf("diag: step %c\n", c);
+            uprintf("diag: step %c\n", c);
         } else if (c == 'w') {
             net::checkWifi();
         } else if (c == 'l') {
@@ -264,12 +294,12 @@ void pollSerial() {
             cta::defaultPicks(picks);
             setPicks();
         } else if (c == 'z') {   // power down: LEDs and backlight off, then deep sleep until reset or power cycle
-            Serial.println("dock: powering down (reset or replug to wake)");
+            uprintf("dock: powering down (reset or replug to wake)\n");
             cta::LedRow off[cta::kLedRows];
             leds::post(off, 0, true);   // night: every LED black
-            delay(300);
+            vTaskDelay(pdMS_TO_TICKS(300));
             display::backlight(false);
-            Serial.flush();
+            flushSerial();
             esp_deep_sleep_start();
         }
     }
@@ -279,17 +309,25 @@ void pollSerial() {
 
 void setup() {
 #ifdef PERF_LOG
-    // A TX buffer, so the perf log's whole lines (up to about 400 bytes) go out in the background: without one, a
-    // line only fits the UART's 128-byte FIFO and a blocking write would hold the loop for 20 ms.
-    Serial.setTxBufferSize(4096);
+    uart_driver_install(kUart, 256, 4096, 0, nullptr, 0);
+#else
+    uart_driver_install(kUart, 256, 0, 0, nullptr, 0);
 #endif
-    Serial.begin(115200);
-    delay(200);
+    uart_vfs_dev_use_driver(kUart);
+    // As Arduino's start-up did: a full or outdated NVS partition is erased and started again; any other error is
+    // left alone (erasing would lose the token and the picks).
+    esp_err_t nvs = nvs_flash_init();
+    if (nvs == ESP_ERR_NVS_NO_FREE_PAGES || nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs = nvs_flash_init();
+    }
+    if (nvs != ESP_OK) uprintf("store: NVS didn't start (%d)\n", static_cast<int>(nvs));
+    vTaskDelay(pdMS_TO_TICKS(200));
 #ifdef PERF_LOG
     perf::begin();
 #endif
-    Serial.printf("\ndock: reset reason %d, internal free %u, psram free %u\n", static_cast<int>(esp_reset_reason()),
-                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
+    uprintf("\ndock: reset reason %d, internal free %u, psram free %u\n", static_cast<int>(esp_reset_reason()),
+                  heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     // As on the handheld: the task watchdog warns instead of rebooting, and doesn't watch the idle tasks. Core 0's
     // idle task can wait out a train API handshake (about 2.5 s of ECDSA in software) behind the network task, and a
     // reboot mid-demo would cost more than a warning.
@@ -300,9 +338,9 @@ void setup() {
     cta::setJsonHeap(&kPsramHeap);
     data = new (psAlloc(sizeof(dock::Data))) dock::Data();
     lists = new (psAlloc(sizeof(dock::PickerLists))) dock::PickerLists();
-    if (!data || !lists) Serial.println("memory: allocation failed");
+    if (!data || !lists) uprintf("memory: allocation failed\n");
     leds::begin();
-    if (!display::begin()) Serial.println("display: begin failed");
+    if (!display::begin()) uprintf("display: begin failed\n");
     store::loadPicks(picks);
     printPicks();
     char tok[cta::kTokenLen + 1] = "";
@@ -321,7 +359,7 @@ void setup() {
     snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
     publishLink();
     net::start(picks);
-    Serial.printf("dock: up; internal free %u, psram free %u\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
+    uprintf("dock: up; internal free %u, psram free %u\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 
 void loop() {
@@ -341,7 +379,7 @@ void loop() {
             const int age = now > s.rec.ts ? static_cast<int>(now - s.rec.ts) : 0;
             if (age > oldest) oldest = age;
         }
-        const uint32_t m = millis();
+        const uint32_t m = nowMs();
         if (!bootWifiMs && data->wifiUp) bootWifiMs = m;
         if (!bootClockMs && now) bootClockMs = m;
         if (!bootLoadedMs && now && picked && withData == picked) bootLoadedMs = m;
@@ -364,7 +402,7 @@ void loop() {
     while (display::nextTouch(t)) {
 #endif
         if (t.kind != display::Touch::Move)   // for checking the touch mapping: where a press starts and ends
-            Serial.printf("touch: %s %d,%d (%d finger%s)\n", t.kind == display::Touch::Down ? "down" : "up", t.x, t.y,
+            uprintf("touch: %s %d,%d (%d finger%s)\n", t.kind == display::Touch::Down ? "down" : "up", t.x, t.y,
                           t.fingers, t.fingers == 1 ? "" : "s");
         // The hidden reset: three or more fingers, held without a lift. Such a press is never a tap, hold or drag
         // (the press is dropped), and any report of fewer fingers or a lift restarts the 10 s.
@@ -379,7 +417,7 @@ void loop() {
         else dock::pointerUp(app, *data, *lists, t.x, t.y, t.ms);
         dirty = true;
     }
-    const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
+    const uint32_t ms = nowMs();   // after the touch events, so none is stamped later than this frame
     if (resetHeldSince && static_cast<int32_t>(ms - resetHeldSince) >= static_cast<int32_t>(kResetHoldMs))
         resetLink("three-finger hold");
     dock::tick(app, ms);
@@ -403,17 +441,17 @@ void loop() {
         if (in.config && in.cfg.hasPet) {
             linkCfg.pet = in.cfg.pet;
             linkCfg.hasPet = true;
-            if (!store::savePet(linkCfg.pet)) Serial.println("store: saving the pet failed");
+            if (!store::savePet(linkCfg.pet)) uprintf("store: saving the pet failed\n");
             applyPet();
         }
         if (in.config && in.cfg.hasSettings) {
             linkCfg.settings = in.cfg.settings;
             linkCfg.hasSettings = true;
-            if (!store::saveSettings(linkCfg.settings)) Serial.println("store: saving the settings failed");
+            if (!store::saveSettings(linkCfg.settings)) uprintf("store: saving the settings failed\n");
             applySettings();
         }
         publishLink();
-        if (in.openBle) Serial.println("link: POST /ble (BLE setup comes with Task 7)");
+        if (in.openBle) uprintf("link: POST /ble (BLE setup comes with Task 7)\n");
         if (in.reset) resetLink("POST /reset");
         dirty = true;
     }
@@ -424,7 +462,7 @@ void loop() {
                             : listWanted == dock::Request::Dirs ? lists->dirsState
                             : listWanted == dock::Request::Stops ? lists->stopsState : dock::Load::Loading;
         if (listWanted != dock::Request::None && st != dock::Load::Loading) {
-            perf::listLoaded(millis() - listAskedMs);
+            perf::listLoaded(nowMs() - listAskedMs);
             listWanted = dock::Request::None;
         }
 #endif
@@ -437,7 +475,7 @@ void loop() {
         net::request(app.request, app.picker.line, app.picker.dirName);
 #ifdef PERF_LOG
         listWanted = app.request;
-        listAskedMs = millis();
+        listAskedMs = nowMs();
 #endif
         app.request = dock::Request::None;
         dirty = true;
@@ -473,7 +511,7 @@ void loop() {
             memset(ui::gfxCycles, 0, sizeof(ui::gfxCycles));
             ui::gfxClock = cycles;
         }
-        const uint32_t t0 = millis();
+        const uint32_t t0 = nowMs();
         struct Ctx { const dock::Clock* clock; uint32_t ms; } ctx = {&clock, ms};
         if (display::diag() == display::Diag::Pattern)
             shown = display::render([](ui::Canvas& cv, void*) { drawPattern(cv); }, nullptr);
@@ -483,15 +521,15 @@ void loop() {
                 dock::draw(cv, app, *data, *lists, *c.clock, c.ms);
                 diagLabel(cv);
             }, &ctx);
-        sumDraw += millis() - t0;
+        sumDraw += nowMs() - t0;
         if (profile) {
             ui::gfxClock = nullptr;
-            Serial.printf("profile: frame %u ms;", static_cast<unsigned>(millis() - t0));
+            uprintf("profile: frame %u ms;", static_cast<unsigned>(nowMs() - t0));
             for (int k = 0; k < static_cast<int>(ui::Prim::Count); ++k)
-                Serial.printf(" %s %u", ui::kPrimNames[k], static_cast<unsigned>(ui::gfxCycles[k] / 240000));
+                uprintf(" %s %u", ui::kPrimNames[k], static_cast<unsigned>(ui::gfxCycles[k] / 240000));
             uint32_t du, cu, wu;
             display::lastTimes(du, cu, wu);
-            Serial.printf(" (ms); draw %u, copy %u, panel switch %u ms\n", static_cast<unsigned>(du / 1000),
+            uprintf(" (ms); draw %u, copy %u, panel switch %u ms\n", static_cast<unsigned>(du / 1000),
                           static_cast<unsigned>(cu / 1000), static_cast<unsigned>(wu / 1000));
         }
         ++frames;
@@ -499,7 +537,7 @@ void loop() {
         {
             uint32_t du, cu, wu;
             display::lastTimes(du, cu, wu);
-            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), millis(), display::lastBandsDrawn());
+            perf::frame(du, cu, wu, display::lastBands(), dock::animating(app), nowMs(), display::lastBandsDrawn());
         }
 #endif
     }
@@ -521,9 +559,9 @@ void loop() {
             uint32_t rgb[cta::kLedCount];
             cta::ledFrame(rows, clock.now, clock.night, LED_MAX_BRIGHTNESS, ms, rgb);
             for (int r = 0; r < cta::kLedRows; ++r) {
-                Serial.printf("leds row %d (LED 1..7):", r + 1);
-                for (int i = 0; i < cta::kLedsPerRow; ++i) Serial.printf(" %06X", static_cast<unsigned>(rgb[cta::ledIndex(r, i)]));
-                Serial.println();
+                uprintf("leds row %d (LED 1..7):", r + 1);
+                for (int i = 0; i < cta::kLedsPerRow; ++i) uprintf(" %06X", static_cast<unsigned>(rgb[cta::ledIndex(r, i)]));
+                uprintf("\n");
             }
         }
     }
@@ -541,14 +579,14 @@ void loop() {
 #ifdef PERF_LOG
         perf::scan(late);
 #endif
-        if (late) Serial.printf("scan: at %u ms, %u frames, %u late, longest %u us (period %u us)\n", ms, f, late, gap, period);
+        if (late) uprintf("scan: at %u ms, %u frames, %u late, longest %u us (period %u us)\n", ms, f, late, gap, period);
     }
     if (ms - statT >= 30000) {
         statT = ms;
-        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests; httpd stack left %u\n",
+        uprintf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests; httpd stack left %u\n",
                       frames, frames ? sumDraw / frames : 0, display::timeouts(), static_cast<unsigned>(display::dmaFallbacks()),
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
-                      ESP.getFreePsram(), net::requests(), static_cast<unsigned>(lan::stackLeft()));
+                      heap_caps_get_free_size(MALLOC_CAP_SPIRAM), net::requests(), static_cast<unsigned>(lan::stackLeft()));
         frames = sumDraw = 0;
     }
 #ifdef PERF_LOG
@@ -566,5 +604,11 @@ void loop() {
     // A pass that showed a frame has already slept on core 1 while the panel took it, and a drag's next frame should
     // start now: frames move in panel steps (29.3 ms), and 2 ms more before each could push one past the next step
     // (dock performance analysis, round 3). A pass without one sleeps, so the loop never spins.
-    if (!shown) delay(2);
+    if (!shown) vTaskDelay(pdMS_TO_TICKS(2));
+}
+
+// ESP-IDF's main task, on core 1 with an 8 KB stack (sdkconfig.defaults), as Arduino's loop task was.
+extern "C" void app_main() {
+    setup();
+    for (;;) loop();
 }
