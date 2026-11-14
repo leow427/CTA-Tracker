@@ -97,7 +97,18 @@ from `secrets.h`.
 
 **Why third:** it goes with F1 (the network list) and F2, and it ends hard-coded settings in firmware.
 
-### F4. A more premium font in the app, the handheld and the dock
+### F4. A more premium font in the app, the handheld and the dock (done 2026-11-14; dock draw cost open)
+
+**Done:** Leo picked from renders on both boards (Nunito, Inter, Geist, Figtree, Manrope). The boards use
+Manrope (SIL OFL 1.1), built by `font_build.py` from Google Fonts; Manrope stops at 800, so the atlases the UI
+asks for as 900 are drawn at 800 and the 800 ones at 700. The app uses SF Pro, the system font (`Theme.rounded`
+keeps its name). The pixel digits stay. Flash: the dock drops 29,088 B (2,738,094 to 2,709,006; perf env
+2,749,758 to 2,720,686) and the wearable 29,072 B (2,381,234 to 2,352,162), with the added ‘ glyph. The atlas
+carries the OFL notice; the license is `firmware/lib/gfx/tools/OFL.txt`. Plan:
+`docs/superpowers/plans/2026-11-14-f4-font.md`. **Still open:** the draw cost on the dock board (B2), measured
+with `tools/dock_perf_run.py`, and a look on the real screens.
+
+Original request:
 
 The text in all three looks close to Comic Sans: the iOS app uses SF Rounded (`Theme.rounded`, `design:
 .rounded`) and the handheld and dock use Nunito (`firmware/lib/gfx/src/fonts.*`).

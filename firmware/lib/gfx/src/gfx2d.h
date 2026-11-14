@@ -1,6 +1,6 @@
 #pragma once
 // A small 2D canvas over an RGB565 buffer: just the drawing the handheld's and the dock's HTML mockups use (pixel
-// plates, Nunito text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs, and the dock map's
+// plates, Manrope text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs, and the dock map's
 // block lines and dots). Plain C++ so the screens can be rendered on a laptop for previews (each device's
 // tools/preview.cpp) as well as on the device. Shared by the handheld and the dock (firmware/lib/gfx).
 //
@@ -83,7 +83,7 @@ public:
     void plate(int x, int y, int w, int h, const PlateStyle& s);
     int chip(const char* text, int x, int y, uint32_t bg, uint32_t fg);   // returns its width
 
-    // Nunito text. weight 800 or 900; sizes are the ones firmware/lib/gfx/tools/font_build.html renders.
+    // Manrope text. weight 800 or 900 (drawn at Manrope 700 and 800, its heaviest); sizes are the ones firmware/lib/gfx/tools/font_build.html renders.
     static const Font* font(int weight, int size);
     static float measure(const Font* f, const char* text);
     // Whether the font has a glyph for every character (the large title sizes carry letters and digits only).
