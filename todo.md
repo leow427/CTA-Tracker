@@ -270,3 +270,16 @@ nearest the dock, 3 at a time, flipping between the two sets every 30 s or so (L
 - The LED rows follow whichever 3 are on screen.
 
 **Why sixteenth:** an idea from the ecosystem build; not committed for the showcase unless Leo says so.
+
+### F17. After the showcase: ESP-IDF build, then Bluetooth setup again
+
+Both boards build with `framework = arduino` on Espressif's prebuilt high_perf SDK libraries, whose memory settings
+are fixed. That is why Bluetooth (~50 KB of internal RAM, measured in `docs/ecosystem/day1-link.md`) didn't fit and
+the showcase pairs over Wi-Fi (plan Appendix A).
+
+- First step: pioarduino's `framework = arduino, espidf`, Arduino as an ESP-IDF component with our own `sdkconfig`.
+  Arduino code stays; Bluetooth and Wi-Fi buffers and TLS buffers can move to PSRAM and the controller pools shrink.
+- Re-measure internal RAM on both boards, then bring back BLE setup (spec section 12, "Future work: Bluetooth").
+- Fully native ESP-IDF, or a separate radio chip (e.g. ESP32-P4 + C6), only if the hybrid build isn't enough.
+
+**Why seventeenth:** changes build, memory layout and timing on two working boards; not before the showcase.
