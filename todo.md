@@ -68,7 +68,52 @@ live data in one place.
 **Why first:** without it the handheld is offline anywhere but one network, which matters more than how
 it looks.
 
-### F2. Tap Trackie to see why he feels that way
+### F2. Battery level at the top of the handheld
+
+Today the handheld only shows its charge while it's docked (the ring and "Charging · 64%" on the home screen).
+Off the dock there's no way to tell how much battery is left.
+
+- Show the battery at the top of every screen off the dock: a small bar, the percent, or both, in the round
+  screen's top edge so it doesn't crowd the cards.
+- The AXP2101's fuel gauge already gives the percent (`firmware/handheld/mock/src/power.h`). Show "charging"
+  when plugged in, and turn it warning-colored when low (a constant, e.g. 15%).
+- Redraw it only when the percent changes, so it costs no power between frames (see `docs/power/`).
+
+**Why second:** small, and you need it every day you carry the handheld.
+
+### F3. A real settings page on the handheld
+
+The handheld has no settings screen; brightness is fixed in code (`brightness()` in `ui.cpp`), and Wi-Fi comes
+from `secrets.h`.
+
+- A settings screen reached from the home screen, in the handheld's theme, with at least:
+  - default brightness (and the dimmed level), saved in flash
+  - Wi-Fi: the saved networks from F1, the networks in range with their signal, which one it's on, and
+    forget / move up. Typing a new password on the watch is impractical, so adding a network comes from the
+    iOS app over BLE (or `secrets.h` until then).
+  - battery and charging (F2), firmware version, and pairing / unpair
+- Decide the list of settings and how you get there (a gesture or a button on the home screen) in a short design
+  first.
+
+**Why third:** it goes with F1 (the network list) and F2, and it ends hard-coded settings in firmware.
+
+### F4. A more premium font in the app, the handheld and the dock
+
+The text in all three looks close to Comic Sans: the iOS app uses SF Rounded (`Theme.rounded`, `design:
+.rounded`) and the handheld and dock use Nunito (`firmware/lib/gfx/src/fonts.*`).
+
+- Pick one non-rounded typeface family that looks premium on all three, try it on real screens first, and keep
+  the pixel digits for the minutes (they're the departure-board look, not body text).
+- iOS: switch `Theme.rounded` to the new face (SF Pro is the system default; a custom font needs bundling).
+- Handheld and dock: regenerate the glyph atlases with `firmware/lib/gfx/tools/font_build.py` from a font
+  whose license allows embedding in firmware (SF Pro's doesn't; Inter and other OFL fonts do). Check the flash
+  size of the new atlases and the draw cost on the dock (B2).
+- Update the font in `docs/handheld-ui.md` and the iOS redesign spec.
+
+**Why fourth:** it lifts the look of everything at once, but it touches all three devices and needs a choice
+made on real screens first.
+
+### F5. Tap Trackie to see why he feels that way
 
 The user can tap Trackie and see the reason for his current mood (Sleepy, Sad, Worried, Happy, Hyped).
 Right now it isn't clear why he's happy or sad.
@@ -78,11 +123,11 @@ Right now it isn't clear why he's happy or sad.
   `firmware/lib/cta/src/cta_types.h`; sprites in `firmware/lib/pet/`).
 - Decide how the tap is made on the handheld and how the reason is shown and dismissed.
 
-**Why second:** it needs some design work first (input, layout, wording). Build it in the handheld's
+**Why fifth:** it needs some design work first (input, layout, wording). Build it in the handheld's
 current theme, which matches the app since 2026-11-11 (white bus cards, light green live glyph; see
 `docs/handheld-ui.md`).
 
-### F3. Trains and buses on the iOS map: a stop shows its line's vehicles, a tap focuses one
+### F6. Trains and buses on the iOS map: a stop shows its line's vehicles, a tap focuses one
 
 Today, tapping a card (e.g. the Red Line at a station) opens stop detail with the next few arrivals as minute
 tiles, and the map shows no vehicles.
@@ -99,30 +144,30 @@ tiles, and the map shows no vehicles.
   CTAKit already parses both feeds into `Vehicle` (`TrainParse`, `BusParse`); the app doesn't fetch them yet.
 - If the vehicle drops out of the feed, say so instead of showing an old position.
 
-**Why third:** it answers "where is my train right now?" with data the app can already parse.
+**Why sixth:** it answers "where is my train right now?" with data the app can already parse.
 
-### F4. Pixel versions of the cards' train and bus symbols on the iOS map
+### F7. Pixel versions of the cards' train and bus symbols on the iOS map
 
 Every card in the iOS app shows which kind it is in its bottom-right corner: a subway in its tunnel
 (`tram.fill.tunnel`) on train cards and a bus (`bus.fill`) on bus cards (SF Symbols, `RouteCard.swift`). Draw
 pixel-art versions of those two symbols and use them as the map's stop icons, replacing the pixel train front
 and pixel bus in `ios/CTATracker/Map/StopIcons.swift`, so the map matches the cards but stays pixel art like
-the rest of the map. F3's vehicles on the map use them too.
+the rest of the map. F6's vehicles on the map use them too.
 
 - Draw them as grids like the current icons (whole art pixels, nearest-neighbor scaling, app spec 4.6), in the
   line's card colors, with the one-pixel white halo so they read on the navy map.
 - Decide how a station on several lines shows its lines (today a cream icon with a strip of line colors).
 - Keep icons the same size as today, and keep the open stop ranked first when icons collide.
 
-**Why fourth:** small, and it makes the map read like the rest of the app.
+**Why seventh:** small, and it makes the map read like the rest of the app.
 
 ---
 
-F5–F12 came from the 2026-11-11 dock brainstorm. They all come after the core dock (spec §7) works, and
+F8–F15 came from the 2026-11-11 dock brainstorm. They all come after the core dock (spec §7) works, and
 the first dock firmware runs as of 2026-11-12 (`58c8b60`). Each one needs a short design approved before
 it's built.
 
-### F5. "Leave in N min" on the dock, with weather
+### F8. "Leave in N min" on the dock, with weather
 
 Show when to walk out the door, not when the vehicle arrives.
 
@@ -133,70 +178,70 @@ Show when to walk out the door, not when the vehicle arrives.
 - Rain or snow adds a minute of walk time (one constant). Below a cold threshold, show "Wait inside"
   until it's time to leave.
 
-**Why fifth:** it answers the question people actually have when they look at the dock, using data the
-dock already pulls. F9 and F12 build on it.
+**Why eighth:** it answers the question people actually have when they look at the dock, using data the
+dock already pulls. F12 and F15 build on it.
 
-### F6. Disruption takeover
+### F9. Disruption takeover
 
 - When a picked line has a major alert (shuttle buses, reroute, suspended service), that stop's
   section turns into a plain-language card plus the nearest alternative from the bundled GTFS data,
   e.g. "Red Line down at Belmont. The 77 bus is 4 min away."
 - Decide which alerts count as major (CTA alerts carry severity and impact fields).
 
-**Why sixth:** the moment the dock matters most is when your usual line breaks.
+**Why ninth:** the moment the dock matters most is when your usual line breaks.
 
-### F7. Bunching alerts
+### F10. Bunching alerts
 
 - When 2 or more vehicles on the same route and direction reach a picked stop within about 2 min of
   each other and are followed by a long gap, say so in one line: "3 buses together, then a 22 min gap."
 - The gap and spacing thresholds are constants.
 
-**Why seventh:** cheap, but less urgent than a broken line. It only reads the predictions the dock already
+**Why tenth:** cheap, but less urgent than a broken line. It only reads the predictions the dock already
 has, and the LED row already shows the bunch.
 
-### F8. Divvy fallback
+### F11. Divvy fallback
 
 - Read Divvy's open GBFS feeds (station information + station status; no API key) and find the
   station nearest each picked stop.
 - When the next catchable arrival is far off (a constant), show "3 e-bikes at the corner".
 - Poll slowly (every couple of minutes). Check Divvy's data license for the attribution it needs.
 
-**Why eighth:** a real alternative for very little work.
+**Why eleventh:** a real alternative for very little work.
 
-### F9. Countdown on the handheld (spec §2 stretch)
+### F12. Countdown on the handheld (spec §2 stretch)
 
 - Follow one arrival and count down to it on the handheld.
 - Start it from the handheld's stop detail view first. Starting it by tapping an arrival on the dock
   comes later, since that needs a new dock-to-handheld message.
-- Count down to the leave time when F5 exists, otherwise to the arrival.
-- Track the same vehicle; if its prediction vanishes, say so (ties into F10).
+- Count down to the leave time when F8 exists, otherwise to the arrival.
+- Track the same vehicle; if its prediction vanishes, say so (ties into F13).
 
-**Why ninth:** it hands the dock's answer to your pocket, but it needs design work and the handheld's
+**Why twelfth:** it hands the dock's answer to your pocket, but it needs design work and the handheld's
 core flow comes first.
 
-### F10. Ghost-bus detection
+### F13. Ghost-bus detection
 
 - Track vehicle IDs (bus `vid`, train run number) in the predictions for each picked stop. A vehicle
   that drops out before it's due counts as a ghost.
 - Mark arrivals as solid or shaky by the route's ghost rate today, and show "lost N buses today".
 - Keep counts in RAM with a daily summary in flash.
 
-**Why tenth:** the most novel item, but it only looks good after days of data. Start logging as soon as
+**Why thirteenth:** the most novel item, but it only looks good after days of data. Start logging as soon as
 the dock polls live, even before the screen shows any of it.
 
-### F11. Best time to leave, learned on the dock
+### F14. Best time to leave, learned on the dock
 
 - For each picked stop and each 5-minute leave slot, log the wait you'd have had. After about a week,
   show e.g. "Leave 8:10: about 2 min wait. Leave 8:15: about 9."
 - Count a vehicle as arrived when its prediction reaches due or vanishes within a minute of it.
-- Share the log with F10 and with the pet journal stretch goal. Check the flash budget.
+- Share the log with F13 and with the pet journal stretch goal. Check the flash budget.
 
-**Why eleventh:** needs a week of data and the same logging as F10.
+**Why fourteenth:** needs a week of data and the same logging as F13.
 
-### F12. LED-only ambient mode
+### F15. LED-only ambient mode
 
 - The screen sleeps after a few idle minutes (or on a schedule); a touch wakes it.
-- The LEDs carry the information alone, getting brighter as leave time nears (needs F5).
+- The LEDs carry the information alone, getting brighter as leave time nears (needs F8).
 - Night hours still turn the LEDs off.
 
-**Why twelfth:** saves power and is calmer, but it's polish on top of the rest.
+**Why fifteenth:** saves power and is calmer, but it's polish on top of the rest.
