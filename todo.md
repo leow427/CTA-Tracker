@@ -148,6 +148,9 @@ tiles, and the map shows no vehicles.
 
 ### F7. Pixel versions of the cards' train and bus symbols on the iOS map
 
+**Done (2026-11-14):** tunnel A stations, M3 multi-line arches, bus A; grids in CTAKit `StopArt`, plan in
+`docs/superpowers/plans/2026-11-14-f7-pixel-icons.md`.
+
 Every card in the iOS app shows which kind it is in its bottom-right corner: a subway in its tunnel
 (`tram.fill.tunnel`) on train cards and a bus (`bus.fill`) on bus cards (SF Symbols, `RouteCard.swift`). Draw
 pixel-art versions of those two symbols and use them as the map's stop icons, replacing the pixel train front
