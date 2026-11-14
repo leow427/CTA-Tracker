@@ -24,7 +24,7 @@ bool errCdIsZero(JsonVariantConst v) {
 }
 
 void addEtaKeys(JsonObject f) {
-    for (const char* key : {"staNm", "stpId", "rt", "destNm", "arrT", "isSch", "isDly"}) f[key] = true;
+    for (const char* key : {"staNm", "stpId", "rt", "destNm", "arrT", "isSch", "isDly", "rn"}) f[key] = true;
 }
 
 bool same(const char* a, const char* b) { return a && b && strcmp(a, b) == 0; }
@@ -124,6 +124,7 @@ int parseTrainCards(const char* json, size_t len, uint32_t now, const char* stat
         const char* isDly = e["isDly"].as<const char*>();
         a.live = isSch != nullptr && strcmp(isSch, "0") == 0;
         a.delayed = isDly != nullptr && strcmp(isDly, "1") == 0;
+        copyTruncated(a.vehicle, e["rn"].as<const char*>(), kVehicleLen);
     }
     return static_cast<int>(cards);
 }

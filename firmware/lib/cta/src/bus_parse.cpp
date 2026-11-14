@@ -34,7 +34,7 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
                         size_t max) {
     JsonDocument filter;
     JsonObject f = filter["bustime-response"]["prd"][0].to<JsonObject>();
-    for (const char* key : {"tmstmp", "stpnm", "stpid", "rt", "rtdir", "des", "prdtm", "prdctdn", "dly"}) f[key] = true;
+    for (const char* key : {"tmstmp", "stpnm", "stpid", "rt", "rtdir", "des", "prdtm", "prdctdn", "dly", "vid"}) f[key] = true;
     JsonDocument doc;
     if (!parseBody(json, len, "prd", filter, doc)) return -1;
     JsonObjectConst body = doc["bustime-response"];
@@ -88,6 +88,7 @@ int parseBusPredictions(const char* json, size_t len, uint32_t now, const char* 
         copyTruncated(a.dest, p["des"].as<const char*>(), kNameLen);
         a.live = true;
         a.delayed = p["dly"].as<bool>() || (countdown != nullptr && strcmp(countdown, "DLY") == 0);
+        copyTruncated(a.vehicle, p["vid"].as<const char*>(), kVehicleLen);
         k[at] = key;
         if (r.count < kMaxArrivals) ++r.count;
     });

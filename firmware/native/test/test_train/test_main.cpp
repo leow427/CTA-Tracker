@@ -62,6 +62,19 @@ static void test_station_fixture() {
     TEST_ASSERT_TRUE(r.alert);
 }
 
+static void train_keeps_rn() {
+    const std::string f = readFixture("train_arrivals_station.json");
+    cta::StopRecord r = fresh("41320");
+    TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1000, r));
+    TEST_ASSERT_EQUAL_STRING("416", r.arrivals[0].vehicle);  // Kimball, 1 min
+    TEST_ASSERT_EQUAL_STRING("811", r.arrivals[1].vehicle);
+    TEST_ASSERT_EQUAL_STRING("813", r.arrivals[2].vehicle);
+    TEST_ASSERT_EQUAL_STRING("912", r.arrivals[3].vehicle);
+    const std::string none = response("2026-11-05T08:00:00", eta("Red", "Howard", "2026-11-05T08:04:00"));
+    TEST_ASSERT_TRUE(parse(none, 1000, r));
+    TEST_ASSERT_EQUAL_STRING("", r.arrivals[0].vehicle);  // no rn: empty, not the old value
+}
+
 static void test_midnight_fixture() {
     const std::string f = readFixture("train_arrivals_midnight.json");
     cta::StopRecord r = fresh("41320");
@@ -273,6 +286,7 @@ static void test_route_filter_on_a_shared_platform() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_station_fixture);
+    RUN_TEST(train_keeps_rn);
     RUN_TEST(test_route_filter_on_a_shared_platform);
     RUN_TEST(test_midnight_fixture);
     RUN_TEST(test_error_fixture);

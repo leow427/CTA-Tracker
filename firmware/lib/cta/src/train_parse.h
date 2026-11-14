@@ -9,7 +9,7 @@ namespace cta {
 
 // Fills out from a ttarrivals response: type = Train, ts = now, and up to kMaxArrivals arrivals, soonest first,
 // with min = floor(ctaSecondsBetween(tmst, arrT) / 60) clamped to 0–32767, live = isSch == "0",
-// delayed = isDly == "1", dest = destNm. name (staNm) and route (rt) come from the soonest arrival; with no
+// delayed = isDly == "1", dest = destNm, vehicle = rn. name (staNm) and route (rt) come from the soonest arrival; with no
 // arrivals they stay as the caller set them, as do id, dir, and alert. An eta whose arrT doesn't parse is
 // skipped. eta may be an array, one object, null, or missing (count = 0). Returns false, leaving out untouched,
 // on malformed JSON, errCd other than "0", or arrivals without a parseable tmst.

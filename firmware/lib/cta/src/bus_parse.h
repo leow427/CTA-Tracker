@@ -12,7 +12,7 @@ namespace cta {
 // ts = now, alert = false (the caller merges alerts), and up to kMaxArrivals arrivals, soonest first by seconds
 // (DUE counts as 0 s, a passed prediction as negative; ties keep response order): min = 0 for prdctdn "DUE", otherwise
 // floor(ctaSecondsBetween(tmstmp, prdtm) / 60) clamped to 0–32767; live = true; delayed = dly || prdctdn "DLY";
-// dest = des (where it ends). routeFilter (nullptr = all) drops other routes; a prediction with no rt is skipped.
+// dest = des (where it ends), vehicle = vid. routeFilter (nullptr = all) drops other routes; a prediction with no rt is skipped.
 // A prediction whose time doesn't parse is skipped. prd may be a list or one object.
 // Returns the count. With no prd: 0 when every error names a stop, route, or pattern ("No arrival times"), and −1
 // for any other error (a bad key, the daily limit), so a failed fetch isn't read as "no buses". −1 if malformed.

@@ -66,6 +66,18 @@ static void test_predictions_fixture() {
     TEST_ASSERT_EQUAL_INT(0, preds(f, "151", recs, 5));
 }
 
+static void bus_keeps_vid() {
+    const std::string f = readFixture("bus_predictions.json");
+    cta::StopRecord recs[5];
+    TEST_ASSERT_EQUAL_INT(3, preds(f, nullptr, recs, 5));
+    TEST_ASSERT_EQUAL_STRING("1801", recs[0].arrivals[0].vehicle);
+    TEST_ASSERT_EQUAL_STRING("1803", recs[0].arrivals[1].vehicle);  // sorted with its arrival
+    TEST_ASSERT_EQUAL_STRING("1802", recs[1].arrivals[0].vehicle);
+    TEST_ASSERT_EQUAL_STRING("1804", recs[2].arrivals[0].vehicle);
+    TEST_ASSERT_EQUAL_INT(1, preds(body("\"prd\":[" + prd("1001", "22", "20261105 08:06", "6") + "]"), nullptr, recs, 5));
+    TEST_ASSERT_EQUAL_STRING("", recs[0].arrivals[0].vehicle);  // no vid
+}
+
 static void test_one_record_per_route_at_a_stop() {
     cta::StopRecord recs[4];
     const std::string b = body("\"prd\":[" + prd("1001", "22", "20261105 08:06", "6") + "," +
@@ -296,6 +308,7 @@ static void test_big_responses_stay_filtered() {
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_predictions_fixture);
+    RUN_TEST(bus_keeps_vid);
     RUN_TEST(test_one_record_per_route_at_a_stop);
     RUN_TEST(test_one_record_per_direction_at_a_two_way_stop);
     RUN_TEST(test_card_keys);

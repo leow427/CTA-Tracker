@@ -54,16 +54,15 @@ int16_t clampMinutes(long m) {
     return static_cast<int16_t>(m);
 }
 
-}  // namespace
-
-size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
-    if (buf == nullptr || cap == 0) return 0;
+size_t encode(const StopRecord& r, char* buf, size_t cap, bool vehicles) {
     // The cleaned copies live until serialization ends, so the document may keep pointers to them.
     const Clean id(r.id), route(r.route), dir(r.dir), name(r.name);
     const uint8_t count = r.count < kMaxArrivals ? r.count : static_cast<uint8_t>(kMaxArrivals);
     const Clean dests[kMaxArrivals] = {Clean(r.arrivals[0].dest), Clean(r.arrivals[1].dest),
                                        Clean(r.arrivals[2].dest), Clean(r.arrivals[3].dest)};
-    static_assert(kMaxArrivals == 4, "dests lists one Clean per arrival");
+    const Clean vehs[kMaxArrivals] = {Clean(r.arrivals[0].vehicle), Clean(r.arrivals[1].vehicle),
+                                      Clean(r.arrivals[2].vehicle), Clean(r.arrivals[3].vehicle)};
+    static_assert(kMaxArrivals == 4, "dests and vehs list one Clean per arrival");
     JsonDocument doc;
     doc["id"] = id.s;
     doc["type"] = r.type == Kind::Bus ? "bus" : "train";
@@ -77,6 +76,7 @@ size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
         a["dest"] = dests[i].s;
         a["live"] = r.arrivals[i].live;
         a["delayed"] = r.arrivals[i].delayed;
+        if (vehicles && vehs[i].s[0] != '\0') a["veh"] = vehs[i].s;
     }
     doc["alert"] = r.alert;
     doc["ts"] = r.ts;
@@ -87,6 +87,14 @@ size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
     if (serializeJson(doc, w) != len) return 0;
     if (len < cap) buf[len] = '\0';
     return len;
+}
+
+}  // namespace
+
+size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
+    if (buf == nullptr || cap == 0) return 0;
+    const size_t len = encode(r, buf, cap, true);
+    return len > 0 ? len : encode(r, buf, cap, false);
 }
 
 bool decodeStopRecord(const char* json, size_t len, StopRecord& out) {
@@ -111,6 +119,7 @@ bool decodeStopRecord(const char* json, size_t len, StopRecord& out) {
         copyTruncated(dst.dest, a["dest"].as<const char*>(), kNameLen);
         dst.live = a["live"].as<bool>();
         dst.delayed = a["delayed"].as<bool>();
+        copyTruncated(dst.vehicle, a["veh"].as<const char*>(), kVehicleLen);
     }
     r.alert = root["alert"].as<bool>();
     r.ts = root["ts"].as<uint32_t>();

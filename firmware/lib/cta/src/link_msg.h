@@ -11,7 +11,7 @@
 namespace cta {
 
 constexpr int kWifiSlots = 5;   // the wearable's saved networks, slot 0 home; the dock keeps 1
-constexpr int kSsidLen = 32, kPassLen = 64, kTokenLen = 32, kPetNameLen = 16, kVehicleLen = 7;
+constexpr int kSsidLen = 32, kPassLen = 64, kTokenLen = 32, kPetNameLen = 16;   // kVehicleLen is in cta_types.h
 constexpr size_t kMaxBody = 1024;
 
 // {"slot","ssid","pass"}: slot below maxSlots, ssid 1–32 bytes, pass 0–64 bytes (empty for an open network).

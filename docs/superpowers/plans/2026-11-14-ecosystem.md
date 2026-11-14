@@ -79,7 +79,7 @@ wearable goes to the critical path first: S, then H, then H-UI and B1 in the gap
 
 | Track | Owns (files) | Tasks | Waits on |
 |---|---|---|---|
-| **L — shared library** | `firmware/lib/cta/src/link_msg.*`, `follow.*`, `wifi_list.*`, `cta_types.h`, `train_parse.*`, `bus_parse.*`, `stop_record.*`, `firmware/lib/pet/src/pet_palette.*`, `firmware/native/test/test_link*`, `tools/link_send.py` | 2, 3 | nothing |
+| **L — shared library** | `firmware/lib/cta/src/link_msg.*`, `follow.*`, `wifi_list.*`, `cta_types.h`, `train_parse.*`, `train_cards.*`, `bus_parse.*`, `stop_record.*`, `firmware/lib/pet/src/pet_palette.*`, `firmware/native/test/test_link*`, `tools/link_send.py` | 2, 3 | nothing |
 | **K — CTAKit** | `ios/CTAKit/**` | 4, 5 | nothing |
 | **S — link spike** | a throwaway `spike/link/` PlatformIO project | 1 | nothing |
 | **D — dock link** | `firmware/dock/src/link.*`, `store.*`, `net.cpp` (Wi-Fi join only), `main.cpp`, setup messages in `dock_ui.cpp` | 6, 7 | S (decision), L (Task 2) |
@@ -267,7 +267,8 @@ void palette_changes_slots_2_3_only()  { /* applyColors → [2]==rgb565(c0), [3]
 ### Task 3: Vehicle IDs on arrivals and the follow rules (Track L)
 
 **Files:**
-- Modify: `firmware/lib/cta/src/cta_types.h` (`Arrival`), `train_parse.cpp`, `bus_parse.cpp`, `stop_record.cpp`
+- Modify: `firmware/lib/cta/src/cta_types.h` (`Arrival`), `train_parse.cpp`, `train_cards.cpp`, `bus_parse.cpp`,
+  `stop_record.cpp`, `cta_config.h` (the follow values), `link_msg.h` (`kVehicleLen` moves out)
 - Create: `firmware/lib/cta/src/follow.h`, `firmware/lib/cta/src/follow.cpp`
 - Test: `firmware/native/test/test_link_follow/test_main.cpp`; update `test_train`, `test_bus`, `test_stop_record`
 
@@ -287,17 +288,42 @@ FollowView followView(const StopRecord* recs, int n, const FollowMsg& f, FollowM
 bool followExpired(const FollowMemo& memo, uint32_t now);   // Arrived or Lost for 60 s
 ```
 
-- [ ] **Step 1: Write the failing tests:** `train_keeps_rn` (a fixture arrival's `vehicle` equals its `rn`),
+**As built (worker notes):**
+- `kVehicleLen` moved from `link_msg.h` to `cta_types.h`. `parseTrainArrivals`, `parseTrainCards` (the wearable's
+  train cards, so `train_cards.*` joined Track L), and `parseBusPredictions` set `Arrival::vehicle` to `rn`/`vid`,
+  `""` when missing.
+- **512 bytes:** every field at its limit plus four 7-byte vehicles is 523 bytes, so it can't fit. `encodeStopRecord`
+  writes `"veh"` (after `delayed`, only when non-empty) and, if the record then doesn't fit in `cap`, writes it again
+  without vehicles. A real busy card (5-byte station, 4-byte line, 24-byte names and dests, 2-digit minutes, 4-digit
+  vehicles: CTA run numbers are 3 digits, bus vehicle IDs 4) fits with them; `record_with_vehicles_fits_512` checks
+  both. CTAKit's snapshot encoder needs the same rule for the relay (Task 4/19).
+- `followView` matches the card by type, id, route, and `dir` (the follow's `dir` cut to 24 bytes, as cards keep
+  it). Only a record with a newer `ts` counts, so a failed poll never ends a follow. On the card: Due at 0 min, else
+  Waiting. Seen before and missing from a fresh record: `expected = lastMin - (ts - seenTs)/60`; Arrived if
+  `expected <= 1`, Waiting if the card is full (4 arrivals) and `expected` is at or past its last arrival (it slid
+  off), else Lost. A record whose arrivals carry no vehicle IDs at all changes nothing. A vehicle never on the card
+  is Waiting with `min` -1. The parsers make no empty cards, so when the follow's card is missing but another card
+  at the same stop (type and id) has a newer `ts`, that poll is judged as a fresh record with no arrivals (`ts` = the
+  stop's newest).
+- Every follow ends (spec 5.7): a seen vehicle is Arrived once `now > seenTs + (lastMin + kFollowGraceMin)*60`,
+  card or no card; one never seen is Lost after `kFollowUnseenCapMin` minutes of fresh records (`ts`, not `now`),
+  counted from the later of the first fresh record's `ts` and `now` then, so an old card can't start it early.
+  Arrived and Lost are final; `followExpired` after `kFollowEndedSecs`. The three values are in `cta_config.h`
+  (60 s, 2 min, 3 min). `FollowMemo` grew `state`, `seenTs`, `firstTs`; `endedAt` is no longer a sentinel, so a
+  clock at 0 still ends. A never-seen follow whose stop gets no fresh poll at all still waits.
+  `FollowMsg::dest` isn't used for matching.
+
+- [x] **Step 1: Write the failing tests:** `train_keeps_rn` (a fixture arrival's `vehicle` equals its `rn`),
   `bus_keeps_vid`, `record_with_vehicles_fits_512` (4 arrivals, 24-byte names and dests, 7-byte vehicles: encoded
   ≤ 512), and in `test_link_follow`: `follow_waiting_4_min`, `follow_due_at_0`,
   `follow_gone_after_min_1_is_arrived`, `follow_gone_at_min_9_is_lost` (only once a record with a newer `ts` lacks
   it), `follow_failed_poll_keeps_waiting` (same `ts` → still Waiting with the last minutes),
   `follow_expires_after_60_s`.
-- [ ] **Step 2: Run** `pio test -e native -f test_link_follow -f test_train -f test_bus -f test_stop_record`.
+- [x] **Step 2: Run** `pio test -e native -f test_link_follow -f test_train -f test_bus -f test_stop_record`.
   Expected: FAIL.
-- [ ] **Step 3: Implement.** Keep `rn` (`ttarrivals`) and `vid` (`getpredictions`) in the parse filters;
+- [x] **Step 3: Implement.** Keep `rn` (`ttarrivals`) and `vid` (`getpredictions`) in the parse filters;
   `stop_record` encodes a vehicle as `"veh"` only when non-empty.
-- [ ] **Step 4: Run** the full native suite. Expected: PASS.
+- [x] **Step 4: Run** the full native suite. Expected: PASS.
 - [ ] **Step 5: Commit:** `feat(lib): vehicle IDs on arrivals, follow rules`.
 
 ### Task 4: CTAKit messages, vehicle on predictions, device watch (Track K)
@@ -483,7 +509,9 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
   `POST/DELETE /pin`, `POST/DELETE /follow`, `POST /ble`, `POST /reset`, same error rules as the dock.
 - [ ] **Step 2:** Wire `live`: the pinned stop is polled at the 3 closest stations' rate even when not nearby and
   counts as close for Hyped; the follow is evaluated with `followView` after every poll of its stop and cleared by
-  `followExpired`. The Wi-Fi join picks `strongestSaved` and, on a drop, rescans skipping the failed slot.
+  `followExpired`. Pass `followView` the raw polled records (`live_store`'s, not `live_model`'s counted-down
+  cards), keyed by the parent station ID (4xxxx) a follow carries; when the pinned stop and the nearby list both
+  hold the same card, use the one with the newer `ts`. The Wi-Fi join picks `strongestSaved` and, on a drop, rescans skipping the failed slot.
   `info.wake` goes up on every wake (`live::wake()` call site), `info.docked` mirrors `model.docked`.
 - [ ] **Step 3: Verify on the board:** `link_send.py cta-pet-xxxx.local nearby '<json>'` fills the cards (same as
   `send_nearby.py`); `pin` then `info`; `follow` with a live `rn` from a current arrival counts down in the serial

@@ -7,6 +7,7 @@ namespace cta {
 
 constexpr size_t kMaxArrivals = 4;
 constexpr size_t kNameLen = 24;  // bytes, excluding NUL
+constexpr size_t kVehicleLen = 7;  // a train run number (rn) or bus vehicle ID (vid), excluding NUL
 
 enum class Kind : uint8_t { Train = 0, Bus = 1 };
 enum class Mood : uint8_t { Sleepy, Sad, Worried, Happy, Hyped };
@@ -17,6 +18,7 @@ struct Arrival {
     char dest[kNameLen + 1];
     bool live;
     bool delayed;
+    char vehicle[kVehicleLen + 1];  // rn or vid; "" when unknown
 };
 
 struct StopRecord {

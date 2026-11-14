@@ -32,7 +32,7 @@ bool sameRouteName(const char* a, const char* b) {
 }
 
 void addEtaKeys(JsonObject f) {
-    for (const char* key : {"staNm", "rt", "destNm", "arrT", "isSch", "isDly"}) f[key] = true;
+    for (const char* key : {"staNm", "rt", "destNm", "arrT", "isSch", "isDly", "rn"}) f[key] = true;
 }
 
 }  // namespace
@@ -94,6 +94,7 @@ bool parseTrainArrivals(const char* json, size_t len, uint32_t now, StopRecord& 
         const char* isDly = e["isDly"].as<const char*>();
         a.live = isSch != nullptr && strcmp(isSch, "0") == 0;
         a.delayed = isDly != nullptr && strcmp(isDly, "1") == 0;
+        copyTruncated(a.vehicle, e["rn"].as<const char*>(), kVehicleLen);
     }
     if (n > 0) {
         copyTruncated(r.name, picks[0].eta["staNm"].as<const char*>(), kNameLen);

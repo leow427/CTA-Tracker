@@ -63,6 +63,7 @@ static void assertSame(const cta::StopRecord& a, const cta::StopRecord& b) {
         TEST_ASSERT_EQUAL_STRING(a.arrivals[i].dest, b.arrivals[i].dest);
         TEST_ASSERT_EQUAL(a.arrivals[i].live, b.arrivals[i].live);
         TEST_ASSERT_EQUAL(a.arrivals[i].delayed, b.arrivals[i].delayed);
+        TEST_ASSERT_EQUAL_STRING(a.arrivals[i].vehicle, b.arrivals[i].vehicle);
     }
     TEST_ASSERT_EQUAL(a.alert, b.alert);
     TEST_ASSERT_EQUAL_UINT32(a.ts, b.ts);
@@ -163,6 +164,41 @@ static void test_worst_case_fits() {
     cta::StopRecord d{};
     TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, n, d));
     assertSame(r, d);
+}
+
+static void record_with_vehicles_fits_512() {
+    // "veh" goes after delayed, and only on an arrival that has a vehicle.
+    cta::StopRecord r = sample();
+    strcpy(r.arrivals[0].vehicle, "811");
+    char buf[cta::kBleMaxPayload + 1];
+    TEST_ASSERT_TRUE(cta::encodeStopRecord(r, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"delayed\":false,\"veh\":\"811\"},{"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"delayed\":true}]"));
+
+    // A busy real card: 5-byte station, 4-byte line, 24-byte names and dests, 2-digit minutes, and 4-digit
+    // vehicles (CTA run numbers are 3 digits, bus vehicle IDs 4).
+    r = worst();
+    strcpy(r.id, "41320");
+    strcpy(r.route, "Pink");
+    for (size_t i = 0; i < cta::kMaxArrivals; ++i) {
+        r.arrivals[i].min = 59;
+        strcpy(r.arrivals[i].vehicle, "1234");
+    }
+    const size_t n = cta::encodeStopRecord(r, buf, cta::kBleMaxPayload);
+    TEST_ASSERT_TRUE(n > 0 && n <= cta::kBleMaxPayload);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"veh\":\"1234\""));
+    cta::StopRecord d{};
+    TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, n, d));
+    assertSame(r, d);
+
+    // Every field at its limit with vehicles is 523 bytes: the vehicles go so the record still fits one write.
+    r = worst();
+    for (size_t i = 0; i < cta::kMaxArrivals; ++i) strcpy(r.arrivals[i].vehicle, "1234567");
+    const size_t m = cta::encodeStopRecord(r, buf, cta::kBleMaxPayload);
+    TEST_ASSERT_TRUE(m > 0 && m <= cta::kBleMaxPayload);
+    TEST_ASSERT_NULL(strstr(buf, "\"veh\""));
+    TEST_ASSERT_TRUE(cta::decodeStopRecord(buf, m, d));
+    assertSame(worst(), d);
 }
 
 static void test_encode_respects_cap_exactly() {
@@ -292,6 +328,7 @@ int main(int, char**) {
     RUN_TEST(test_truncation);
     RUN_TEST(test_truncation_edges);
     RUN_TEST(test_worst_case_fits);
+    RUN_TEST(record_with_vehicles_fits_512);
     RUN_TEST(test_encode_respects_cap_exactly);
     RUN_TEST(test_over_limit_does_not_encode);
     RUN_TEST(test_control_characters_stay_valid_json);
