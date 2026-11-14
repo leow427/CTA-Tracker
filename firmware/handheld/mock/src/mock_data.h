@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "cta_types.h"
+#include "follow.h"
 
 namespace mock {
 
@@ -61,6 +62,13 @@ struct Model {
     bool weatherForced = false;// the debug gesture picked `weather`, so live weather leaves it alone
     int wmo = 0;
     float tempC = 0;
+    // The pinned stop takes the Home card, ahead of `glance`, with a ★; a follow counts down to one vehicle on it
+    // (ecosystem spec 5.6, 5.7). The mock sets them in Live; the live build copies live::Snapshot's hasPin, pin,
+    // hasFollow, follow (Task 8), building `pin` as fromLive builds the lists' cards.
+    bool hasPin = false;
+    Card pin{};            // a bus or train card by pin.rec.type
+    bool hasFollow = false;
+    cta::FollowView follow{};
 };
 
 // Sorts the cards (nearest stop first, soonest first within it), then sets the mood, Trackie's reason, and the
@@ -92,3 +100,10 @@ const char* lineName(const char* route);   // "Brn" → "Brown"; bus routes come
 void weatherInfo(Weather w, const char*& icon, const char*& temp, uint32_t& rgb, int& wmo, float& tempC);
 
 }  // namespace mock
+
+namespace live {
+// Pins a stop or follows a vehicle; nullptr clears. The real ones are live.cpp's (ecosystem Task 8); mock_data.cpp
+// has weak stubs for env:mock and the laptop tools, where setPin's stops the mock's pin.
+void setPin(const cta::PickedStop* stop);
+void setFollow(const cta::FollowMsg* f);
+}  // namespace live

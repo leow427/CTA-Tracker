@@ -47,6 +47,9 @@ struct CardView {
     const char* pips[3];
     int nPips;
     char compass;
+    bool star;          // the pinned stop: a ★ before the card's title
+    const char* line;   // in place of where it goes: a follow's "Red · 4 min · to 95th"
+    bool noTime;        // no minutes (a follow that's Arrived or Lost)
 };
 
 CardView viewOf(const Card& c, bool bus, const Model& m) {
@@ -80,6 +83,16 @@ float compassBadge(Canvas& cv, char letter, float x, float cy, int size, const T
     return size + 8;
 }
 
+// The pin's ★ as pixel art (Manrope has no ★), in the card's text color, outlined on a bus, centred on cy.
+// Returns the room it takes, gap included.
+const char* const kStar[9] = {"....K....", "....K....", "...KKK...", "KKKKKKKKK", ".KKKKKKK.",
+                              "..KKKKK..", "..KK.KK..", ".KK...KK.", ".K.....K."};
+float star(Canvas& cv, bool on, float x, float cy, int s, const Theme& t) {
+    if (!on) return 0;
+    inkRing(cv, kStar, 9, static_cast<int>(x), static_cast<int>(cy) - 9 * s / 2, s, t.text, t.outline);
+    return 9 * s + 8;
+}
+
 void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32_t ms, bool glyph = true) {
     const Theme& t = th(c.route, c.bus);
     const float saved = cv.alpha;
@@ -100,15 +113,17 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
         const float tx = fminf(dx + dw / 2.f - tw / 2, R - tw);
         cv.chip("SCHEDULED", static_cast<int>(tx), y + 50, t.text, t.card);
         rightW = static_cast<int>(fmaxf(dw + 20, R - tx));
+    } else if (c.noTime) {
+        rightW = 0;
     } else {
-        const bool due = c.min <= 1;
+        const bool due = c.min >= 0 && c.min <= 1;
         const int s = due ? 4 : 5;
         char big[8];
-        snprintf(big, sizeof(big), due ? "Due" : "%d", c.min);
+        snprintf(big, sizeof(big), c.min < 0 ? "--" : due ? "Due" : "%d", c.min);   // -1: a follow not on the card yet
         const int dw = Canvas::pixelWidth(big, s), dx = R - 20 - dw;
         cardDigits(cv, big, dx, y + (due ? 28 : 16), s, t);
         if (glyph || c.stale) liveGlyph(cv, R - 16, y + 16, true, !c.stale, ms, t.halo);
-        if (!due) cardText(cv, F(800, 12), "minutes", dx + dw / 2.f, y + 58, t, Align::Center);
+        if (!due && c.min >= 0) cardText(cv, F(800, 12), "minutes", dx + dw / 2.f, y + 58, t, Align::Center);
         rightW = dw + 20;
     }
     const int L = x + 16;
@@ -125,18 +140,22 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
     if (c.bus) {   // the route number, then where it goes, then the stop
         const Font* fName = F(900, 34);
         const float badgeW = c.compass ? 24 + 8 : 0;
-        const char* name = Canvas::fit(fName, c.route, maxW - badgeW - (c.alert ? 26 : 0), buf, sizeof(buf));
-        const float nw = cardText(cv, fName, name, L, y + 4, t);
-        const float bw = compassBadge(cv, c.compass, L + nw + 10, y + 24, 24, t);
-        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(L + nw + 8 + bw), y + 16, 1, t.text, t.outline);
-        cardArrow(cv, L + 8, y + 59, 8, t);
-        // With the letter beside the number, "South to Harlem" says only where it goes: "To Harlem".
-        const char* head = c.heading;
-        char hb[40];
-        if (c.compass)
-            if (const char* to = strstr(c.heading, " to ")) { snprintf(hb, sizeof(hb), "To %s", to + 4); head = hb; }
+        const float nx = L + star(cv, c.star, L, y + 24, 3, t);
+        const char* name = Canvas::fit(fName, c.route, maxW - (nx - L) - badgeW - (c.alert ? 26 : 0), buf, sizeof(buf));
+        const float nw = cardText(cv, fName, name, nx, y + 4, t);
+        const float bw = compassBadge(cv, c.compass, nx + nw + 10, y + 24, 24, t);
+        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(nx + nw + 8 + bw), y + 16, 1, t.text, t.outline);
         const Font* fHead = F(900, 16);
-        cardText(cv, fHead, Canvas::fit(fHead, head, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t);
+        if (c.line) cardText(cv, fHead, Canvas::fit(fHead, c.line, maxW, buf, sizeof(buf)), L, y + 49, t);
+        else {
+            cardArrow(cv, L + 8, y + 59, 8, t);
+            // With the letter beside the number, "South to Harlem" says only where it goes: "To Harlem".
+            const char* head = c.heading;
+            char hb[40];
+            if (c.compass)
+                if (const char* to = strstr(c.heading, " to ")) { snprintf(hb, sizeof(hb), "To %s", to + 4); head = hb; }
+            cardText(cv, fHead, Canvas::fit(fHead, head, maxW - 22, buf, sizeof(buf)), L + 22, y + 49, t);
+        }
         int sx = L;
         if (c.delayed) sx += cv.chip("Delayed", L, y + 72, col::amber, 0x000000) + 6;
         const Font* fStop = F(800, 13);
@@ -147,21 +166,25 @@ void routeCard(Canvas& cv, int x, int y, int w, int h, const CardView& c, uint32
     } else {       // a train's color names its line, so the stop leads, large, then where it goes
         const float pipW = c.nPips ? c.nPips * kPipStep : 0;
         const float badgeW = c.compass ? 20 + 8 : 0;
-        const float nameW = maxW - badgeW - pipW - (c.alert ? 26 : 0);
+        const float nx = L + star(cv, c.star, L, y + 29, 2, t);
+        const float nameW = maxW - (nx - L) - badgeW - pipW - (c.alert ? 26 : 0);
         const Font* fName = F(900, 24);
         static const int kSmaller[] = {21, 19};   // step down before truncating
         for (int size : kSmaller)
             if (Canvas::measure(fName, c.stop) > nameW) fName = F(900, size);
         const int ny = 15 + (24 - fName->size) * 2 / 3;
-        const float nw = cardText(cv, fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), L, y + ny, t);
-        const float bw = compassBadge(cv, c.compass, L + nw + 8, y + 29, 20, t);
-        pips(L + nw + 8 + bw, y + 22);
-        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(L + nw + 8 + bw + pipW), y + 21, 1, t.text, t.outline);
+        const float nw = cardText(cv, fName, Canvas::fit(fName, c.stop, nameW, buf, sizeof(buf)), nx, y + ny, t);
+        const float bw = compassBadge(cv, c.compass, nx + nw + 8, y + 29, 20, t);
+        pips(nx + nw + 8 + bw, y + 22);
+        if (c.alert) inkRing(cv, kAlert, 16, static_cast<int>(nx + nw + 8 + bw + pipW), y + 21, 1, t.text, t.outline);
         int hx = L;
         if (c.delayed) hx += cv.chip("Delayed", L, y + 58, col::amber, 0x000000) + 6;
-        cardArrow(cv, hx + 8, y + 67, 8, t);
         const Font* fHead = F(900, 16);
-        cardText(cv, fHead, Canvas::fit(fHead, c.heading, maxW - (hx - L) - 22, buf, sizeof(buf)), hx + 22, y + 57, t);
+        if (c.line) cardText(cv, fHead, Canvas::fit(fHead, c.line, maxW - (hx - L), buf, sizeof(buf)), hx, y + 57, t);
+        else {
+            cardArrow(cv, hx + 8, y + 67, 8, t);
+            cardText(cv, fHead, Canvas::fit(fHead, c.heading, maxW - (hx - L) - 22, buf, sizeof(buf)), hx + 22, y + 57, t);
+        }
     }
     cv.alpha = saved;
 }
@@ -221,6 +244,30 @@ void aodShift(uint32_t ms, int& ox, int& oy) {
     oy = static_cast<int>((k * 5) % 7) - 3;
 }
 
+// A follow on the pinned card (ecosystem spec 5.7): its minutes in the big digits and "Red · 4 min · to 95th" where
+// the card says where it goes, then "Due", then "Arrived" or "Lost the train" with no time until the live side
+// drops it (cta::followExpired).
+void followCard(CardView& v, const cta::FollowView& f, const Card& c, char* line, size_t cap) {
+    const char* who = v.bus ? c.rec.route : mock::lineName(c.rec.route);
+    // Where it goes, from the heading ("To 95th/Dan Ryan", "South to Harrison"): a bus's dir is "Southbound".
+    const char* dest = strstr(c.heading, " to ");
+    dest = dest ? dest + 4 : strncmp(c.heading, "To ", 3) == 0 ? c.heading + 3 : c.heading;
+    char to[sizeof(c.heading)];
+    snprintf(to, sizeof(to), "%s", dest);
+    if (char* slash = strchr(to, '/')) *slash = 0;   // "95th/Dan Ryan" → "95th", as the spec writes it
+    v.sched = v.delayed = false;                     // the card's next arrival's, not the followed vehicle's
+    v.line = line;
+    if (f.state == cta::FollowState::Arrived || f.state == cta::FollowState::Lost) {
+        snprintf(line, cap, "%s", f.state == cta::FollowState::Arrived ? "Arrived" : v.bus ? "Lost the bus" : "Lost the train");
+        v.noTime = true;
+        return;
+    }
+    v.min = f.state == cta::FollowState::Due ? 0 : f.min;
+    if (v.min < 0) snprintf(line, cap, "%s \xC2\xB7 to %s", who, to);
+    else if (v.min <= 1) snprintf(line, cap, "%s \xC2\xB7 Due \xC2\xB7 to %s", who, to);
+    else snprintf(line, cap, "%s \xC2\xB7 %d min \xC2\xB7 to %s", who, v.min, to);
+}
+
 void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, const View& v) {
     const bool docked = m.docked, first = v.screen == Screen::First, stale = anyStale(m);
     drawStatusRow(cv, m, 68, aod || docked);
@@ -262,9 +309,14 @@ void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, c
         cv.text(F(800, 15), "to find stops near you", C, 334, col::mist, Align::Center);
         return;
     }
-    if (m.glance) {
+    if (const Card* card = m.hasPin ? &m.pin : m.glance) {
+        CardView cvw = viewOf(*card, m.hasPin ? card->rec.type == cta::Kind::Bus : m.glanceIsBus, m);
+        cvw.star = m.hasPin;
+        char line[48];
+        if (m.hasPin && m.hasFollow) followCard(cvw, m.follow, *card, line, sizeof(line));
+        else if (m.hasPin && !card->rec.count) cvw.noTime = true, cvw.sched = false;   // a pin with nothing due yet
         gHomeCard = {C - 160, 290, 320, CARD_H};
-        routeCard(cv, C - 160, 290, 320, CARD_H, viewOf(*m.glance, m.glanceIsBus, m), ms);
+        routeCard(cv, C - 160, 290, 320, CARD_H, cvw, ms);
     }
     if (v.screen != Screen::Home) return;
     chevron(cv, 436, C - 12, 446, C, 436, C + 12, col::mist);   // swipe left: the map
@@ -972,7 +1024,15 @@ void pointerUp(App& a, Model& m, float x, float y, uint32_t ms) {
             else if (dx > 0 && a.view.tab == Tab::Buses) go(a, withTab(a.view, Tab::Trains), 1, -1, ms);
             else settle(false);
         } else if (sc == Screen::Detail && dx > 0) back(a, ms);
-        else if (sc == Screen::Home && dx < 0) go(a, with(a.view, Screen::Map), 1, 1, ms);
+        else if (sc == Screen::Home && dx < 0 && m.hasPin && inRect(d.x0, d.y0, gHomeCard)) {   // started on the pin
+            live::setFollow(nullptr);
+            live::setPin(nullptr);
+            // Gone from this frame; it stays gone only because setPin(nullptr) clears the published snapshot, which
+            // the model is rebuilt from every second.
+            m.hasPin = m.hasFollow = false;
+            toast(a, "Unpinned", ms);
+            snprintf(log.what, sizeof(log.what), "unpin");
+        } else if (sc == Screen::Home && dx < 0) go(a, with(a.view, Screen::Map), 1, 1, ms);
         else if (sc == Screen::Map && dx > 0) go(a, with(a.view, Screen::Home), 1, -1, ms);
         else settle(false);
         return;

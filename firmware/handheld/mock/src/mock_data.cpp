@@ -129,6 +129,8 @@ void say(Model& m, const Card* c, bool bus, const char* fmt, int value) {
     snprintf(m.reason, sizeof(m.reason), fmt, name, value);
 }
 
+bool gUnpinned = false;   // a swipe cleared the mock's pin (live::setPin's stub, below)
+
 }  // namespace
 
 const char* scenarioName(Scenario s) {
@@ -252,7 +254,7 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
         snprintf(c.rec.id, sizeof(c.rec.id), "%d", 1000 + b);
         c.rec.type = cta::Kind::Bus;
         copy(c.rec.route, sizeof(c.rec.route), bs.rt);
-        copy(c.rec.dir, sizeof(c.rec.dir), bs.dest);
+        snprintf(c.rec.dir, sizeof(c.rec.dir), "%sbound", bs.compass);   // Bus Tracker's rtdir; arrivals carry dest
         copy(c.rec.name, sizeof(c.rec.name), bs.name);
         simulate(c.rec, elapsed, bs.min, bs.headway, bs.sched, bs.dest);
         c.rec.ts = ts;
@@ -275,6 +277,20 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
     for (int i = 0; i < m.nBuses; ++i) consider(m.buses[i].distKm);
     for (int i = 0; i < m.nTrains; ++i) m.trains[i].close = m.trains[i].distKm <= closest[2] + 1e-4f;
     for (int i = 0; i < m.nBuses; ++i) m.buses[i].close = m.buses[i].distKm <= closest[2] + 1e-4f;
+    // Live pins Belmont's Red to 95th and follows its second train (due 9 min after start): it counts down, is Due,
+    // shows Arrived for a minute, then the pin stays alone until a swipe clears it.
+    m.hasPin = m.hasFollow = false;
+    if (sc == Scenario::Live && !gUnpinned)
+        for (int i = 0; i < m.nTrains; ++i)
+            if (m.trains[i].station == 0 && strcmp(m.trains[i].rec.route, "Red") == 0 && strcmp(m.trains[i].rec.dir, "95th/Dan Ryan") == 0) {
+                m.pin = m.trains[i];
+                m.hasPin = true;
+                const float tta = 2 + 7 - elapsed;   // Belmont's first Red to 95th at 2 min, every 7
+                m.hasFollow = tta >= -1;
+                if (tta >= 0) m.follow = {tta < 1 ? cta::FollowState::Due : cta::FollowState::Waiting, static_cast<int16_t>(tta)};
+                else m.follow = {cta::FollowState::Arrived, 0};
+                break;
+            }
     m.powerDocked = false;
     m.battery = 64;
     m.charging = true;
@@ -398,3 +414,8 @@ void finish(Model& m) {
 }
 
 }  // namespace mock
+
+// Weak, so live.cpp's real ones replace these at link time. Keep the weak stubs: env:mock and the laptop tools have
+// no live.cpp.
+__attribute__((weak)) void live::setPin(const cta::PickedStop* stop) { mock::gUnpinned = !stop; }
+__attribute__((weak)) void live::setFollow(const cta::FollowMsg*) {}

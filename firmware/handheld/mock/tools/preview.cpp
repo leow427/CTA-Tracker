@@ -206,5 +206,35 @@ int main(int argc, char** argv) {
         writePng(out + "/" + s.name + ".png", fb, ui::brightness(a, m));
         printf("%s: mood %d, reason \"%s\"\n", s.name, static_cast<int>(m.mood), m.reason);
     }
+    // The pinned card and each follow state on Home (ecosystem Task 18). route: the pinned card's line or bus route.
+    using FS = cta::FollowState;
+    struct PinShot { const char* name; const char* route; bool follow; FS state; int16_t min; bool empty; };
+    const PinShot pins[] = {
+        {"pin_empty", "Red", false, FS::Waiting, 0, true},   // pinned, nothing due there yet
+        {"pin_train", "Red", false, FS::Waiting, 0},      {"pin_bus", "22", false, FS::Waiting, 0},
+        {"follow_4min", "Red", true, FS::Waiting, 4},     {"follow_unseen", "Red", true, FS::Waiting, -1},
+        {"follow_due", "Red", true, FS::Due, 0},          {"follow_arrived", "Red", true, FS::Arrived, 0},
+        {"follow_lost_train", "Red", true, FS::Lost, 0},  {"follow_bus_4min", "22", true, FS::Waiting, 4},
+        {"follow_lost_bus", "22", true, FS::Lost, 0},
+    };
+    for (const PinShot& p : pins) {
+        static mock::Model m;
+        m = mock::Model();
+        mock::update(m, start, start);
+        const bool bus = strcmp(p.route, "Red") != 0;
+        for (int i = 0; i < (bus ? m.nBuses : m.nTrains); ++i) {
+            const mock::Card& c = bus ? m.buses[i] : m.trains[i];
+            if (strcmp(c.rec.route, p.route) == 0) { m.pin = c; break; }   // the nearest such card
+        }
+        m.hasPin = true;
+        if (p.empty) m.pin.rec.count = 0;
+        m.hasFollow = p.follow;
+        m.follow = {p.state, p.min};
+        ui::App a;
+        ui::init(a, 1000);
+        for (int pass = 0; pass < 2; ++pass) ui::draw(cv, a, m, 1000, scratch);
+        writePng(out + "/" + p.name + ".png", fb, ui::brightness(a, m));
+        printf("%s: pinned %s %s\n", p.name, m.pin.rec.route, m.pin.rec.name);
+    }
     return 0;
 }

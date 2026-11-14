@@ -45,9 +45,26 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
 From the top:
 - the time and weather icon
 - Trackie with his speech bubble
-- one card for the most urgent stop, so "should I hurry?" needs no swipe
+- one card for the most urgent stop, so "should I hurry?" needs no swipe, or the pinned stop (below)
 
-Swipe up for Stops. Swipe left for the Map (a stretch goal).
+Swipe up for Stops. Swipe left for the Map (a stretch goal). A swipe left that starts on a pinned card unpins it
+instead (an "Unpinned" toast, and the card falls back to the most urgent stop); everywhere else on Home it still opens
+the Map.
+
+#### Pinned and followed (ecosystem spec 5.6, 5.7)
+
+- **Pinned:** the stop sent from the app's "Send to Trackie" takes the Home card, ahead of the most-urgent rule, with
+  a ★ before the card's title: the stop name on a train card, the route number on a bus card (its stop name is the
+  small bottom line, too small for the mark). Manrope has no ★, so it's pixel art in the card's text color (outlined
+  in light blue on a bus), like the alert sign.
+- **Followed:** the pinned card counts down to the one vehicle the app picked. Its minutes take the big digits, and
+  the line under the title (where "To 95th/Dan Ryan" goes) says "Red · 4 min · to 95th" (a bus: "22 · 4 min · to
+  Howard"). The destination comes from the card's heading (a bus's `dir` is "Southbound"), cut at a "/" as the spec
+  writes it. A pin with nothing due shows no time. At 0–1 min it's "Red · Due · to 95th" with "Due"
+  big; not on the card yet (further out than its 4 arrivals), "Red · to 95th" with "--". Then "Arrived", or "Lost the
+  train" ("Lost the bus"), with no time, for 60 s (`cta::kFollowEndedSecs`), and the card goes back to the plain pin.
+- The code: `followCard` and `star` in `firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `hasPin`, `pin`,
+  `hasFollow`, `follow`. Renders: `tools/preview.cpp` writes `pin_*` and `follow_*`.
 
 ### Stops: Trains | Buses
 

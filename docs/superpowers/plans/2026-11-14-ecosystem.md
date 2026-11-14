@@ -683,11 +683,25 @@ in the App Group.
 **Interfaces:** Consumes `live::Snapshot::hasPin`, `pin`, `hasFollow`, `follow` (Task 8) and `cta::FollowState`
 (Task 3). Until Task 8 merges, drive it from the mock build (`mock_data.cpp` sets a pin and a follow).
 
-- [ ] **Step 1:** Home card: a pinned stop takes the card with a ★ before the stop name; a follow shows
+- [x] **Step 1:** Home card: a pinned stop takes the card with a ★ before the stop name; a follow shows
   "Red · 4 min · to 95th", then "Due", then "Arrived" or "Lost the train" (bus: "Lost the bus") for 60 s.
   A swipe left on the pinned card clears it (calls `live::setPin(nullptr)`).
 - [ ] **Step 2: Verify** in the mock build on the board and in `tools/preview.cpp` renders; update
-  `docs/handheld-ui.md`.
+  `docs/handheld-ui.md`. (Renders and the doc done; the board is left.)
+
+**As built (worker notes):**
+- `mock::Model` gained `hasPin`, `Card pin`, `hasFollow`, `cta::FollowView follow`; `drawHome` draws `pin` ahead of
+  `glance`. After Task 8 and this task both merge, Track H copies `hasPin`/`pin`/`hasFollow`/`follow` from
+  `live::Snapshot` in `fromLive`. The follow line takes the line from the pin's `route` and the destination from its
+  `heading` (a bus's `dir` is its `rtdir`). A pin with no arrivals shows no time.
+- The ★ goes before the card's title: the stop on a train card, the route on a bus card (its stop line is too small).
+- The swipe calls `live::setFollow(nullptr)` and `live::setPin(nullptr)` and clears the model's pin for that frame;
+  it stays gone only if `setPin(nullptr)` clears the published snapshot. `mock_data.cpp` holds weak stubs of both
+  (declared in `mock_data.h`) that live.cpp's real ones replace at link time. Keep the weak stubs: env:mock and the
+  laptop tools have no live.cpp.
+- The mock's bus cards carry Bus Tracker's `rtdir` ("Southbound") in `dir`, the destination in their arrivals.
+- The mock pins Belmont's Red to 95th in Live and follows its 9-minute train: Waiting, Due, Arrived for a minute,
+  then the pin alone.
 - [ ] **Step 3: Commit:** `feat(handheld): pinned stop and follow countdown on Home`.
 
 ### Task 19: Relay with no Wi-Fi (Tracks H and A; last, drops first)
