@@ -1,5 +1,6 @@
 #pragma once
-// The dock's data: Wi-Fi (DOCK_WIFI_SSID / DOCK_WIFI_PASS from firmware/secrets.h until the app's BLE setup exists),
+// The dock's data: Wi-Fi (the network saved in the store, else DOCK_WIFI_SSID / DOCK_WIFI_PASS from firmware/secrets.h;
+// once it's up, the HTTP link starts, link.h),
 // the clock, and every poll of spec 6.6 for the 3 picked stops (arrivals, vehicle positions for the LED rows and the
 // map, alerts, weather at the location ipapi.co gives, spec 7.5), plus the picker's live bus lists (spec 7.2). It all
 // runs on a task of its own on core 0, so a slow HTTPS fetch never stalls a frame; the loop copies the newest

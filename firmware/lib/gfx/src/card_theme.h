@@ -53,6 +53,9 @@ void chevron(Canvas& cv, float x0, float y0, float x1, float y1, float x2, float
 // Trackie at s px per art pixel, his body's top left at (x, y), with the weather accessory and (extra) his mood's
 // floating extra.
 void drawPet(Canvas& cv, cta::Mood mood, bool docked, int x, int y, int s, cta::Accessory acc, bool extra);
+// The palette drawPet uses (pet::kPaletteSize entries): pet::kDefaultPalette565 until a board points it at its own
+// copy with the app's colors (pet::applyColors, ecosystem spec 5.2). Set and read from the drawing task only.
+extern const uint16_t* petPalette565;
 
 // The cream pixel speech bubble, its tail pointing left, and its width for a text.
 float bubbleWidth(const char* text);

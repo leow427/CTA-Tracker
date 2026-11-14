@@ -1,12 +1,33 @@
 #include "store.h"
 
 #include <Preferences.h>
+#include <string.h>
 
 namespace store {
 
 namespace {
 constexpr const char* kNs = "dock";
+
+// A fixed-size value under key; false if it's missing or a different size.
+bool loadBytes(const char* key, void* out, size_t n) {
+    Preferences p;
+    if (!p.begin(kNs, true)) return false;
+    const bool ok = p.getBytesLength(key) == n && p.getBytes(key, out, n) == n;
+    p.end();
+    return ok;
 }
+
+// Writes the value unless the saved one is the same.
+bool saveBytes(const char* key, const void* v, size_t n) {
+    uint8_t old[128];
+    if (n <= sizeof(old) && loadBytes(key, old, n) && memcmp(old, v, n) == 0) return true;
+    Preferences p;
+    if (!p.begin(kNs, false)) return false;
+    const bool ok = p.putBytes(key, v, n) == n;
+    p.end();
+    return ok;
+}
+}  // namespace
 
 void loadPicks(cta::PickedStop out[cta::kDockStops]) {
     cta::defaultPicks(out);
@@ -54,6 +75,44 @@ bool saveGeo(float lat, float lon, uint32_t when) {
     const bool ok = p.putFloat("geoLat", lat) && p.putFloat("geoLon", lon) && p.putUInt("geoT", when);
     p.end();
     return ok;
+}
+
+bool loadWifi(cta::SavedNet& out) {
+    cta::SavedNet n;
+    if (!loadBytes("wifi", &n, sizeof(n)) || !n.ssid[0] || n.ssid[cta::kSsidLen] || n.pass[cta::kPassLen]) return false;
+    out = n;
+    return true;
+}
+bool saveWifi(const cta::SavedNet& n) { return saveBytes("wifi", &n, sizeof(n)); }
+
+bool loadToken(char out[cta::kTokenLen + 1]) {
+    char t[cta::kTokenLen + 1];
+    if (!loadBytes("token", t, sizeof(t)) || t[cta::kTokenLen]) return false;
+    memcpy(out, t, sizeof(t));
+    return true;
+}
+bool saveToken(const char* t) {
+    char v[cta::kTokenLen + 1] = {};
+    strncpy(v, t, cta::kTokenLen);
+    return saveBytes("token", v, sizeof(v));
+}
+
+bool loadPet(cta::PetConfig& out) {
+    cta::PetConfig p;
+    if (!loadBytes("pet", &p, sizeof(p)) || p.name[cta::kPetNameLen]) return false;
+    out = p;
+    return true;
+}
+bool savePet(const cta::PetConfig& p) { return saveBytes("pet", &p, sizeof(p)); }
+bool loadSettings(cta::DeviceSettings& out) { return loadBytes("settings", &out, sizeof(out)); }
+bool saveSettings(const cta::DeviceSettings& s) { return saveBytes("settings", &s, sizeof(s)); }
+
+void wipeLink() {
+    Preferences p;
+    if (!p.begin(kNs, false)) return;
+    p.remove("wifi");
+    p.remove("token");
+    p.end();
 }
 
 }  // namespace store

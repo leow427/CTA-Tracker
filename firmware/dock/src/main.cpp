@@ -13,14 +13,18 @@
 // the screen, "2" a static test pattern, "3" Wi-Fi off/on, "4" single buffer, "5" the next panel timing, "6" the panel restart after a late frame off/on; "f" sends the frame on screen
 // (tools/frame_grab.py), "l" prints the LED colors, "w" checks that the dock's Wi-Fi network is on the
 // air, "x" swaps sections 1 and 2 (a real flash write), "z" powers down (LEDs and backlight off, deep sleep).
+// The link (ecosystem spec 5.4): "R" forgets the Wi-Fi network and token and reboots (as POST /reset and three fingers
+// held 10 s anywhere on screen do); "T <32 hex>" sets the household token until BLE setup exists (never echoed).
 #include <Arduino.h>
 #include <esp_heap_caps.h>
+#include <esp_mac.h>
 #include <esp_sleep.h>
 #include <esp_task_wdt.h>
 #include <time.h>
 
 #include <new>
 
+#include "card_theme.h"
 #include "cta_config.h"
 #include "display.h"
 #include "dock_leds.h"
@@ -28,8 +32,11 @@
 #include "json_heap.h"
 #include "leds.h"
 #include "line_colors.h"
+#include "link.h"
 #include "local_time.h"
 #include "net.h"
+#include "pet_palette.h"
+#include "pet_sprites.h"
 #include "pins.h"
 #include "store.h"
 #ifdef PERF_LOG
@@ -46,6 +53,11 @@ cta::PickedStop picks[cta::kDockStops];
 uint32_t dataVersion = 0, listsVersion = 0;
 bool profileNext = false, printLeds = false;
 bool wifiOffDiag = false, forceFrame = false;
+// The link's state: what GET /config and /info serve, and what the app set.
+cta::ConfigMsg linkCfg;   // stops = picks; pet and settings once saved or sent
+cta::InfoMsg info = {};
+uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
+constexpr uint32_t kResetHoldMs = 10000;   // three fingers held this long anywhere: the hidden reset
 #ifdef PERF_LOG
 // The perf log's view of the loop: a picker list asked for (and when), and boot milestones (ms since boot, 0 = not yet).
 dock::Request listWanted = dock::Request::None;
@@ -129,11 +141,69 @@ void printPicks() {
     }
 }
 
+// The link's view of the dock: GET /config (stops, pet, settings) and GET /info (newest arrivals, picks_ver).
+void publishLink() {
+    memcpy(linkCfg.stops, picks, sizeof(picks));
+    linkCfg.hasStops = true;
+    lan::setConfig(linkCfg);
+    for (const dock::Section& s : data->sec)
+        if (s.rec.ts > info.lastUpdate) info.lastUpdate = s.rec.ts;
+    lan::setInfo(info);
+}
+
 void setPicks() {
     bool wrote = false;   // unchanged picks never touch flash
     if (!store::savePicks(picks, &wrote)) Serial.println("store: saving the picks failed");
     net::setPicks(picks);
+    ++info.picksVer;   // every pick, from the screen or the app (ecosystem spec 5.3)
+    publishLink();
     printPicks();
+}
+
+// Sections whose data is still for an older pick show the new pick, empty, until the network task's next snapshot
+// knows it (never the old stop for a frame).
+void clearStale() {
+    for (int i = 0; i < cta::kDockStops; ++i)
+        if (!cta::samePick(data->sec[i].pick, picks[i])) {
+            data->sec[i] = dock::Section();
+            data->sec[i].pick = picks[i];
+            data->busPathN[i] = 0;
+        }
+}
+
+void applyPet() {
+    memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
+    if (linkCfg.hasPet) pet::applyColors(petPalette, linkCfg.pet.colors);
+    ui::petPalette565 = petPalette;   // drawPet reads it; the next frame (dirty after any write) redraws Trackie
+}
+
+// The backlight is on or off only (the CH422G's EXIO2): screen 0 turns it off, anything else on.
+void applySettings() { display::backlight(linkCfg.settings.screen > 0); }
+
+// An LED color scaled to the app's LED brightness (percent), under LED_MAX_BRIGHTNESS.
+uint32_t ledScaled(uint32_t rgb) {
+    const uint32_t k = linkCfg.settings.led;
+    return ((rgb >> 16 & 0xff) * k / 100) << 16 | ((rgb >> 8 & 0xff) * k / 100) << 8 | (rgb & 0xff) * k / 100;
+}
+
+// Forgets the Wi-Fi network and the token, then boots fresh (POST /reset, serial "R", the three-finger hold).
+void resetLink(const char* why) {
+    Serial.printf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    store::wipeLink();
+    Serial.flush();
+    ESP.restart();
+}
+
+// Serial "T <32 lowercase hex>": the household token, saved and used at once. Never echoed.
+void readToken() {
+    String s = Serial.readStringUntil('\n');   // the whole line, so nothing left over runs as commands
+    s.trim();
+    bool ok = s.length() == cta::kTokenLen;
+    for (size_t i = 0; ok && i < s.length(); ++i) ok = (s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f');
+    if (!ok) { Serial.println("link: a token is 32 lowercase hex characters; not set"); return; }
+    if (!store::saveToken(s.c_str())) Serial.println("store: saving the token failed");
+    lan::setToken(s.c_str());
+    Serial.println("link: token set");
 }
 
 void pollSerial() {
@@ -174,6 +244,10 @@ void pollSerial() {
             if (c == '5') display::setTiming((display::timing() + 1) % display::timingCount());
             forceFrame = true;
             printDiag();
+        } else if (c == 'R') {
+            resetLink("serial");
+        } else if (c == 'T') {
+            readToken();
         } else if ((c >= 'A' && c <= 'Z') || c == '.') {   // test step letter on screen ('.' clears it)
             diagStep = c == '.' ? 0 : static_cast<char>(c);
             forceFrame = true;
@@ -231,12 +305,28 @@ void setup() {
     if (!display::begin()) Serial.println("display: begin failed");
     store::loadPicks(picks);
     printPicks();
+    char tok[cta::kTokenLen + 1] = "";
+    store::loadToken(tok);
+    lan::begin(tok);   // before net::start: the network task starts the link once Wi-Fi is up
+    linkCfg.settings = {100, 100, static_cast<uint16_t>(cta::kNightStartMin), static_cast<uint16_t>(cta::kNightEndMin)};
+    linkCfg.hasPet = store::loadPet(linkCfg.pet);
+    linkCfg.hasSettings = store::loadSettings(linkCfg.settings);
+    applyPet();
+    applySettings();
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    info.dock = true;
+    info.battery = -1;
+    snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
+    snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
+    publishLink();
     net::start(picks);
     Serial.printf("dock: up; internal free %u, psram free %u\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
 }
 
 void loop() {
     static uint32_t lastHalf = UINT32_MAX, lastMinute = UINT32_MAX, lastLeds = 0, statT = 0, frames = 0, sumDraw = 0;
+    static uint32_t resetHeldSince = 0;   // when three fingers went down (0 = not held)
     static bool dirty = true;
 #ifdef PERF_LOG
     // The perf log's picture of the data: picked sections, those with arrivals, the oldest arrivals' age.
@@ -276,26 +366,56 @@ void loop() {
         if (t.kind != display::Touch::Move)   // for checking the touch mapping: where a press starts and ends
             Serial.printf("touch: %s %d,%d (%d finger%s)\n", t.kind == display::Touch::Down ? "down" : "up", t.x, t.y,
                           t.fingers, t.fingers == 1 ? "" : "s");
+        // The hidden reset: three or more fingers, held without a lift. Such a press is never a tap, hold or drag
+        // (the press is dropped), and any report of fewer fingers or a lift restarts the 10 s.
+        if (t.kind != display::Touch::Up && t.fingers >= 3) {
+            if (!resetHeldSince) resetHeldSince = t.ms | 1;
+            app.press.down = false;
+            continue;
+        }
+        resetHeldSince = 0;
         if (t.kind == display::Touch::Down) dock::pointerDown(app, t.x, t.y, t.ms);
         else if (t.kind == display::Touch::Move) dock::pointerMove(app, *lists, t.x, t.y, t.ms);
         else dock::pointerUp(app, *data, *lists, t.x, t.y, t.ms);
         dirty = true;
     }
     const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
+    if (resetHeldSince && static_cast<int32_t>(ms - resetHeldSince) >= static_cast<int32_t>(kResetHoldMs))
+        resetLink("three-finger hold");
     dock::tick(app, ms);
     pollSerial();
     // data
     bool dataChanged = false;
     if (net::read(*data, dataVersion)) {
         dirty = dataChanged = true;
-        // A snapshot from before the network task took up a new pick still has the old stop: show the new pick, empty,
-        // until one that knows it arrives (never the old stop for a frame).
-        for (int i = 0; i < cta::kDockStops; ++i)
-            if (!cta::samePick(data->sec[i].pick, picks[i])) {
-                data->sec[i] = dock::Section();
-                data->sec[i].pick = picks[i];
-                data->busPathN[i] = 0;
-            }
+        clearStale();   // a snapshot from before the network task took up a new pick still has the old stop
+        publishLink();
+    }
+    // writes from the app (link.cpp answered them already; this only applies them)
+    lan::Inbox in;   // on the loop task's stack (already allocated), not more static internal RAM
+    if (lan::take(in)) {
+        if (in.config && in.cfg.hasStops) {
+            memcpy(picks, in.cfg.stops, sizeof(picks));
+            setPicks();   // as the on-screen picker does: saved, polled, picks_ver up
+            clearStale();
+            dataChanged = true;
+        }
+        if (in.config && in.cfg.hasPet) {
+            linkCfg.pet = in.cfg.pet;
+            linkCfg.hasPet = true;
+            if (!store::savePet(linkCfg.pet)) Serial.println("store: saving the pet failed");
+            applyPet();
+        }
+        if (in.config && in.cfg.hasSettings) {
+            linkCfg.settings = in.cfg.settings;
+            linkCfg.hasSettings = true;
+            if (!store::saveSettings(linkCfg.settings)) Serial.println("store: saving the settings failed");
+            applySettings();
+        }
+        publishLink();
+        if (in.openBle) Serial.println("link: POST /ble (BLE setup comes with Task 7)");
+        if (in.reset) resetLink("POST /reset");
+        dirty = true;
     }
     if (net::readLists(*lists, listsVersion)) {
         dirty = true;
@@ -336,7 +456,7 @@ void loop() {
     // the clock and night hours
     dock::Clock clock;
     clock.now = net::unixNow();
-    clock.night = clock.now && cta::inNightHours(localMinute(clock.now), cta::kNightStartMin, cta::kNightEndMin);
+    clock.night = clock.now && cta::inNightHours(localMinute(clock.now), linkCfg.settings.nightStart, linkCfg.settings.nightEnd);
 #ifdef PERF_LOG
     if (stress::running()) clock.night = false;   // runs keep daytime polling and look at any hour
 #endif
@@ -391,7 +511,7 @@ void loop() {
             const dock::Section& s = data->sec[i];
             if (!s.pick.id[0]) continue;
             rows[i].mask = s.mask;
-            rows[i].rgb = s.pick.type == cta::Kind::Bus ? cta::kBusColor : cta::lineColor(s.pick.route);
+            rows[i].rgb = ledScaled(s.pick.type == cta::Kind::Bus ? cta::kBusColor : cta::lineColor(s.pick.route));
             rows[i].ts = s.posTs;
             rows[i].due = dock::dueNow(s, clock.now);
         }
@@ -425,10 +545,10 @@ void loop() {
     }
     if (ms - statT >= 30000) {
         statT = ms;
-        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests\n",
+        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests; httpd stack left %u\n",
                       frames, frames ? sumDraw / frames : 0, display::timeouts(), static_cast<unsigned>(display::dmaFallbacks()),
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
-                      ESP.getFreePsram(), net::requests());
+                      ESP.getFreePsram(), net::requests(), static_cast<unsigned>(lan::stackLeft()));
         frames = sumDraw = 0;
     }
 #ifdef PERF_LOG

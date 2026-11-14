@@ -131,7 +131,7 @@ bool IRAM_ATTR onFrameDone(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event
 // finger never reads as a release.
 void touchTask(void*) {
     bool down = false;
-    int lx = 0, ly = 0;
+    int lx = 0, ly = 0, lastN = 0;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(10));
         uint8_t status;
@@ -147,9 +147,10 @@ void touchTask(void*) {
             t.kind = down ? Touch::Move : Touch::Down;
             t.x = static_cast<int16_t>(x);
             t.y = static_cast<int16_t>(y);
-            if (!down || x != lx || y != ly) xQueueSend(touches, &t, 0);
+            // A change in the finger count is news too (the three-finger reset hold, main.cpp)
+            if (!down || x != lx || y != ly || n != lastN) xQueueSend(touches, &t, 0);
             down = true;
-            lx = x; ly = y;
+            lx = x; ly = y; lastN = n;
         } else if (n == 0 && down) {
             t.kind = Touch::Up;
             t.x = static_cast<int16_t>(lx);

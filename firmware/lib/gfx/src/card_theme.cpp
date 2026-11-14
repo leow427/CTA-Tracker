@@ -120,9 +120,11 @@ void chevron(Canvas& cv, float x0, float y0, float x1, float y1, float x2, float
 }
 
 // ---------- Trackie, via the shared pet renderer ----------
+const uint16_t* petPalette565 = pet::kDefaultPalette565;
+
 void drawPet(Canvas& cv, cta::Mood mood, bool docked, int x, int y, int s, cta::Accessory acc, bool extra) {
     const pet::PetState st = pet::petStateFor(mood, docked);
-    auto put = [&](const pet::Sprite& sp) { cv.sprite(sp.idx, sp.w, sp.h, sp.dx, sp.dy, x, y, pet::kDefaultPalette565, s); };
+    auto put = [&](const pet::Sprite& sp) { cv.sprite(sp.idx, sp.w, sp.h, sp.dx, sp.dy, x, y, petPalette565, s); };
     put(pet::kPet[static_cast<int>(st)]);
     if (const pet::Sprite* ov = pet::overlayFor(st, acc)) put(*ov);
     if (extra && pet::kPetExtra[static_cast<int>(st)]) put(*pet::kPetExtra[static_cast<int>(st)]);

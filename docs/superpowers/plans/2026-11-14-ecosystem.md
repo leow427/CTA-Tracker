@@ -463,10 +463,46 @@ void wipeLink();   // the token; pet and settings stay (Wi-Fi is in secrets.h)
 }
 ```
 
-- [ ] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET /config`, `POST /config`, `POST /reset`
+**As built (worker notes):**
+- The namespace is **`lan`**, not `link`: newlib's `unistd.h` declares POSIX `int link(const char*, const char*)`, and a
+  namespace can't share its name (the build fails). Task 8 hits the same clash on the wearable.
+- Two calls beyond the interface above: `lan::begin(token)` in `setup()` (the mutex, the shared state in PSRAM, the
+  token from `store::loadToken`) and `lan::setToken()` (serial `T`, later BLE). `lan::stackLeft()` reports the httpd
+  task's least free stack; the 30 s `stats:` line prints it.
+- `lan::start` is called by the network task (core 0) the first time Wi-Fi comes up (with an IP: before that,
+  `socket()` asserts in lwIP), not by the loop; later reconnects do nothing. httpd: core 0, 8 KB stack **in PSRAM**
+  (`task_caps`; no handler touches flash or NVS, which a task with an external stack must not), 3 sockets,
+  5 handlers. Boot logs internal free after httpd and after mDNS start. Not done yet: `link_msg.*`'s
+  `JsonDocument`s still allocate from the default (internal) heap during a request; moving them to
+  `cta::json::bigAllocator()` waits for the board's RAM measurement to show it's needed.
+  A body is required only on `/config`; any body on `/ble` or `/reset` must parse (`parseConfig`, `{}` is fine).
+  `net.cpp`'s disconnect handler is on ESP-IDF's default event loop (`esp_event_handler_register`), as the
+  handheld's: core 3.2.0's `WiFi.onEvent()` list isn't locked and crashed the spike at boot.
+  The touch task also queues a report when the finger count changes (`display.cpp`), so lifting to one still finger
+  restarts the three-finger hold. Checks run size (413 from
+  `Content-Length`, before reading), token (401), then JSON (400), as `link_send.py --serve` does. `GET /info` fills
+  `uptime` and the Wi-Fi state on the httpd task. A config that arrives before the loop drains is merged part by part.
+- `screen` brightness: the backlight is on/off only (CH422G EXIO2), so `screen` 0 turns it off and anything else on.
+  `led` scales each row's color before `leds::post` (under `LED_MAX_BRIGHTNESS`). Night hours replace
+  `kNightStartMin`/`kNightEndMin` (also for slow polling). Saves skip unchanged values (flash writes upset the panel).
+- Pet recolor: `ui::drawPet` (`firmware/lib/gfx/src/card_theme.*`) draws with `ui::petPalette565`, which defaults
+  to `pet::kDefaultPalette565`; the dock points it at its own copy with `pet::applyColors` applied (`main.cpp`
+  `petPalette`). Board-neutral: the wearable (Task 8) sets the same pointer.
+- `R` / `POST /reset` / the three-finger hold wipe Wi-Fi and the token, but while `secrets.h` has `DOCK_WIFI_SSID`
+  the dock rejoins from it after the reboot (the fallback). Task 7 adds the "fresh" flag and the BLE bonds to the wipe.
+- The three-finger hold: any touch report with 3+ fingers drops the current press (never a tap, hold or drag) and
+  starts the 10 s; a lift or a report with fewer fingers restarts it.
+- Built before the Appendix A decision, so the code still has `POST /ble` and the stored Wi-Fi slot;
+  Task 7 removes them.
+- Board check (2026-11-14, Arduino core, before the ESP-IDF port): `info`, `config` (GET and POST),
+  pet, `reset` and `--garbage` (400/413/401/401) pass from the Mac; 20 `POST /config` in 2 s all 200
+  (median 38 ms, worst 1117 ms). `dock_perf_run.py` 2 of 3 runs (`docs/perf/runs/2026-11-14-task6-*`):
+  picker 34.1 fps, map 15.7 fps, no late panel frames, lowest internal **35.8 KB: fails the 40 KB gate**.
+
+- [x] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET /config`, `POST /config`, `POST /reset`
   (`POST /pair` comes in Task 7); bodies over `cta::kMaxBody` → 413, bad JSON → 400, missing or wrong token → 401 (no token set
   yet → 401 for every write). Handlers copy into the inbox under a mutex and answer 200 at once.
-- [ ] **Step 2:** Wire it: `main.cpp` drains `link::take` every frame and applies `config.stops` through
+- [x] **Step 2:** Wire it: `main.cpp` drains `link::take` every frame and applies `config.stops` through
   `setPicks()` (which now bumps `picksVer`), `config.pet` through `pet::applyColors` on the dock's palette copy plus
   `savePet`, `config.settings` to backlight, `LED_MAX_BRIGHTNESS` scaling, and night hours; `reset` →
   `store::wipeLink()` then `ESP.restart()`. Serial `R` and the hidden reset gesture (three fingers held 10 s

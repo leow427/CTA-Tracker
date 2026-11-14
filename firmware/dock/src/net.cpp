@@ -5,7 +5,9 @@
 #include <NetworkClientSecure.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <esp_event.h>
 #include <esp_mac.h>
+#include <esp_wifi.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcpip.h>
@@ -20,6 +22,7 @@
 #include "approach.h"
 #include "bus_parse.h"
 #include "cta_config.h"
+#include "link.h"
 #include "local_time.h"
 #ifdef PERF_LOG
 #include "perf_log.h"
@@ -77,6 +80,10 @@ volatile uint32_t nRequests = 0;
 volatile bool joinFailed = false;
 volatile bool scanWanted = false;   // the serial "w" check
 volatile bool wifiOff = false;      // the diagnostic "Wi-Fi off" mode   // a disconnect event since the last WiFi.begin
+volatile uint8_t discReason = 0;    // the last disconnect's reason, and how many there have been (the event handler)
+volatile uint32_t discCount = 0;
+cta::SavedNet wifiNet = {};         // the network to join: the store's (set up from the app), else secrets.h's
+char hostLabel[16];                 // "cta-dock-xxxx", for mDNS
 
 // ---------- the network task's own ----------
 dock::Data* building;
@@ -423,7 +430,7 @@ bool clockFromDate() {
 // The serial "w" check: is the dock's network on the air? Prints only whether it's seen and on what channel, signal
 // and security, plus the configured name's length and whether it has stray spaces: never a network name or password.
 void reportScan() {
-    const char* want = DOCK_WIFI_SSID;
+    const char* want = wifiNet.ssid;
     const size_t len = strlen(want);
     const bool spaces = len && (want[0] == ' ' || want[len - 1] == ' ' || want[len - 1] == '\t' || want[len - 1] == '\r');
     Serial.printf("wifi check: configured name is %u bytes%s\n", static_cast<unsigned>(len), spaces ? ", with a leading or trailing space" : "");
@@ -809,17 +816,25 @@ void netTask(void*) {
     // flash (a flash write stalls the panel's refills).
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
-    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
-        static uint32_t lastMs = 0;
+    // On ESP-IDF's default loop, as the handheld does: core 3.2.0's WiFi.onEvent() appends to a list the
+    // arduino_events task walks without a lock, and registering right after mode() can race it (a boot crash in the
+    // link spike). That loop's task has a 2 KB stack, so the handler only records; this task logs.
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, [](void*, esp_event_base_t, int32_t, void* d) {
+        discReason = static_cast<wifi_event_sta_disconnected_t*>(d)->reason;
+        discCount = discCount + 1;
         joinFailed = true;   // ends a join attempt at once (netTask)
-        if (millis() - lastMs >= 1000) Serial.printf("net: Wi-Fi disconnected, reason %u\n", info.wifi_sta_disconnected.reason);
-        lastMs = millis();
-    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    }, nullptr);
+    uint32_t discShown = 0, discLogMs = 0;
     WiFi.setAutoReconnect(false);   // this loop backs off instead of the driver rescanning nonstop
     startSntp();
     uint32_t lastBegin = 0, lastEnd = 0, joinFailures = 0, clockWait = 0;   // tries failed in a row: cta::wifiRetryDelayMs
     bool wasUp = false, joining = false;
     for (;;) {
+        if (discCount != discShown) {   // at most one line a second, as before
+            discShown = discCount;
+            if (millis() - discLogMs >= 1000) Serial.printf("net: Wi-Fi disconnected, reason %u\n", static_cast<unsigned>(discReason));
+            discLogMs = millis();
+        }
         if (takePendingPicks()) publish();
         if (conn->host[0] && millis() - conn->lastUsed > kIdleCloseMs) closeConn();
         if (scanWanted) {
@@ -859,7 +874,7 @@ void netTask(void*) {
             if (!joining && (joinFailures == 0 || millis() - lastEnd >= cta::wifiRetryDelayMs(joinFailures))) {
                 Serial.println("net: joining the dock's Wi-Fi");
                 joinFailed = false;
-                WiFi.begin(DOCK_WIFI_SSID, DOCK_WIFI_PASS);
+                WiFi.begin(wifiNet.ssid, wifiNet.pass);
                 lastBegin = millis();
                 joining = true;
             }
@@ -873,6 +888,9 @@ void netTask(void*) {
         if (!wasUp) {
             wasUp = true;
             Serial.printf("net: Wi-Fi up, RSSI %d\n", WiFi.RSSI());
+            // httpd and mDNS, on core 0, only now the link has an IP (before it, socket() asserts in lwIP); later
+            // reconnects call it again and it does nothing
+            lan::start(hostLabel);
             if (!clockSet()) startSntp();   // its first request went out before there was a link
             clockWait = millis();
             publish();
@@ -931,14 +949,19 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
         return;
     }
     building->keys = CTA_TRAIN_KEY[0] && CTA_BUS_KEY[0];
-    building->wifiSetUp = DOCK_WIFI_SSID[0] != 0;
+    if (!store::loadWifi(wifiNet)) {
+        snprintf(wifiNet.ssid, sizeof(wifiNet.ssid), "%s", DOCK_WIFI_SSID);
+        snprintf(wifiNet.pass, sizeof(wifiNet.pass), "%s", DOCK_WIFI_PASS);
+    }
+    building->wifiSetUp = wifiNet.ssid[0] != 0;
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from eFuse: Wi-Fi isn't started yet
     snprintf(building->name, sizeof(building->name), "CTA-Dock-%02X%02X", mac[4], mac[5]);
+    snprintf(hostLabel, sizeof(hostLabel), "cta-dock-%02x%02x", mac[4], mac[5]);
     hasGeo = store::loadGeo(geoLat, geoLon, geoWhen);
     applyPicks(picks);
     if (!building->keys || !building->wifiSetUp) {
-        Serial.printf("net: %s in firmware/secrets.h; staying offline\n", building->keys ? "no DOCK_WIFI_SSID" : "no CTA keys");
+        Serial.printf("net: %s in firmware/secrets.h; staying offline\n", building->keys ? "no saved Wi-Fi and no DOCK_WIFI_SSID" : "no CTA keys");
         setStatus(building->keys ? "No Wi-Fi set up" : "No API key");
         publish();
         return;
