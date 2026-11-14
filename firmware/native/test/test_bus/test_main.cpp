@@ -293,18 +293,18 @@ static void test_big_responses_stay_bounded() {
     const std::string p = readFixture("bus_predictions.json");
     cta::json::resetPeakBytes();
     TEST_ASSERT_EQUAL_INT(3, preds(p, nullptr, recs, 5));
-    assertParseBounded(p.size());
+    assertParseBounded(p);
     const std::string v = readFixture("bus_vehicles.json");
     TEST_ASSERT_EQUAL_INT(3, cta::parseBusVehicles(v.c_str(), v.size(), vs, 10));
-    assertParseBounded(v.size());
+    assertParseBounded(v);
     // a multi-stop response with per-stop errors
     const std::string mixed = body("\"prd\":[" + prd("1001", "22", "20261105 08:04", "4") +
                                    "],\"error\":[{\"stpid\":\"1002\",\"msg\":\"No arrival times\"}]");
     TEST_ASSERT_EQUAL_INT(1, preds(mixed, nullptr, recs, 5));
-    assertParseBounded(mixed.size());
+    assertParseBounded(mixed);
     const std::string none = readFixture("bus_no_arrivals.json");
     TEST_ASSERT_EQUAL_INT(0, preds(none, nullptr, recs, 5));
-    assertParseBounded(none.size());
+    assertParseBounded(none);
 }
 
 int main(int, char**) {

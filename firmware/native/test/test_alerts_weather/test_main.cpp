@@ -106,9 +106,9 @@ static void test_alerts_stay_bounded() {
     const std::string all = readFixture("alerts.json"), single = readFixture("alerts_single.json");
     cta::json::resetPeakBytes();
     mark(all, {"Red", "22"}, a);  // mixes a Service list and a lone Service
-    assertParseBounded(all.size());
+    assertParseBounded(all);
     mark(single, {"Brn"}, a);  // a lone Alert
-    assertParseBounded(single.size());
+    assertParseBounded(single);
 }
 
 static void test_weather() {

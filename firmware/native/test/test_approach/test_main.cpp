@@ -4,6 +4,7 @@
 #include <unity.h>
 
 #include "../fixture.h"
+#include "../json_bound.h"
 #include "approach.h"
 #include "train_map.h"
 
@@ -124,6 +125,17 @@ static void test_picker_stations_and_directions() {
     TEST_ASSERT_EQUAL_size_t(0, cta::trainDirections("22", dirs, 4));
 }
 
+static void test_bus_patterns_stay_bounded() {
+    const std::string p = readFixture("bus_patterns.json");
+    cta::ApproachRow rows[4];
+    cta::LatLon pts[8];
+    cta::json::resetPeakBytes();
+    TEST_ASSERT_EQUAL_INT(2, cta::buildBusRows(p.c_str(), p.size(), "2009", rows, 4));
+    assertParseBounded(p);
+    TEST_ASSERT_TRUE(cta::busPatternPath(p.c_str(), p.size(), 100, pts, 8) > 0);
+    assertParseBounded(p);
+}
+
 static void test_bus_rows() {
     std::string p = readFixture("bus_patterns.json");
     cta::ApproachRow rows[4];
@@ -194,6 +206,7 @@ int main() {
     RUN_TEST(test_train_line_for_platform);
     RUN_TEST(test_picker_stations_and_directions);
     RUN_TEST(test_bus_rows);
+    RUN_TEST(test_bus_patterns_stay_bounded);
     RUN_TEST(test_bus_pattern_path);
     RUN_TEST(test_bus_rows_from_error_replies);
     return UNITY_END();
