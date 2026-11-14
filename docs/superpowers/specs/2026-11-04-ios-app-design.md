@@ -162,6 +162,8 @@ Apple builds the structure; pixel art carries the character.
 
 ## 6. Devices, setup, and settings
 
+> **Changed for the showcase (2026-11-14).** No Bluetooth: the app finds devices by Bonjour, and setup is Pair (type the code shown on the device, sent with `POST /pair`) → Pet → done, with no Wi-Fi step and no bond to forget in iOS Settings. The first-launch Bluetooth line and prompt (section 3) go too. See the ecosystem spec (`2026-11-14-ecosystem-design.md`), sections 4.3 and 5.1; Bluetooth is future work there (section 12).
+
 ### 6.1 "Found" card
 
 - While the app is in the foreground, `BLEManager` scans for the CTA service UUID (base spec 10).

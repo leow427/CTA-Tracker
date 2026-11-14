@@ -102,7 +102,7 @@ On the dock and home Wi-Fi, Trackie is Asleep. The screen is extra dim, with a c
 ### First run and pairing
 
 - **First run,** before the first nearby list: "Open Trackie on your iPhone".
-- **Pairing:** Trackie with the 6-digit passkey in pixel digits, to type into the iPhone.
+- **Pairing:** Trackie with the 6-digit pairing code in pixel digits, to type into the iPhone app (ecosystem spec 4.3).
 
 ### Map (stretch goal)
 

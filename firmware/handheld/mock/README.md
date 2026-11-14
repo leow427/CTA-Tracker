@@ -2,7 +2,7 @@
 
 The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) running on the Waveshare 1.75" round AMOLED, a port of `docs/ideas/2026-11-04-handheld-ui-mockup.html` to C++. Two builds share them:
 
-- **`live` (the default):** real arrivals, alerts, and weather over Wi-Fi, polled on the spec's schedule (§6.6) for a preset nearby list. The phone's BLE `nearby` message will replace the preset once the app has its BLE relay.
+- **`live` (the default):** real arrivals, alerts, and weather over Wi-Fi, polled on the spec's schedule (§6.6) for a preset nearby list. The app's `POST /nearby` over the local network will replace the preset (ecosystem spec 5.5).
 - **`mock`:** simulated arrivals around a fixed location, no network. The clock starts at the build time, read as Chicago time.
 
 ## Run it

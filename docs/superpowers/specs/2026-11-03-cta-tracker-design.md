@@ -307,6 +307,8 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 
 ### 9.5 Handheld relay
 
+> **Dropped for the showcase (2026-11-14)** with Bluetooth; see the ecosystem spec, section 12.
+
 - CoreBluetooth central, with the Bluetooth and location background modes and state restoration, so iOS can relaunch the app for BLE events after the system closes it.
 - **Nearby search:** the nearest stops come from the bundled `stops.json`, searched by distance from one location fix.
 - **Permissions:** answering wake requests while the app is in the background needs "Always" location permission. With "While Using," the relay works only while the app is open, which is enough for the demo.
@@ -320,6 +322,8 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 - The full list of app error states is in the app design spec, section 8.
 
 ## 10. BLE protocol
+
+> **Not built for the showcase (2026-11-14).** The ecosystem spec (`2026-11-14-ecosystem-design.md`) replaces this: devices pair over the local network with a 6-digit code on screen (its section 4.3), Wi-Fi comes from `secrets.h`, and Bluetooth is future work (its section 12).
 
 One custom GATT service, implemented with NimBLE-Arduino 2.x on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `CTA-Pet-xxxx`, where `xxxx` is the end of the MAC address.
 

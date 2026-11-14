@@ -59,8 +59,8 @@ Ranked by importance, most important first (do F1 first). Labels: F = feature, B
 Today the handheld knows one network (`WIFI_SSID` / `WIFI_PASS` in `firmware/secrets.h`), so it only gets
 live data in one place.
 
-- Hold a list of at least 5 SSID + password pairs (still in the git-ignored `secrets.h`, until the app sets
-  them over BLE). Update `secrets.example.h` and the handheld README to show the list form.
+- Hold a list of at least 5 SSID + password pairs (in the git-ignored `secrets.h`; setting them from the app
+  needs Bluetooth, which is future work: ecosystem spec section 12). Update `secrets.example.h` and the handheld README to show the list form.
 - Scan, and of the saved networks in range, join the one with the strongest signal (RSSI).
 - If the connection drops, scan again and move to the next strongest.
 - Keep the first entry as home: docked detection (spec 8.4) depends on being on the home network.
@@ -89,8 +89,8 @@ from `secrets.h`.
 - A settings screen reached from the home screen, in the handheld's theme, with at least:
   - default brightness (and the dimmed level), saved in flash
   - Wi-Fi: the saved networks from F1, the networks in range with their signal, which one it's on, and
-    forget / move up. Typing a new password on the watch is impractical, so adding a network comes from the
-    iOS app over BLE (or `secrets.h` until then).
+    forget / move up. Typing a new password on the watch is impractical, so networks come from `secrets.h`
+    (adding one from the app needs Bluetooth, future work: ecosystem spec section 12).
   - battery and charging (F2), firmware version, and pairing / unpair
 - Decide the list of settings and how you get there (a gesture or a button on the home screen) in a short design
   first.

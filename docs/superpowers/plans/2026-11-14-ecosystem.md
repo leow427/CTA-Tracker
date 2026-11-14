@@ -2,45 +2,56 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The iPhone app, the dock, and the wearable work as one system for the 2026-11-23 showcase: pairing and
-Wi-Fi from the app, one Trackie, dock stops both ways, nearby and mirrored stops on the wrist, Send to Trackie,
-Follow a train, the no-Wi-Fi relay, and docking with find my handheld. The rest of `todo.md` runs alongside as its
-own tracks.
+**Goal:** The iPhone app, the dock, and the wearable work as one system for the 2026-11-23 showcase: pairing from
+the app, one Trackie, dock stops both ways, nearby and mirrored stops on the wrist, Send to Trackie, Follow a train,
+and docking with find my handheld. The rest of `todo.md` runs alongside as its own tracks.
 
-**Architecture:** Bluetooth only for setup (passkey pairing, the Wi-Fi password, a household token); after that each
-board serves a small HTTP API on the shared network (ESP-IDF `esp_http_server`, announced over mDNS as
-`_ctatracker._tcp`), and the app polls `GET /info` every 2 s while it's open. Message parsing lives in the shared C++
-library and CTAKit, both tested on the laptop; board code only wires handlers to it.
+**Architecture:** No Bluetooth. Each board joins Wi-Fi from `secrets.h` and serves a small HTTP API on the shared
+network (ESP-IDF `esp_http_server`, announced over mDNS as `_ctatracker._tcp`). A fresh board shows a 6-digit code;
+the app finds it by Bonjour, and `POST /pair` with that code hands over the household token. After that the app polls
+`GET /info` every 2 s while it's open. Message parsing lives in the shared C++ library and CTAKit, both tested on the
+laptop; board code only wires handlers to it.
 
 **Tech Stack:** arduino-esp32 3.2.0 high_perf on both boards (pioarduino), `esp_http_server` and `ESPmDNS` from the
-core, NimBLE-Arduino 2.x (or the core's BLE, decided in Task 1), ArduinoJson 7, Unity native tests; SwiftUI iOS 17,
-CoreBluetooth, Network.framework (`NWBrowser`), Swift Testing in CTAKit.
+core, ArduinoJson 7, Unity native tests; SwiftUI iOS 17, Network.framework (`NWBrowser`), Swift Testing in CTAKit.
 
 **Spec:** `docs/superpowers/specs/2026-11-14-ecosystem-design.md` (approved 2026-11-14). Base spec
 `2026-11-03-cta-tracker-design.md`, app spec `2026-11-04-ios-app-design.md`.
+
+> **Decision, 2026-11-14 (Leo, after Task 1): Appendix A, pairing over the network, no Bluetooth anywhere for the
+> showcase.** BLE pairing works on both boards but costs about 50 KB of internal RAM, which takes both boards to about
+> 0 KB free during a TLS handshake (`docs/ecosystem/day1-link.md`). Tasks 7, 9, and 12 are rewritten for `POST /pair`;
+> Task 19 (the Bluetooth relay, showcase step 7) is dropped; `POST /ble` is gone. BLE setup and the relay are future
+> work (spec section 12): "Bluetooth would be cool later, but for a real version I'd likely use a more powerful
+> device."
 
 ## Global Constraints
 
 - Showcase on one network: the campus IoT network (slot 0, home, on the wearable); development on Leo's home network.
   **Never write either network's name into a tracked file**, a test, a fixture, or a log line that gets committed.
 - Internal RAM floor: 40 KB free at the worst moment, logged with `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`.
-- All new board work runs off the dock's frame loop (core 1): HTTP handlers on the httpd task, BLE on its host task,
-  hand-offs to the loop through a mutex-guarded inbox. The dock perf runner must not show worse frames than round 4
+- All new board work runs off the dock's frame loop (core 1): HTTP handlers on the httpd task, hand-offs to the loop
+  through a mutex-guarded inbox. The dock perf runner must not show worse frames than round 4
   (`d0769a0`: picker 34 fps, map 16 fps, mixed 25 fps).
 - Writes need `Authorization: Bearer <token>`; the token is 32 lowercase hex characters (128 bits), compared in
-  constant time, never logged, kept in NVS on the boards and in the Keychain on the phone. `GET /info` needs no token.
-- Wi-Fi passwords cross only the encrypted, passkey-bonded BLE link. Never over HTTP, never logged, never stored on the
-  phone.
-- BLE runs only while a board has no working Wi-Fi (none saved, or none joined for 60 s) or for 120 s after `POST /ble`.
-  Otherwise the stack is shut down and its memory freed.
+  constant time, never logged, kept in NVS on the boards and in the Keychain on the phone. `GET /info` and
+  `POST /pair` (which delivers the token) need no token.
+- Wi-Fi networks and passwords live only in the git-ignored `firmware/secrets.h`. They never cross the network, are
+  never logged, and the app never sees them.
+- Pairing: a board with no token shows a 6-digit code (random each boot, never logged) and accepts
+  `POST /pair {"code","token"}` once, only within 5 minutes of boot; the code is compared in constant time, and 5 wrong
+  tries lock pairing until reboot. `POST /reset` (or the serial and gesture resets) wipes the token, so the board
+  shows a code again.
 - Pin and follow bodies for **trains** carry the parent **station** ID (4xxxx, the app's `Slot.fetchID`) and the
   platform's direction label as in `stops.json` (the wearable's train cards are keyed that way, base spec 6.2); for
   **buses** the stop ID and `rtdir` ("Southbound"). Dock `config.stops` keep platform IDs (3xxxx), as `cta::PickedStop`
   does today.
 - Sizes from the base spec: IDs and routes `char[8]` (7 bytes), names/dirs/dests 24 bytes, pet name 16 bytes,
   at most 4 arrivals a record, a `snapshot` at most 512 bytes. Vehicle IDs (`rn`, `vid`) `char[8]`.
-- Wearable: up to 5 saved networks (`kWifiSlots = 5`), slot 0 is home. Dock: 1.
-- mDNS names `cta-dock-xxxx` / `cta-pet-xxxx` (`xxxx` = last 2 MAC bytes in hex, the same as the BLE name), service
+- Wi-Fi: up to 5 networks compiled in from `secrets.h` (`kWifiSlots = 5`), joined strongest first (`strongestSaved`);
+  home and campus both compiled in, plus the iPhone hotspot as the backup. Slot 0 is home on the wearable (docked
+  detection). The dock takes the same list.
+- mDNS names `cta-dock-xxxx` / `cta-pet-xxxx` (`xxxx` = last 2 MAC bytes in hex), service
   `_ctatracker._tcp` port 80, TXT `type=dock|handheld`, `id=xxxx`.
 - Commits: named paths only (never `git commit -a`), no attribution lines, no home paths or network names in docs.
 
@@ -81,10 +92,10 @@ wearable goes to the critical path first: S, then H, then H-UI and B1 in the gap
 |---|---|---|---|
 | **L — shared library** | `firmware/lib/cta/src/link_msg.*`, `follow.*`, `wifi_list.*`, `cta_types.h`, `train_parse.*`, `train_cards.*`, `bus_parse.*`, `stop_record.*`, `firmware/lib/pet/src/pet_palette.*`, `firmware/native/test/test_link*`, `tools/link_send.py` | 2, 3 | nothing |
 | **K — CTAKit** | `ios/CTAKit/**` | 4, 5 | nothing |
-| **S — link spike** | a throwaway `spike/link/` PlatformIO project | 1 | nothing |
-| **D — dock link** | `firmware/dock/src/link.*`, `store.*`, `net.cpp` (Wi-Fi join only), `main.cpp`, setup messages in `dock_ui.cpp` | 6, 7 | S (decision), L (Task 2) |
-| **H — wearable link** | `firmware/handheld/mock/src/link.*`, `live.cpp`, `live_store.*`, `main.cpp`, `power.*` | 8, 9, 19a | S, L (Tasks 2, 3) |
-| **A — app** | `ios/CTATracker/Devices/**`, `Settings/**`, `App/AppModel.swift`, `Stop/StopDetail.swift`, project build settings | 10–17, 19b | K (Task 4), then D/H for on-device checks |
+| **S — link spike** | a throwaway `spike/link/` PlatformIO project (local only) | 1 (done) | nothing |
+| **D — dock link** | `firmware/dock/src/link.*`, `store.*`, `net.cpp` (Wi-Fi join only), `main.cpp`, setup messages in `dock_ui.cpp`; new in Task 7: `firmware/lib/cta/src/pair.*`, `firmware/native/test/test_pair` | 6, 7 | S (decision), L (Task 2) |
+| **H — wearable link** | `firmware/handheld/mock/src/link.*`, `live.cpp`, `live_store.*`, `main.cpp`, `power.*` | 8, 9 | S, L (Tasks 2, 3) |
+| **A — app** | `ios/CTATracker/Devices/**`, `Settings/**`, `App/AppModel.swift`, `Stop/StopDetail.swift`, project build settings | 10–17 | K (Task 4), then D/H for on-device checks |
 | **H-UI — wearable screens** | `firmware/handheld/mock/src/ui.*`, `docs/handheld-ui.md` | 18, then F2, F3, F5 | L (Task 3) for 18 |
 | **F4 — font** | `firmware/lib/gfx/src/fonts.*`, `firmware/lib/gfx/tools/font_build.py`, `ios/CTATracker/Design/Theme.swift` | its own design + plan | nothing |
 | **F6 — app map vehicles** | `ios/CTATracker/Map/**` except `StopIcons.swift`, `Data/` vehicle polling | its own plan | K (Task 4: `Prediction.vehicle`) |
@@ -103,19 +114,19 @@ Today is 2026-11-14; the showcase is 2026-11-23. "Start" means open the track's 
 - **Day 1 (11/15).** Start **S** (Task 1, needs both boards), **L** (Task 2), **K** (Task 4), **F7**, **F4** (design:
   try fonts in the laptop previews), **B1** on the laptop (Waveshare's and Espressif's notes on the CO5300's tearing signal, the frame-time probe for
   the serial profile); it gets the wearable once S lets it go. Six sessions at once; S is the critical path.
-- **Day 2 (11/16).** S reports the BLE-or-fallback decision. **L** does Task 3. **K** does Task 5. Start **D**
+- **Day 2 (11/16).** S reported early (11/14): Appendix A, pairing over the network. **L** does Task 3. **K** does Task 5. Start **D**
   (Task 6) and **H** (Task 8) once Task 2 is merged. Start **A** (Task 10, discovery against `tools/link_send.py
   --serve`, which fakes a board on the Mac). Start **F6** (needs Task 4 merged).
-- **Day 3 (11/17).** **D** Task 7, **H** Task 9 (BLE setup; the dock board goes to D, so B2 works on the laptop
+- **Day 3 (11/17).** **D** Task 7, **H** Task 9 (pairing code; the dock board goes to D, so B2 works on the laptop
   today). **A** Tasks 11–12 (device list, setup flow) against the real boards by evening. **H-UI** Task 18. Start
   **B2** on the laptop (profile captures from day 1).
 - **Day 4 (11/18).** **A** Tasks 13–14 (pet and settings, dock stops). **H-UI** F2 (battery level). **B2** gets the
   dock board in the morning, D in the afternoon.
 - **Day 5 (11/19).** **A** Tasks 15–16 (nearby and mirror, pin and follow). **H-UI** F5 (tap Trackie). First full run
   of showcase steps 1–6 on the home network.
-- **Day 6 (11/20).** **A** Task 17 (find my handheld). **H** + **A** Task 19 (relay, step 7). **H-UI** F3 (settings
-  page; moves step 7's Wi-Fi switch and the reset into it). F4 lands its atlases if its design is picked.
-- **Day 7 (11/21).** Spec section 9 extras (Task 20) only if steps 1–8 pass twice. **X** Task 21. Freeze new
+- **Day 6 (11/20).** **A** Task 17 (find my handheld). **H-UI** F3 (settings page; moves the reset into it). F4 lands
+  its atlases if its design is picked. (Task 19, the relay, is dropped.)
+- **Day 7 (11/21).** Spec section 9 extras (Task 20) only if steps 1–6 and 8 pass twice. **X** Task 21. Freeze new
   features at 18:00.
 - **Day 8 (11/22).** Dry run on the **campus** network, twice in a row, from `docs/ecosystem/demo-script.md`. Fix
   only what breaks.
@@ -128,30 +139,35 @@ track rebases on `main` before merging; the merge itself is Leo's call (ask befo
 ### Task 1: Prove the link on both boards (Track S)
 
 **Files:**
-- Create: `spike/link/platformio.ini` (envs `dock` and `handheld`, copied from each board's pins and core)
-- Create: `spike/link/src/main.cpp`
+- Create: `spike/link/platformio.ini` (envs `dock` and `handheld`, copied from each board's pins and core; local only)
+- Create: `spike/link/src/main.cpp` (local only)
 - Create: `docs/ecosystem/day1-link.md` (results; no network names)
 
 **Interfaces:**
 - Produces: a decision recorded in `docs/ecosystem/day1-link.md`: **BLE** (Tasks 7, 9, 12 as written) or
-  **LAN pairing fallback** (Appendix A), and which BLE library.
+  **LAN pairing fallback** (Appendix A), and which BLE library. *Result:* Appendix A (Leo, 2026-11-14); NimBLE-Arduino
+  2.5.2 paired fine, but BLE costs about 50 KB of internal RAM.
 
-- [ ] **Step 1:** Write `main.cpp`: join Wi-Fi from `secrets.h`; start BLE with the base spec service UUID
+- [x] **Step 1:** Write `main.cpp`: join Wi-Fi from `secrets.h`; start BLE with the base spec service UUID
   (`ble_ids.h`), one readable `info` and one encrypted-write characteristic, passkey display pairing (print the 6
   digits to serial); start `esp_http_server` with `GET /info` returning `{"ok":true}`; `MDNS.begin("cta-spike-xxxx")`
   and `MDNS.addService("ctatracker","tcp",80)`; every 30 s run one HTTPS GET to the train API with the existing
   `Tls` setup; every 5 s print `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)` and the current free internal.
   Serial `b` toggles BLE off (`deinit(true)`) and on.
-- [ ] **Step 2:** Flash to the dock and a wearable. Pair from the iPhone with LightBlue (or nRF Connect): the
+- [x] **Step 2:** Flash to the dock and a wearable. Pair from the iPhone with LightBlue (or nRF Connect): the
   passkey prompt appears and an encrypted write lands.
-- [ ] **Step 3:** With BLE on and a TLS request every 30 s for 10 minutes, record the lowest free internal RAM per
+- [x] **Step 3:** With BLE on and a TLS request every 30 s for 10 minutes, record the lowest free internal RAM per
   board. Then BLE off: record that it returns to within 2 KB of the no-BLE figure.
   Pass: ≥ 40 KB on both with BLE on. If NimBLE-Arduino fails to build or pair on core 3.2, try the core's BLE.
-- [ ] **Step 4:** On the home network: `dns-sd -B _ctatracker._tcp` on the Mac lists both boards; the iPhone reaches
+  *Result:* the spike passes, but the ~50 KB BLE cost would leave the real firmware at about 0 KB.
+- [x] **Step 4:** On the home network: `dns-sd -B _ctatracker._tcp` on the Mac lists both boards; the iPhone reaches
   `http://<ip>/info` in Safari; the dock fetches the wearable's `/info` (serial `n <ip>`). Repeat on the campus
   network when on campus; record pass/fail only.
-- [ ] **Step 5:** Write `docs/ecosystem/day1-link.md` (RAM numbers, library, mDNS and reachability per network as
-  "home" / "campus", the decision). Commit `spike/link` and the doc.
+  *Result:* at home the Mac and both boards reach each other, but **the iPhone check failed**: its TCP never reached
+  either board (likely the router keeping the phone and the 2.4 GHz boards apart). Campus is still to test (on
+  campus or at the 11/22 dry run); the backup is the iPhone's Personal Hotspot.
+- [x] **Step 5:** Write `docs/ecosystem/day1-link.md` (RAM numbers, library, mDNS and reachability per network as
+  "home" / "campus", the decision). Commit the doc only: `spike/link` stays local.
 
 ### Task 2: Link messages in the shared library (Track L)
 
@@ -226,6 +242,9 @@ namespace pet { void applyColors(uint16_t palette565[], const uint32_t colors[2]
   boards' parsers would reject (the rules above, and `nearby_msg.h`'s for `/nearby`), leaving its state alone; an
   empty body is 400 except on `/ble` and `/reset`. `--garbage` posts to `/config`, which
   both boards serve, with `{}` as the well-formed body for the token cases.
+- *After the Appendix A decision:* `parseWifi`/`WifiMsg` have no caller in the showcase (Wi-Fi comes from
+  `secrets.h`); they stay for the BLE future work. `link_send.py ble` and the fake's `/ble` are replaced by `pair`
+  in Task 7.
 
 - [x] **Step 1: Write the failing tests** in `test_link/test_main.cpp`:
 
@@ -296,7 +315,7 @@ bool followExpired(const FollowMemo& memo, uint32_t now);   // Arrived or Lost f
   writes `"veh"` (after `delayed`, only when non-empty) and, if the record then doesn't fit in `cap`, writes it again
   without vehicles. A real busy card (5-byte station, 4-byte line, 24-byte names and dests, 2-digit minutes, 4-digit
   vehicles: CTA run numbers are 3 digits, bus vehicle IDs 4) fits with them; `record_with_vehicles_fits_512` checks
-  both. CTAKit's snapshot encoder needs the same rule for the relay (Task 4/19).
+  both. CTAKit's snapshot encoder needs the same rule for the relay (Task 4/19; the relay is now future work).
 - `followView` matches the card by type, id, route, and `dir` (the follow's `dir` cut to 24 bytes, as cards keep
   it). Only a record with a newer `ts` counts, so a failed poll never ends a follow. On the card: Due at 0 min, else
   Waiting. Seen before and missing from a fresh record: `expected = lastMin - (ts - seenTs)/60`; Arrived if
@@ -417,9 +436,9 @@ public struct NearbyThrottle: Sendable {
 
 **Files:**
 - Create: `firmware/dock/src/link.h`, `firmware/dock/src/link.cpp`
-- Modify: `firmware/dock/src/store.h/.cpp` (Wi-Fi slot 0, token, pet, settings), `net.cpp` (join from the store,
-  `secrets.h` as fallback), `main.cpp` (apply inbox each frame; `picks_ver`), `firmware/dock/platformio.ini`
-  (`build_src_filter` unchanged; no new lib for httpd/mDNS)
+- Modify: `firmware/dock/src/store.h/.cpp` (token, pet, settings), `net.cpp` (as built: one network; Task 7 makes it join the strongest compiled
+  into `secrets.h`, with `strongestSaved`), `main.cpp` (apply inbox each frame; `picks_ver`),
+  `firmware/dock/platformio.ini` (`build_src_filter` unchanged; no new lib for httpd/mDNS)
 
 **Interfaces:**
 - Consumes: Task 2 (`parseConfig`, `encodeConfig`, `encodeInfo`, `tokenMatches`, `pet::applyColors`).
@@ -427,23 +446,22 @@ public struct NearbyThrottle: Sendable {
 
 ```cpp
 namespace link {
-struct Inbox { bool config = false; cta::ConfigMsg cfg; bool reset = false; bool openBle = false; };
+struct Inbox { bool config = false; cta::ConfigMsg cfg; bool reset = false; };
 void start(const char* hostLabel);        // httpd on port 80 + mDNS; call once Wi-Fi is up
 void setInfo(const cta::InfoMsg& info);   // the loop publishes; GET /info serves the latest copy
 void setConfig(const cta::ConfigMsg& c);  // what GET /config returns
 bool take(Inbox& out);                    // the loop drains writes; false if none
 }
 namespace store {
-bool loadWifi(cta::SavedNet& out); bool saveWifi(const cta::SavedNet& n);
 bool loadToken(char out[cta::kTokenLen + 1]); bool saveToken(const char* t);
 bool loadPet(cta::PetConfig& out); bool savePet(const cta::PetConfig& p);
 bool loadSettings(cta::DeviceSettings& out); bool saveSettings(const cta::DeviceSettings& s);
-void wipeLink();   // Wi-Fi, token, bonds (NimBLE store), pet and settings stay
+void wipeLink();   // the token; pet and settings stay (Wi-Fi is in secrets.h)
 }
 ```
 
-- [ ] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET /config`, `POST /config`, `POST /ble`,
-  `POST /reset`; bodies over `cta::kMaxBody` → 413, bad JSON → 400, missing or wrong token → 401 (no token set
+- [ ] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET /config`, `POST /config`, `POST /reset`
+  (`POST /pair` comes in Task 7); bodies over `cta::kMaxBody` → 413, bad JSON → 400, missing or wrong token → 401 (no token set
   yet → 401 for every write). Handlers copy into the inbox under a mutex and answer 200 at once.
 - [ ] **Step 2:** Wire it: `main.cpp` drains `link::take` every frame and applies `config.stops` through
   `setPicks()` (which now bumps `picksVer`), `config.pet` through `pet::applyColors` on the dock's palette copy plus
@@ -457,34 +475,65 @@ void wipeLink();   // Wi-Fi, token, bonds (NimBLE store), pet and settings stay
   lowest internal RAM ≥ 40 KB, no late panel frames.
 - [ ] **Step 5: Commit:** `feat(dock): HTTP link on the home network (info, config, reset)`.
 
-### Task 7: Dock BLE setup (Track D)
+### Task 7: Dock pairing over the network (Track D)
+
+Appendix A. The pairing gate is shared C++ so the wearable (Task 9) uses the same one and it's tested on the laptop.
 
 **Files:**
-- Create: `firmware/dock/src/ble_setup.h`, `firmware/dock/src/ble_setup.cpp`
-- Modify: `firmware/dock/src/main.cpp`, `dock_ui.cpp` (the passkey and "Joining Wi-Fi…" setup messages),
-  `firmware/lib/cta/src/ble_ids.h` (add the token characteristic UUID), `firmware/dock/platformio.ini` (BLE lib if
-  Task 1 chose NimBLE-Arduino)
+- Create: `firmware/lib/cta/src/pair.h`, `firmware/lib/cta/src/pair.cpp`, `firmware/native/test/test_pair/test_main.cpp`
+- Modify: `firmware/lib/cta/src/cta_config.h` (the pairing values), `link_msg.h/.cpp` (`InfoMsg.paired`, encoded as
+  `"paired"`), `firmware/native/test/test_link/test_main.cpp` (`info_has_paired`)
+- Modify: `firmware/dock/src/link.cpp` (`POST /pair`), `main.cpp` (code at boot), `dock_ui.cpp` (the setup messages)
+- Modify: `tools/link_send.py`, `tools/test_link_send.py` (`pair <code>` replaces `ble`; the fake serves `/pair` with
+  the same gate; coordinate with Track L, which owns these files)
+- Clean up after Task 6, which was built before the Appendix A decision (2026-11-14): remove `POST /ble`, the BLE
+  window and the stored Wi-Fi from `link.cpp`/`store.*`, and make `net.cpp` join the strongest of the `secrets.h`
+  networks with `strongestSaved`
 
 **Interfaces:**
-- Consumes: `parseWifi(…, 1, …)`, `parseToken` (Task 2); `store::saveWifi`, `saveToken` (Task 6).
-- Produces: `namespace ble_setup { void start(const char* name); void stop(); bool running(); uint32_t passkey(); }`;
-  the new UUID `cta::kTokenUuid = "5b1e6f0a-3c2d-4e8f-9a7b-1d2c3e4f5a60"` (mirrored in CTAKit `BLEID.token`).
+- Consumes: `parseToken`'s token rules, `encodeInfo` (Task 2); `store::saveToken`, `loadToken` (Task 6).
+- Produces:
 
-- [ ] **Step 1:** Implement: advertise `CTA-Dock-xxxx` with the service; `info` (read), `wifi` (encrypted write:
-  save, then join), `token` (encrypted write: save). Show the 6-digit passkey on screen while pairing. Run only
-  under the Global Constraints rule (no working Wi-Fi, or 120 s after `POST /ble`); `stop()` deinitializes and
-  frees memory. After a successful join, start `link`.
-- [ ] **Step 2: Verify with LightBlue:** fresh dock (`R`) advertises, passkey pairing works, writing
-  `{"slot":0,"ssid":"…","pass":"…"}` joins the home network, writing a token makes `link_send.py config` accepted,
-  and BLE stops itself afterwards (serial log shows internal RAM back to the Task 6 level).
-- [ ] **Step 3: Commit:** `feat(dock): BLE setup (passkey, Wi-Fi, token), only while unconfigured`.
+```cpp
+// cta_config.h
+constexpr uint32_t kPairWindowMs = 5 * 60 * 1000;   // pairing open for 5 minutes after boot
+constexpr uint8_t kPairMaxWrong = 5;                // then locked until reboot
+// pair.h (namespace cta)
+constexpr int kPairCodeLen = 6;
+struct PairMsg { char code[kPairCodeLen + 1]; char token[kTokenLen + 1]; };
+bool parsePair(const char* json, size_t len, PairMsg& out);   // {"code":"6 digits","token":"32 lowercase hex"}
+enum class PairResult : uint8_t { Ok, WrongCode, Locked, Closed, AlreadyPaired };
+struct PairGate {
+    char code[kPairCodeLen + 1] = {};   // set once at boot (esp_random, 000000–999999), shown on screen, never logged
+    uint8_t wrong = 0;                  // RAM only, so a reboot clears the lock
+    PairResult check(const char* code, uint32_t nowMs, bool paired);   // nowMs since boot; constant-time compare
+};
+```
+
+`check` order: `paired` → AlreadyPaired; `wrong >= kPairMaxWrong` → Locked; `nowMs > kPairWindowMs` → Closed; code
+mismatch → `wrong++`, WrongCode; else Ok. HTTP: Ok 200 (save the token, then `paired` in `info` is true), bad body 400,
+WrongCode 403, AlreadyPaired 409, Locked or Closed 423 (the app says to restart the board). `/pair` needs no bearer
+token and takes the same 1 KB limit.
+
+- [ ] **Step 1: Write the failing tests** in `test_pair`: `right_code_pairs`, `wrong_code_counts`,
+  `locks_after_5_wrong` (the 6th try, right code, is Locked), `closed_after_5_minutes`, `paired_answers_already`,
+  `parse_rejects_bad_code` (5 digits, 7 digits, letters), `parse_rejects_bad_token`, `bad_json_leaves_state`,
+  `rejects_oversize`; in `test_link`, `info_has_paired`.
+- [ ] **Step 2: Run** `pio test -e native -f test_pair` (FAIL), implement, run it and the whole suite (PASS).
+- [ ] **Step 3: Wire the dock:** at boot, if no token is saved, fill `PairGate.code` and show it on screen ("Pair with
+  the CTA app" over the 6 digits); after 5 minutes or 5 wrong tries, show "Restart the dock to pair". On Ok, save the
+  token and go to the usual screen. `wipeLink` (reset) brings the code back on the next boot.
+- [ ] **Step 4: Verify on the board:** fresh dock (`R`) shows a code; `link_send.py cta-dock-xxxx.local pair <code>`
+  answers 200 and then `config` with that token is accepted; a second `pair` is 409; after a reset, 5 wrong codes
+  give 403 ×5 then 423 even with the right code; after 5 minutes, 423.
+- [ ] **Step 5: Commit:** `feat(dock): pair over the network with the code on screen`.
 
 ### Task 8: The wearable on the network (Track H)
 
 **Files:**
 - Create: `firmware/handheld/mock/src/link.h`, `firmware/handheld/mock/src/link.cpp`
-- Modify: `live.h/.cpp` (pin and follow polled with the close stations; Wi-Fi list from NVS with
-  `strongestSaved`), `live_store.*` (pinned/followed records), `main.cpp` (inbox, wake counter, docked, apply pet and
+- Modify: `live.h/.cpp` (pin and follow polled with the close stations; Wi-Fi list from `secrets.h` with
+  `strongestSaved`; `secrets.example.h` and the handheld README show the list form), `live_store.*` (pinned/followed records), `main.cpp` (inbox, wake counter, docked, apply pet and
   settings, serial `R` and the three-finger 10 s hold reset)
 
 **Interfaces:**
@@ -496,7 +545,7 @@ void wipeLink();   // Wi-Fi, token, bonds (NimBLE store), pet and settings stay
 namespace link {   // same shape as the dock's, plus:
 struct Inbox { bool config; cta::ConfigMsg cfg; bool nearby; char nearbyJson[cta::kMaxBody + 1]; size_t nearbyLen;
                int pin; cta::PickedStop pinStop; int follow; cta::FollowMsg followMsg;   // +1 set, -1 clear, 0 none
-               bool reset; bool openBle; };
+               bool reset; };
 }
 namespace live {
 void setPin(const cta::PickedStop* stop);        // nullptr clears
@@ -506,7 +555,8 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
 ```
 
 - [ ] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET/POST /config` (pet, settings), `POST /nearby`,
-  `POST/DELETE /pin`, `POST/DELETE /follow`, `POST /ble`, `POST /reset`, same error rules as the dock.
+  `POST/DELETE /pin`, `POST/DELETE /follow`, `POST /reset`, same error rules as the dock (`POST /pair` comes in
+  Task 9).
 - [ ] **Step 2:** Wire `live`: the pinned stop is polled at the 3 closest stations' rate even when not nearby and
   counts as close for Hyped; the follow is evaluated with `followView` after every poll of its stop and cleared by
   `followExpired`. Pass `followView` the raw polled records (`live_store`'s, not `live_model`'s counted-down
@@ -519,20 +569,20 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
 - [ ] **Step 4: Verify power:** `tools/power_run.py` dim, app closed: within 5% of `docs/power/summary.md`.
 - [ ] **Step 5: Commit:** `feat(handheld): HTTP link (nearby, pin, follow, config), Wi-Fi list joins the strongest`.
 
-### Task 9: Wearable BLE setup (Track H)
+### Task 9: Wearable pairing over the network (Track H)
 
 **Files:**
-- Create: `firmware/handheld/mock/src/ble_setup.h/.cpp` (same interface as the dock's, Task 7)
-- Modify: `main.cpp`, `ui.cpp` setup states only (passkey and "Joining Wi-Fi…" in Trackie's bubble), `platformio.ini`
+- Modify: `firmware/handheld/mock/src/link.cpp` (`POST /pair`), `main.cpp` (code at boot), `ui.cpp` setup states
+  only (the code in Trackie's bubble: the existing Pairing state, spec'd in `docs/handheld-ui.md`)
+- Clean up after Task 8, built before the Appendix A decision: remove `POST /ble` and `openBle` from `link.cpp`
 
 **Interfaces:**
-- Consumes: `parseWifi(…, cta::kWifiSlots, …)`, `parseToken`, Task 8's NVS Wi-Fi list.
-- Produces: `CTA-Pet-xxxx` advertising; slots 0–4 written over `wifi`.
+- Consumes: `parsePair`, `PairGate`, `InfoMsg.paired` (Task 7); Task 8's token store and `wipeLink`.
 
-- [ ] **Step 1:** Implement as Task 7, with 5 slots and the passkey in Trackie's bubble.
-- [ ] **Step 2: Verify with LightBlue:** fresh wearable pairs, two networks written to slots 0 and 1, it joins the
-  stronger, BLE stops, `POST /ble` reopens it for 120 s.
-- [ ] **Step 3: Commit:** `feat(handheld): BLE setup with up to 5 networks`.
+- [ ] **Step 1:** Implement as Task 7's Step 3: no token saved → the Pairing screen with the 6 digits; after 5 minutes
+  or 5 wrong tries Trackie says "Restart to pair"; on Ok, save the token and go Home.
+- [ ] **Step 2: Verify on the board:** the same checks as Task 7's Step 4 against `cta-pet-xxxx.local`.
+- [ ] **Step 3: Commit:** `feat(handheld): pair over the network with the code on screen`.
 
 ### Task 10: App device discovery and the link client (Track A)
 
@@ -541,7 +591,8 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
   `ios/CTATracker/Devices/TokenStore.swift`, `ios/CTATracker/Info.plist` (only `NSBonjourServices`)
 - Modify: `ios/CTATracker.xcodeproj/project.pbxproj` (`INFOPLIST_FILE = CTATracker/Info.plist` merged with the
   generated one; `INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your Trackie dock and wearable on this Wi-Fi."`;
-  `INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable."`)
+  `INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable."`, which Task 12
+  removes now that nothing uses Bluetooth)
 
 **Interfaces:**
 - Consumes: `InfoMessage`, `DeviceWatch`, `Token` (Task 4).
@@ -582,29 +633,34 @@ enum TokenStore { static func token() -> String?; static func setToken(_ t: Stri
 (online state, last update, Wi-Fi, battery and charging for the wearable, its stops for the dock, Forget).
 
 - [ ] **Step 1:** Build the list and page from `DeviceLink.online` (app spec §6.3 wording; Forget removes it from
-  `KnownDevices` and says to finish in iOS Settings → Bluetooth).
+  `KnownDevices`, and the board keeps its token until it's reset; there's no Bluetooth bond to remove).
 - [ ] **Step 2: Verify** against both real boards (token set over serial `T` until Task 12): both online, battery
   shows, Forget works.
 - [ ] **Step 3: Commit:** `feat(ios): devices list and device page`.
 
-### Task 12: BLE setup flow (Track A)
+### Task 12: Setup flow over the network (Track A)
 
-**Files:** Create `ios/CTATracker/Devices/BLESetup.swift`, `FoundCard.swift`, `SetupFlow.swift`; modify
-`ios/CTAKit/Sources/CTAKit/Config.swift` (`BLEID.token`, the UUID from Task 7) in coordination with Track K.
+**Files:** Create `ios/CTATracker/Devices/FoundCard.swift`, `SetupFlow.swift`; modify `DeviceLink.swift` (unpaired
+boards found by Bonjour, `pair`), `ios/CTATracker.xcodeproj/project.pbxproj` (drop
+`INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription`), and in coordination with Track K
+`ios/CTAKit/Sources/CTAKit/LinkMessages.swift` (`InfoMessage.paired`, `PairMessage`) and its tests.
 
 **Interfaces:**
-- Consumes: `WifiMessage`, `TokenMessage`, `Token.random()`, `TokenStore`, `KnownDevices`.
-- Produces: `BLESetup.scan()` (foreground only), `BLESetup.setUp(_ peripheral:, wifi: WifiMessage) async throws`;
-  the found card and the full-screen flow Pair → Wi-Fi → Pet (first device only) → Ready.
+- Consumes: `Token.random()`, `TokenStore`, `KnownDevices`, Task 7's `/pair` and its status codes.
+- Produces: `PairMessage: Encodable` (`{"code","token"}`, description redacts the token, test
+  `pairNeverShowsToken`); `DeviceLink.found: [Device]` (on the network, `paired == false`, not known);
+  `DeviceLink.pair(_ id: String, code: String) async throws`; the found card and the full-screen flow
+  Pair → Pet (first device only) → Ready.
 
-- [ ] **Step 1:** Implement: scan for the service, "Dock found · Set up" / "Trackie found · Set up" card, connect,
-  read `info`, write `wifi` (the encrypted write brings up iOS's passkey prompt), write `token` (the household token:
-  `TokenStore.token() ?? Token.random()`), then wait up to 20 s for the board on the network before "Ready".
-  The Wi-Fi name pre-fills from `NEHotspotNetwork.fetchCurrent` when available (Access Wi-Fi Information
-  entitlement), editable; the password field is never logged or kept.
-- [ ] **Step 2: Verify:** reset a board (`R`), remove it in iOS Settings → Bluetooth, set it up from the card on the
-  home network; both boards end up online with the same token.
-- [ ] **Step 3: Commit:** `feat(ios): set up the dock and wearable over Bluetooth`.
+- [ ] **Step 1:** Implement: the `NWBrowser` from Task 10 also reads `GET /info` once from every board it doesn't
+  know; one with `paired == false` raises the "Dock found · Set up" / "Trackie found · Set up" card. Pair: "Type the
+  code shown on your dock" (or "on Trackie"), then `POST /pair` with the household token
+  (`TokenStore.token() ?? Token.random()`, saved on 200). 403: "That code didn't match." 423: "Restart your dock to
+  pair again." 409: "Already set up. Reset it to pair again." On 200 the board joins `KnownDevices` and polling.
+- [ ] **Step 2: Verify:** against `link_send.py --serve` first, then reset a real board (`R`) and set it up from the
+  card on the home network (or the hotspot, if the phone still can't reach the boards there; Task 1); both boards
+  end up online with the same token.
+- [ ] **Step 3: Commit:** `feat(ios): set up the dock and wearable with the code on screen`.
 
 ### Task 13: One Trackie and device settings (Track A)
 
@@ -704,7 +760,11 @@ in the App Group.
   then the pin alone.
 - [ ] **Step 3: Commit:** `feat(handheld): pinned stop and follow countdown on Home`.
 
-### Task 19: Relay with no Wi-Fi (Tracks H and A; last, drops first)
+### Task 19: Relay with no Wi-Fi — DROPPED (2026-11-14)
+
+**Dropped with the Appendix A decision:** the relay needs Bluetooth on the wearable, and BLE's ~50 KB of internal RAM
+doesn't fit (`docs/ecosystem/day1-link.md`). Showcase step 7 is out; BLE relay is future work (spec section 12). The
+steps below are kept as the design for that later version; don't build them now.
 
 **Files:** 19a `firmware/handheld/mock/src/ble_setup.cpp` (+ `snapshot` characteristic), `live.cpp` (accept relayed
 records); 19b `ios/CTATracker/Devices/HandheldRelay.swift`.
@@ -719,7 +779,7 @@ records); 19b `ios/CTATracker/Devices/HandheldRelay.swift`.
 - [ ] **Step 3: Verify:** turn the wearable's Wi-Fi off; within 2 minutes its cards update from the phone.
 - [ ] **Step 4: Commit:** `feat: phone relays arrivals over Bluetooth when the wearable has no Wi-Fi`.
 
-### Task 20: Extras, only if showcase steps 1–8 pass twice (Tracks D, H, A)
+### Task 20: Extras, only if showcase steps 1–6 and 8 pass twice (Tracks D, H, A)
 
 - [ ] **The dock follows your train:** dock `POST /trip` (the follow body plus the pet name, parsed by `parseFollow`
   plus `"pet"`); the dock draws Trackie on that vehicle on its map with "Trackie · Red Line · at Fullerton";
@@ -732,8 +792,8 @@ records); 19b `ios/CTATracker/Devices/HandheldRelay.swift`.
 ### Task 21: Docs and the demo script (Track X)
 
 **Files:** Modify base spec §8.3, §9.5, §10 (point to the ecosystem spec), `firmware/handheld/mock/README.md`,
-`firmware/dock/` README section; create `docs/ecosystem/demo-script.md` (showcase steps 1–8 with the exact taps, the
-reset-and-forget-in-iOS step before pairing, and what to do if a step fails; no network names).
+`firmware/dock/` README section; create `docs/ecosystem/demo-script.md` (showcase steps 1–6 and 8 with the exact
+taps, the reset step before pairing, the hotspot backup, and what to do if a step fails; no network names).
 
 - [ ] **Step 1:** Write them. Check `git diff` for network names, home paths, tokens.
 - [ ] **Step 2: Verify:** run the script end to end on the home network, then on campus (11/22), twice each.
@@ -742,6 +802,8 @@ reset-and-forget-in-iOS step before pairing, and what to do if a step fails; no 
 ---
 
 ## Appendix A: if Task 1 says Bluetooth doesn't fit
+
+**Chosen by Leo, 2026-11-14.** Tasks 7, 9, 12, and 19 above are already rewritten to it; this is the original note.
 
 Pairing moves to the network. Wi-Fi comes from `secrets.h` (both networks compiled in). A fresh board shows a 6-digit
 code on screen and accepts `POST /pair {"code":"123456","token":"<hex>"}` once, within 5 minutes of boot, with the
