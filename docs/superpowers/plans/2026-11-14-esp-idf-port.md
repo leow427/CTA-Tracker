@@ -366,9 +366,12 @@ Per board:
   `peakBytes`, `resetPeakBytes`.
 - The hooks are installed by a static initializer in `json_heap.cpp` (so nothing is ever freed by the wrong
   allocator, and the native tests count bytes without calling `setJsonHeap`) and again by `setJsonHeap`. Each block
-  carries a 16-byte size header for the counter. `JsonHeap::reallocate` is kept for the signature but unused.
-  "PSRAM first, internal if that fails" is the board's `JsonHeap::allocate` (D2/W3; the dock's `psAlloc` today has
-  no fallback).
+  carries a size header for the counter (`alignof(max_align_t)`: 8 bytes on the ESP32, 16 on the laptop), so cJSON
+  output is freed only with `cJSON_free`/`cJSON_Delete`, and IDF's wifi_provisioning (it `free()`s `cJSON_Print`
+  output) must not be linked. `JsonHeap::reallocate` is kept for the signature but unused.
+- "PSRAM first, internal if that fails" is each board's `JsonHeap::allocate`: the dock's `psAlloc`, and the
+  wearable's `jsonAlloc`, which J1 added to `setup()` (before, the wearable never called `setJsonHeap`, and every
+  node would have gone to internal RAM). D2/W3 carry these into `app_main`.
 - No encoder writes a float (records, picks, info and config are strings, integers and booleans), so the float
   rounding bite above has nothing to apply to yet.
 - The laptop tools compile cJSON as C first (`cc -O2 -c …/native/lib/cJSON/cJSON.c -o /tmp/cJSON.o`), then link

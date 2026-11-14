@@ -103,8 +103,12 @@ void printDiag() {
 }
 uint32_t cycles() { return ESP.getCycleCount(); }
 
-// Big JSON documents (bus patterns, picker lists) in PSRAM: internal RAM is for Wi-Fi and TLS.
-void* psAlloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+// cJSON's nodes (and the big model structs) in PSRAM, internal only if PSRAM runs out: internal RAM is for Wi-Fi
+// and TLS.
+void* psAlloc(size_t n) {
+    void* p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
 void psFree(void* p) { heap_caps_free(p); }
 void* psRealloc(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
 const cta::JsonHeap kPsramHeap = {psAlloc, psFree, psRealloc};

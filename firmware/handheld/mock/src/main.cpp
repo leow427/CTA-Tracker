@@ -15,6 +15,7 @@
 #include "esp_task_wdt.h"
 #include "TouchDrvCSTXXX.hpp"
 #include "cpu_clock.h"
+#include "json_heap.h"
 #include "mock_data.h"
 #include "row_hash.h"
 #include "touch_filter.h"
@@ -518,9 +519,18 @@ void pollSerial(uint32_t ms) {
     }
 }
 
+// cJSON's nodes (json_heap.h) in PSRAM, internal only if PSRAM runs out: internal RAM is for Wi-Fi and TLS.
+void* jsonAlloc(size_t n) {
+    void* p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+void jsonFree(void* p) { heap_caps_free(p); }
+const cta::JsonHeap kJsonHeap = {jsonAlloc, jsonFree, nullptr};
+
 }  // namespace
 
 void setup() {
+    cta::setJsonHeap(&kJsonHeap);   // before anything is parsed
 #ifdef POWER_LOG
     Serial.setTxBufferSize(4096);   // the power log writes whole lines only, so a line must fit
 #else
