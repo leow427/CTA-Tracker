@@ -13,7 +13,7 @@ public enum Config {
     public static let nightEndMin = 300         // 5:00
     public static let bleMaxPayload = 512
     public static let linkMaxBody = 1024        // bytes; HTTP body limit on the boards (kMaxBody in link_msg.h)
-    public static let nearbyPerTab = 10
+    public static let nearbyPerTab = 5          // stations and bus stops each in a `nearby` (kNearbyPerTab)
     public static let hypedClosestStops = 3
 
     // App polling (base spec 6.6, app column)

@@ -352,6 +352,7 @@ public struct DeviceWatch: Sendable {
 
 **Files:**
 - Create: `ios/CTAKit/Sources/CTAKit/NearbyBuilder.swift`
+- Modify: `ios/CTAKit/Sources/CTAKit/Config.swift` (`nearbyPerTab` 10 → 5, the firmware's `kNearbyPerTab`)
 - Test: `ios/CTAKit/Tests/CTAKitTests/NearbyBuilderTests.swift`, `NearbyThrottleTests.swift`
 
 **Interfaces:**
@@ -359,12 +360,13 @@ public struct DeviceWatch: Sendable {
 - Produces:
 
 ```swift
-public enum NearbyBuilder {
-    public static let perTab = 5
+public enum NearbyBuilder {   // caps from Config.nearbyPerTab (5) and Config.hypedClosestStops (3)
     // From a location: what tools/send_nearby.py builds (5 stations; each route+direction's nearest bus stop,
     // then the 5 nearest of those; close = the 3 nearest of either kind).
     public static func fromLocation(_ c: CLLocationCoordinate2D, index: StopIndex) -> NearbyMessage
-    // Mirror: the stops behind the phone's list, in list order; stations by Slot.fetchID.
+    // Mirror: the stops behind the phone's list (favorites, then nearby), in list order; stations by Slot.fetchID,
+    // each stop once (a station has a card per line and direction). As built: close = the 3 nearest listed stops
+    // by Slot.meters, ties in list order, as the phone's Trackie counts them (a far favorite can't make it Hyped).
     public static func fromList(_ slots: SlotList, center: CLLocationCoordinate2D) -> NearbyMessage
 }
 public struct NearbyThrottle: Sendable {
@@ -374,14 +376,15 @@ public struct NearbyThrottle: Sendable {
 }
 ```
 
-- [ ] **Step 1: Write the failing tests:** `fromLocationMatchesSendNearby` (Belmont at 41.9399, -87.6533: same IDs
+- [x] **Step 1: Write the failing tests:** `fromLocationMatchesSendNearby` (Belmont at 41.9399, -87.6533: same IDs
   as `tools/send_nearby.py --dry-run --lat 41.9399 --lon -87.6533`, recorded into the test),
   `fromListKeepsListOrder`, `fromListUsesStationIDs`, `fromListCapsAt5Each`, `closeIsFirst3OfEither`,
   `panBurstSendsOnce` (10 offers in 3 s with changing stops → 1 sent, then `flush` after 10 s sends the last),
-  `sameStopsNotResent`.
-- [ ] **Step 2: Run** `swift test`. Expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `swift test`. Expected: PASS.
+  `sameStopsNotResent`; also `fromLocationTakesEachRouteDirectionsNearestBusStop`, `closeIsNearestNotAFarFavorite`,
+  `emptyListIsStillValid`, `dueOfferSendsAtOnce`, `closeOnlyChangeIsResent`, `clockSetBackIsDue`, and every builder test checks the message against `parseNearby`'s rules.
+- [x] **Step 2: Run** `swift test`. Expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `swift test`. Expected: PASS.
 - [ ] **Step 5: Commit:** `feat(ctakit): nearby builder for location and mirror, 10 s throttle`.
 
 ### Task 6: The dock on the network (Track D)
