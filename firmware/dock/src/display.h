@@ -26,6 +26,8 @@ void recover();
 void setAutoRecover(bool on);   // diagnostics: off leaves a late frame alone, to compare
 bool autoRecovering();
 uint32_t recoveries();
+// Band copies the DMA didn't finish in time, redone by the CPU (dma_copy.h; should stay 0).
+uint32_t dmaFallbacks();
 
 // Diagnostic modes (serial keys in main.cpp), for finding the tearing by eye. Normal: as above. Freeze: the next frame
 // is drawn, then nothing is drawn or copied. Pattern: the next frame (a test pattern) goes into both buffers, then

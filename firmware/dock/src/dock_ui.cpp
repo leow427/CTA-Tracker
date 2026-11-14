@@ -536,8 +536,10 @@ void drawBasemap(Canvas& cv, const cta::MapFrame& fr, int panX, int panY) {
         anchorX = panX; anchorY = panY;
         if (!made) return;
     }
+    // Land is left as the screen's black (draw() clears to col::bg first): most of the map, not drawn twice.
+    static_assert(kQuiet[cta::kLand] == col::bg, "land is the screen's own black");
     cv.cells(grid.cells, grid.cols, grid.rows, grid.ox + panX - anchorX, grid.oy + panY - anchorY, grid.cell, kQuiet,
-             cta::kClassCount, grid.version);
+             cta::kClassCount, grid.version, cta::kLand);
 }
 
 void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {

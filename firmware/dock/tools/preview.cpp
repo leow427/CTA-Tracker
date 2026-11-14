@@ -4,7 +4,8 @@
 // recorded once and played band by band, and every band drawn directly, straight in the landscape panel's order, both
 // mountings, at both halves of Trackie's bob and the blinks) and checked against the plain picture. Then a run of
 // frames goes through the device's two frame buffers, each drawing only the bands it doesn't hold, and every frame is
-// checked against the plain picture; it prints how many bands each kind of frame drew.
+// checked against the plain picture; it prints how many bands each kind of frame drew. Both checks also run with the
+// bands copied late, as the dock's DMA copies them (dma_copy.h), through two band buffers.
 // Build and run (from firmware/dock):
 //   c++ -std=c++17 -O2 -Isrc -Iinclude -I../lib/gfx/src -I../lib/cta/src -I../lib/pet/src -I<ArduinoJson>/src \
 //       tools/preview.cpp src/dock_ui.cpp src/bands.cpp ../lib/gfx/src/*.cpp ../lib/cta/src/*.cpp \
@@ -191,8 +192,20 @@ const State kStates[] = {
 // ---------- the device's path (bands.cpp, display.cpp) ----------
 
 ui::Recording rec;   // big, like the device's
-uint16_t band[dock::W * dock::kBandRows];
+uint16_t band[dock::W * dock::kBandRows], band2[dock::W * dock::kBandRows];
 uint32_t noClock() { return 0; }
+
+// A stand-in for the dock's DMA copier (dma_copy.h): each band is copied only when the next copy starts, or at finish,
+// as the DMA's copy lands while the next band is drawn. A band drawn into a buffer whose copy hasn't landed yet would
+// copy the wrong pixels and show as a difference.
+struct Pending { const uint16_t* band; uint16_t* fb; int y0, rows; bool cw; } pending = {};
+void land() {
+    if (pending.band) dock::copyBand(pending.band, pending.fb, pending.y0, pending.rows, pending.cw);
+    pending.band = nullptr;
+}
+const dock::BandCopier kLateCopier = {
+    [](const uint16_t* b, uint16_t* fb, int y0, int rows, bool cw) { land(); pending = {b, fb, y0, rows, cw}; },
+    [](uint16_t*) { land(); }};
 
 struct Frame {
     dock::App* a;
@@ -224,13 +237,15 @@ bool bandsMatch(const uint16_t* fb, dock::App& a, const dock::Data& d, const doc
     static dock::BandMemo memo;
     Frame f = {&a, &d, &pl, &c, ms};
     for (int cw = 0; cw < 2; ++cw)
-        for (int recorded = 0; recorded < 2; ++recorded) {
-            memset(panel, 0, sizeof(panel));
-            memo.forget();
-            dock::FrameStats st;
-            dock::drawFrame(drawFrameCb, &f, recorded ? &rec : nullptr, memo, 0, band, panel, cw != 0, noClock, st);
-            if (st.drawn != dock::BandMemo::kBands || !samePicture(panel, fb, cw != 0)) return false;
-        }
+        for (int recorded = 0; recorded < 2; ++recorded)
+            for (int late = 0; late < 2; ++late) {   // copied at once, or by the stand-in for the DMA
+                memset(panel, 0, sizeof(panel));
+                memo.forget();
+                dock::FrameStats st;
+                dock::drawFrame(drawFrameCb, &f, recorded ? &rec : nullptr, memo, 0, band, panel, cw != 0, noClock, st,
+                                late ? band2 : nullptr, late ? &kLateCopier : nullptr);
+                if (st.drawn != dock::BandMemo::kBands || pending.band || !samePicture(panel, fb, cw != 0)) return false;
+            }
     return true;
 }
 
@@ -238,7 +253,7 @@ bool bandsMatch(const uint16_t* fb, dock::App& a, const dock::Data& d, const doc
 // and drawing only the bands that buffer doesn't hold: at rest (Trackie's bob, the blinks), a poke and its end, the
 // clock's minute, new arrivals, the map and a pan, the picker and a scroll, Wi-Fi lost, night. After each frame the
 // buffer must be exactly the frame drawn whole. Prints how many bands each kind of frame drew.
-bool sequenceMatches() {
+bool sequenceMatches(bool late) {
     static uint16_t panels[2][dock::W * dock::H], fb[dock::W * dock::H];
     static dock::Data d;
     static dock::PickerLists pl;
@@ -287,20 +302,22 @@ bool sequenceMatches() {
             s.apply(d, a, c, ms);
             Frame f = {&a, &d, &pl, &c, ms};
             dock::FrameStats st;
-            dock::drawFrame(drawFrameCb, &f, &rec, memo, back, band, panels[back], true, noClock, st);
+            dock::drawFrame(drawFrameCb, &f, &rec, memo, back, band, panels[back], true, noClock, st, late ? band2 : nullptr,
+                            late ? &kLateCopier : nullptr);
             drawn += st.drawn;
             copied += st.copied;
             dock::App plain = a;
             ui::Canvas cv(fb, dock::W, dock::H);
             dock::draw(cv, plain, d, pl, c, ms);
-            if (!samePicture(panels[back], fb, true)) {
-                printf("sequence: %s, frame %d: DIFFERS\n", s.name, k + 1);
+            if (pending.band || !samePicture(panels[back], fb, true)) {
+                printf("sequence%s: %s, frame %d: DIFFERS\n", late ? " (late copies)" : "", s.name, k + 1);
                 ok = false;
             }
             back ^= 1;
         }
-        printf("sequence: %-16s %2d frame%-2s %4.1f bands drawn and %4.1f copied a frame\n", s.name, s.frames,
-               s.frames == 1 ? "," : "s,", static_cast<float>(drawn) / s.frames, static_cast<float>(copied) / s.frames);
+        if (!late)
+            printf("sequence: %-16s %2d frame%-2s %4.1f bands drawn and %4.1f copied a frame\n", s.name, s.frames,
+                   s.frames == 1 ? "," : "s,", static_cast<float>(drawn) / s.frames, static_cast<float>(copied) / s.frames);
     }
     return ok;
 }
@@ -335,6 +352,6 @@ int main(int argc, char** argv) {
                same ? "match" : "DIFFER");
         if (!same) bad = true;
     }
-    if (!sequenceMatches()) bad = true;
+    if (!sequenceMatches(false) || !sequenceMatches(true)) bad = true;
     return bad ? 1 : 0;
 }

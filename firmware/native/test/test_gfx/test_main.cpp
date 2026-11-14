@@ -306,6 +306,8 @@ struct Rng {
 const char* const kArt[5] = {"K..K.K", ".KKK..", "K.K.KK", "..K...", "KK..KK"};
 const uint8_t kSpriteIdx[5 * 4] = {0, 1, 2, 3, 3, 0, 2, 1, 0, 0, 1, 2, 2, 1, 0, 3, 1, 1, 1, 0};
 const uint16_t kPal[4] = {0x0000, 0xF800, 0x07E0, 0x001F};
+// A cell grid (the dock map's basemap): classes 0-3, and 4, past a 4-color palette (left alone).
+const uint8_t kCellGrid[6 * 5] = {0, 1, 1, 2, 3, 0, 4, 0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 2, 2, 2, 1, 0, 0, 1, 3, 3, 4, 0, 2};
 const char* const kTexts[] = {"Belmont", "To 95th/Dan Ryan", "Due", "3 min", "Clark \xE2\x80\xA6", "12:05", "", " "};
 
 // Every drawing call, with arguments reaching past the screen's edges, faded and not, under random clips,
@@ -316,7 +318,7 @@ void scene(ui::Canvas& cv, uint32_t seed, int calls) {
     for (int k = 0; k < calls; ++k) {
         const float x = r.f(-30, RW + 30), y = r.f(-30, RH + 30), al = r(0, 3) ? 1.f : r.f(0, 1);
         const uint32_t rgb = r.rgb();
-        switch (r(0, 21)) {
+        switch (r(0, 22)) {
             case 0: cv.fillRect(x, y, r.f(-4, 50), r.f(-4, 50), rgb, al); break;
             case 1: {
                 const uint8_t steps[3] = {static_cast<uint8_t>(r(0, 3)), 1, static_cast<uint8_t>(r(0, 2))};
@@ -353,6 +355,11 @@ void scene(ui::Canvas& cv, uint32_t seed, int calls) {
             case 19: cv.resetClip(); break;
             case 20: cv.alpha = r(0, 2) ? 1.f : r.f(0, 1); break;
             case 21: cv.ox = r(-12, 12); cv.oy = r(-12, 12); break;
+            case 22: {   // skip -1 (none) or a class left alone: the clear's color shows there, played back too
+                const uint32_t pal[4] = {r.rgb(), r.rgb(), r.rgb(), r.rgb()};
+                cv.cells(kCellGrid, 6, 5, static_cast<int>(x), static_cast<int>(y), r(1, 9), pal, 4, 1, r(-1, 3));
+                break;
+            }
         }
     }
 }
@@ -419,6 +426,36 @@ static void test_recording_band_hashes() {
     other("Belmonx", 0xFFFFFF, 1);
     other("Belmont", 0xFFFFFE, 1);
     other("Belmont", 0xFFFFFF, 0.5f);
+}
+
+static void test_cells_skip_leaves_its_class_alone() {
+    // A 4 x 3 grid of 2 px cells over a canvas of 7s: class 1 (skip) leaves the 7s, the others are their colors; the
+    // same with no skip draws class 1 too. Recorded, skip is part of the call (its bands' hashes change with it).
+    static uint16_t a[16 * 16];
+    const uint8_t grid[12] = {0, 1, 2, 1, 1, 1, 0, 2, 2, 0, 1, 0};
+    const uint32_t pal[3] = {0x000000, 0xFF0000, 0x0000FF};
+    for (int skip = -1; skip <= 1; skip += 2) {
+        for (uint16_t& p : a) p = 7;
+        ui::Canvas cv(a, 16, 16);
+        cv.cells(grid, 4, 3, 1, 2, 2, pal, 3, 1, skip);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x) {
+                const int i = (x - 1) / 2, j = (y - 2) / 2;
+                const bool in = x >= 1 && y >= 2 && i < 4 && j < 3;
+                const uint8_t v = in ? grid[j * 4 + i] : 0;
+                const uint16_t want = !in || v == skip ? 7 : v == 0 ? 0x0000 : v == 1 ? 0xF800 : 0x001F;
+                TEST_ASSERT_EQUAL_HEX16(want, a[y * 16 + x]);
+            }
+    }
+    uint64_t h[2];
+    for (int k = 0; k < 2; ++k) {
+        ui::Canvas cv = rec.begin(RW, RH, 16);
+        cv.clear(0x000000);
+        cv.cells(grid, 4, 3, 1, 2, 2, pal, 3, 1, k ? 1 : -1);
+        TEST_ASSERT_TRUE(rec.end());
+        h[k] = rec.hash(0);
+    }
+    TEST_ASSERT_TRUE(h[0] != h[1]);
 }
 
 static void test_plate_is_its_shadow_then_itself() {
@@ -492,5 +529,6 @@ int main() {
     RUN_TEST(test_recording_band_hashes);
     RUN_TEST(test_plate_is_its_shadow_then_itself);
     RUN_TEST(test_recording_refuses_what_it_cannot_play);
+    RUN_TEST(test_cells_skip_leaves_its_class_alone);
     return UNITY_END();
 }

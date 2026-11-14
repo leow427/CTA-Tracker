@@ -165,6 +165,11 @@ void sample(uint32_t ms, const Inputs& in) {
         static_cast<unsigned>(lastLogUs), static_cast<unsigned>(drawn));
     append(line, static_cast<size_t>(n));
     if (dropped) { event("dropped,%u", static_cast<unsigned>(dropped)); dropped = 0; }
+    static uint32_t dmaFallbacksSeen = 0;   // band copies the DMA didn't finish, redone by the CPU (should stay 0)
+    if (display::dmaFallbacks() != dmaFallbacksSeen) {
+        dmaFallbacksSeen = display::dmaFallbacks();
+        event("dma_fallbacks,%u", static_cast<unsigned>(dmaFallbacksSeen));
+    }
 
     frames = bands = touches = scanLate = drawn = 0;
     drawUs = copyUs = waitUs = 0;
