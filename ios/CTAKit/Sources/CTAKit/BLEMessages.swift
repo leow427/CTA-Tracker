@@ -14,7 +14,7 @@ public enum BLEMessage {
 /// `wifi`: written only on an encrypted link. The password is never logged or stored on the phone,
 /// so this is encode-only and its descriptions leave the password out.
 public struct WifiMessage: Encodable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public let slot: Int   // 0–2; the dock only accepts 0
+    public let slot: Int   // 0–4 (kWifiSlots = 5, slot 0 is home); the dock only accepts 0
     public let ssid: String
     let pass: String
     public init(slot: Int, ssid: String, pass: String) { self.slot = slot; self.ssid = ssid; self.pass = pass }
@@ -56,7 +56,7 @@ public struct ConfigStop: Codable, Hashable, Sendable {
     public init(type: StopRecord.RecordType, route: String, dir: String, id: String, name: String) {
         self.type = type
         self.route = route.truncatedUTF8(Config.idLen)
-        self.dir = dir.truncatedUTF8(Config.nameLen)
+        self.dir = dir.truncatedUTF8(Config.dirLen)
         self.id = id.truncatedUTF8(Config.idLen)
         self.name = name.truncatedUTF8(Config.nameLen)
     }

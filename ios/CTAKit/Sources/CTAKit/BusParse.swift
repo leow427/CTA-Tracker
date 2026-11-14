@@ -14,7 +14,7 @@ public enum BusParse {
             else { at = CTATime.at(p.prdtm, responseTime: p.tmstmp, fetched: fetched) }
             guard let at else { return nil }
             return Prediction(stopID: p.stpid, route: p.rt, dir: p.rtdir, dest: p.des, at: at,
-                              live: true, delayed: p.dly || p.prdctdn == "DLY")
+                              live: true, delayed: p.dly || p.prdctdn == "DLY", vehicle: p.vid)
         }
     }
 
@@ -61,6 +61,7 @@ public enum BusParse {
         struct PRD: Decodable {
             let tmstmp: String, stpid: String, rt: String, rtdir: String, des: String, prdtm: String, prdctdn: String
             let dly: Bool
+            let vid: String?
         }
         struct Veh: Decodable {
             let vid: String, des: String?

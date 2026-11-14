@@ -298,10 +298,11 @@ public struct Prediction { … public let vehicle: String? }   // rn or vid; ini
 // LinkMessages.swift
 public struct InfoMessage: Decodable, Equatable, Sendable {
     public let type: DeviceKind; public let id: String; public let fw: String
-    public let battery: Int; public let charging: Bool; public let wifi: WifiState
+    public let battery: Int?; public let charging: Bool; public let wifi: WifiState
     public let lastUpdate: Int; public let uptime: Int; public let picksVer: Int; public let wake: Int; public let docked: Bool
 }
 public enum DeviceKind: String, Codable, Sendable { case dock, handheld }
+public struct WifiState: Codable, Equatable, Sendable { public let connected: Bool; public let ssid: String }
 public struct FollowMessage: Encodable, Sendable { public let stop: ConfigStop; public let vehicle: String; public let dest: String }
     // encodes flat: {type, route, dir, id, name, vehicle, dest}
 public struct TokenMessage: Encodable, Sendable { … }   // {"token": hex}; description redacts it
@@ -311,15 +312,21 @@ public struct DeviceWatch: Sendable {
     public enum Action: Equatable, Sendable { case fetchConfig, sendNearby, resendState, wentOffline, cameOnline }
     public mutating func polled(_ info: InfoMessage?) -> [Action]   // nil = the request failed
 }
+// `battery` is `null` on the wire when there is no battery (the dock), so it decodes as nil.
+// As built: first poll, or the first after going offline → [.cameOnline, .resendState], plus .fetchConfig for a dock
+// (a pick made meanwhile). A reboot (uptime lower)
+// → .resendState and skips the wake check (the resend carries nearby). picks_ver or wake *changing* (not only
+// going up) → .fetchConfig / .sendNearby, so counters that restart at boot still trigger. Misses only count once
+// online; the third in a row → .wentOffline once. FollowMessage cuts vehicle to 7 bytes and dest to 24 like ConfigStop.
 ```
 
-- [ ] **Step 1: Write the failing tests:** `trainPredictionKeepsRn`, `busPredictionKeepsVid` (from the shared
+- [x] **Step 1: Write the failing tests:** `trainPredictionKeepsRn`, `busPredictionKeepsVid` (from the shared
   fixtures), `infoDecodesSnakeCase`, `followEncodesFlat`, `tokenIs32LowerHex`, `tokenNeverInDescription`, and in
   `DeviceWatchTests`: `picksVerUpFetchesConfig`, `wakeUpSendsNearby`, `firstPollIsCameOnlinePlusResend`,
   `rebootResendsState` (uptime drops → `.resendState`), `threeMissesGoOffline` (third nil → `.wentOffline`, once).
-- [ ] **Step 2: Run** `cd ios/CTAKit && swift test`. Expected: FAIL.
-- [ ] **Step 3: Implement** the declarations.
-- [ ] **Step 4: Run** `swift test`. Expected: PASS.
+- [x] **Step 2: Run** `cd ios/CTAKit && swift test`. Expected: FAIL.
+- [x] **Step 3: Implement** the declarations.
+- [x] **Step 4: Run** `swift test`. Expected: PASS.
 - [ ] **Step 5: Commit:** `feat(ctakit): link messages, vehicle on predictions, device watch`.
 
 ### Task 5: The nearby builder and its throttle (Track K)

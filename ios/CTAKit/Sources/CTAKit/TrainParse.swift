@@ -11,7 +11,7 @@ public enum TrainParse {
         return etas.compactMap { e in
             guard let at = CTATime.at(e.arrT, responseTime: tmst, fetched: fetched) else { return nil }
             return Prediction(stopID: e.stpId, route: e.rt, dir: "", dest: e.destNm, at: at,
-                              live: e.isSch == "0", delayed: e.isDly == "1")
+                              live: e.isSch == "0", delayed: e.isDly == "1", vehicle: e.rn)
         }
     }
 
@@ -43,6 +43,7 @@ public enum TrainParse {
         }
         struct ETA: Decodable {
             let stpId: String, rt: String, destNm: String, arrT: String, isSch: String, isDly: String
+            let rn: String?
         }
         struct Route: Decodable { let train: OneOrMany<Train>? }
         struct Train: Decodable {
