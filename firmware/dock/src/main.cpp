@@ -421,8 +421,8 @@ void loop() {
     }
     if (ms - statT >= 30000) {
         statT = ms;
-        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts; internal free %u (min %u), psram free %u; %u CTA requests\n",
-                      frames, frames ? sumDraw / frames : 0, display::timeouts(),
+        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests\n",
+                      frames, frames ? sumDraw / frames : 0, display::timeouts(), static_cast<unsigned>(display::dmaFallbacks()),
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
                       ESP.getFreePsram(), net::requests());
         frames = sumDraw = 0;

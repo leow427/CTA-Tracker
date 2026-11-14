@@ -1235,13 +1235,13 @@ void Canvas::blitNearest(const uint16_t* src, int sw, int sh, uint16_t key, floa
 // ---------- cell grids (the dock map's pixel Chicago) ----------
 
 void Canvas::cells(const uint8_t* grid, int cols, int rows, int x, int y, int cell, const uint32_t* pal, int nPal,
-                   uint32_t version) {
+                   uint32_t version, int skip) {
     nPal = mini(maxi(nPal, 0), 16);
     if (cell < 1 || cols < 1 || rows < 1) return;
     if (rec_) {
         if (Recording::Op* op = rec_->add(*this, kCells)) {
             op->a[0].i = cols; op->a[1].i = rows; op->a[2].i = x; op->a[3].i = y; op->a[4].i = cell;
-            op->a[5].u = version; op->a[6].i = nPal;
+            op->a[5].u = version; op->a[6].i = nPal; op->a[7].i = skip;
             if (uint8_t* d = rec_->reserve(op, sizeof(grid) + nPal * sizeof(uint32_t))) {
                 memcpy(d, &grid, sizeof(grid));
                 memcpy(d + sizeof(grid), pal, nPal * sizeof(uint32_t));
@@ -1264,7 +1264,7 @@ void Canvas::cells(const uint8_t* grid, int cols, int rows, int x, int y, int ce
             const uint8_t v = row[i];
             int k = i + 1;
             while (k <= i1 && row[k] == v) ++k;
-            if (v < nPal) fill565(X0 + i * cell, ya, X0 + k * cell, ya + cell, c565[v]);
+            if (v < nPal && v != skip) fill565(X0 + i * cell, ya, X0 + k * cell, ya + cell, c565[v]);
             i = k;
         }
     }
@@ -1417,7 +1417,7 @@ void Recording::play(Canvas& cv, int b) const {
                 memcpy(&grid, d, sizeof(grid));
                 uint32_t pal[16];
                 memcpy(pal, d + sizeof(grid), a[6].i * sizeof(uint32_t));
-                cv.cells(grid, a[0].i, a[1].i, a[2].i, a[3].i, a[4].i, pal, a[6].i, a[5].u);
+                cv.cells(grid, a[0].i, a[1].i, a[2].i, a[3].i, a[4].i, pal, a[6].i, a[5].u, a[7].i);
                 break;
             }
             default: break;
