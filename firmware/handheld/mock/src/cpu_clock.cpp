@@ -1,8 +1,8 @@
 #include "cpu_clock.h"
 
-#include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <soc/rtc.h>
 #ifdef POWER_LOG
 #include <esp_timer.h>
 #include <freertos/task.h>
@@ -46,22 +46,31 @@ void book() {
 }
 #endif
 
-void set(uint32_t mhz) {   // under mu
+// What Arduino's setCpuFrequencyMhz did here: 80, 160 and 240 MHz all keep the APB at 80 MHz, so only the CPU's
+// divider changes.
+void set(uint32_t to) {   // under mu
 #ifdef POWER_LOG
     book();
 #endif
-    setCpuFrequencyMhz(mhz);
+    rtc_cpu_freq_config_t conf;
+    if (rtc_clk_cpu_freq_mhz_to_config(to, &conf)) rtc_clk_cpu_freq_set_config_fast(&conf);
 #ifdef POWER_LOG
-    nowMhz = getCpuFrequencyMhz();
+    nowMhz = mhz();
 #endif
 }
 
 }  // namespace
 
+uint32_t mhz() {
+    rtc_cpu_freq_config_t conf;
+    rtc_clk_cpu_freq_get_config(&conf);
+    return conf.freq_mhz;
+}
+
 void begin() {
     mu = xSemaphoreCreateMutexStatic(&muBuf);
 #ifdef POWER_LOG
-    nowMhz = getCpuFrequencyMhz();
+    nowMhz = mhz();
     sinceUs = esp_timer_get_time();
     for (int c = 0; c < 2; ++c) idleSince[c] = ulTaskGetIdleRunTimeCounterForCore(c);
 #endif

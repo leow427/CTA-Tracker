@@ -1,15 +1,18 @@
 #ifdef HANDHELD_LIVE   // the mock build has no network
 #include "link.h"
 
-#include <Arduino.h>
-#include <ESPmDNS.h>
-#include <WiFi.h>
 #include <esp_heap_caps.h>
 #include <esp_http_server.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+#include <mdns.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <new>
 
+#include "clock_ms.h"
 #include "live.h"
 #include "nearby_msg.h"
 
@@ -50,9 +53,9 @@ esp_err_t getInfo(httpd_req_t* r) {
     xSemaphoreTake(mu, portMAX_DELAY);
     m = sh->info;
     xSemaphoreGive(mu);
-    m.uptime = millis() / 1000;
-    m.wifiConnected = WiFi.isConnected();
-    snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? WiFi.SSID().c_str() : "");
+    m.uptime = nowMs() / 1000;
+    m.wifiConnected = live::wifiConnected();
+    live::wifiSsid(m.ssid, sizeof(m.ssid));
     char buf[384];
     return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
@@ -138,7 +141,7 @@ esp_err_t change(httpd_req_t* r) {
 void begin(const char* t) {
     void* p = heap_caps_malloc(sizeof(Shared), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!p) {
-        Serial.println("link: out of memory");
+        puts("link: out of memory");
         return;
     }
     sh = new (p) Shared();
@@ -160,12 +163,12 @@ void start(const char* hostLabel) {
     cfg.max_uri_handlers = 10;
     cfg.lru_purge_enable = true;
     if (httpd_start(&server, &cfg) != ESP_OK) {
-        Serial.println("link: httpd didn't start");
+        puts("link: httpd didn't start");
         server = nullptr;
         return;
     }
-    Serial.printf("link: httpd up; internal free %u (min %u)\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    printf("link: httpd up; internal free %u (min %u)\n", static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+           static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)));
     const httpd_uri_t uris[] = {
         {"/info", HTTP_GET, getInfo, nullptr},     {"/config", HTTP_GET, getConfig, nullptr},
         {"/config", HTTP_POST, change, nullptr},    {"/nearby", HTTP_POST, change, nullptr},
@@ -175,16 +178,16 @@ void start(const char* hostLabel) {
     };
     for (const httpd_uri_t& u : uris) httpd_register_uri_handler(server, &u);
     const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx", as in the BLE name
-    if (MDNS.begin(hostLabel)) {
-        MDNS.addService("ctatracker", "tcp", 80);
-        MDNS.addServiceTxt("ctatracker", "tcp", "type", "handheld");
-        MDNS.addServiceTxt("ctatracker", "tcp", "id", id);
-        Serial.printf("link: mDNS up; internal free %u (min %u)\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                      heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    // The service's full names: Arduino's addService("ctatracker", "tcp") added the underscores.
+    mdns_txt_item_t txt[] = {{"type", "handheld"}, {"id", id}};
+    if (mdns_init() == ESP_OK && mdns_hostname_set(hostLabel) == ESP_OK &&
+        mdns_service_add(nullptr, "_ctatracker", "_tcp", 80, txt, 2) == ESP_OK) {
+        printf("link: mDNS up; internal free %u (min %u)\n", static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+               static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)));
     } else {
-        Serial.println("link: mDNS didn't start");
+        puts("link: mDNS didn't start");
     }
-    Serial.printf("link: serving on port 80 as %s.local\n", hostLabel);
+    printf("link: serving on port 80 as %s.local\n", hostLabel);
 }
 
 void setToken(const char* t) {

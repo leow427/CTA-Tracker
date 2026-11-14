@@ -1,3 +1,4 @@
+#ifdef HANDHELD_LIVE   // the mock build has no network
 #include "live_model.h"
 
 #include <stdio.h>
@@ -152,3 +153,4 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
 }
 
 }  // namespace mock
+#endif

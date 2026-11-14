@@ -76,5 +76,9 @@ void resetBurstCount();
 bool read(Snapshot& out, uint32_t& version);
 // Unix time once NTP has synced, else 0.
 uint32_t unixNow();
+// Joined and holding an IP address. Any task may ask.
+bool wifiConnected();
+// The joined network's name into out ("" if none). Any task may ask.
+void wifiSsid(char* out, size_t cap);
 
 }  // namespace live

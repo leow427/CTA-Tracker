@@ -25,7 +25,7 @@ struct Inputs {
     int dataAgeSec = -1;      // the oldest card's data, -1 with none
 };
 
-void begin();                          // after Serial.begin(); prints the column header
+void begin();                          // after the USB serial driver starts; prints the column header
 void header();                         // prints the column header again (at the start of a stress run)
 bool due(uint32_t ms);                 // a sample is due this loop
 void sample(uint32_t ms, const Inputs& in);

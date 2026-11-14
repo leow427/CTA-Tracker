@@ -1,0 +1,4 @@
+dependencies:
+  idf: ">=5.4"
+  espressif/esp_lcd_co5300: "^2.2.0"
+  espressif/mdns: "1.8.2"   # the version arduino-esp32 3.2.0 shipped

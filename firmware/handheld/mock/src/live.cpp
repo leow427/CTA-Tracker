@@ -1,24 +1,32 @@
+#ifdef HANDHELD_LIVE   // the mock build has no network
 #include "live.h"
 
-#include <Arduino.h>
-#include <HTTPClient.h>
-#include <NetworkClientSecure.h>
-#include <Preferences.h>
-#include <WiFi.h>
+#include <esp_crt_bundle.h>
+#include <esp_eap_client.h>
+#include <esp_event.h>
 #include <esp_heap_caps.h>
+#include <esp_http_client.h>
 #include <esp_mac.h>
+#include <esp_netif.h>
+#include <esp_sntp.h>
 #include <esp_wifi.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcpip.h>
-#include <mbedtls/platform.h>
-#include <mbedtls/ssl.h>
+#include <nvs.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/time.h>
 #include <time.h>
 
 #include <new>
 
+#include "clock_ms.h"
 #include "cpu_clock.h"
 #include "cta_config.h"
 #include "link.h"
@@ -41,10 +49,6 @@
 #ifndef WIFI_EAP_USER
 #define WIFI_EAP_USER ""
 #endif
-
-// The ESP-IDF certificate bundle (Mozilla's roots) linked into the framework: TLS is always verified (spec 11).
-extern const uint8_t kCaBundleStart[] asm("_binary_x509_crt_bundle_start");
-extern const uint8_t kCaBundleEnd[] asm("_binary_x509_crt_bundle_end");
 
 namespace live {
 
@@ -101,7 +105,40 @@ void setStatus(const char* s) { snprintf(status, sizeof(status), "%s", s); }
 
 // SNTP, with the servers by address (see netTask). Called again when Wi-Fi comes up without the clock: SNTP sends its
 // first request when started (here, before Wi-Fi is up, so it goes nowhere) and lwIP waits 15 s before the next.
-void startSntp() { configTzTime(cta::kTz, "216.239.35.0", "216.239.35.4", "162.159.200.1"); }
+void startSntp() {   // what Arduino's configTzTime did
+    if (esp_sntp_enabled()) esp_sntp_stop();
+    esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "216.239.35.0");
+    esp_sntp_setservername(1, "216.239.35.4");
+    esp_sntp_setservername(2, "162.159.200.1");
+    esp_sntp_init();
+    setenv("TZ", cta::kTz, 1);
+    tzset();
+}
+
+// ---------- Wi-Fi state, from the driver's events ----------
+
+// The handlers run on the system event task (small stack): they only note what happened; the network task logs it.
+volatile bool wifiUp = false;      // joined, with an IP address
+volatile bool staStarted = false;  // the driver is ready to join
+volatile uint32_t wifiIp = 0;      // network order
+volatile uint8_t discReason = 0;   // wifi_err_reason_t of the last disconnect
+volatile uint32_t discCount = 0;
+
+void onWifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
+        staStarted = true;
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifiUp = false;
+        discReason = static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
+        discCount = discCount + 1;
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        wifiIp = static_cast<ip_event_got_ip_t*>(data)->ip_info.ip.addr;
+        wifiUp = true;
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP) {
+        wifiUp = false;
+    }
+}
 
 // ---------- DNS ----------
 //
@@ -138,8 +175,9 @@ enum class Dns : uint8_t { Ok, NoAnswer, Failed };
 
 // Failed: a negative answer (or no lookup); NoAnswer: lwIP ran out of retries with no answer, as on a network passing
 // no traffic.
-Dns resolve(const char* host, IPAddress& out) {
-    if (out.fromString(host)) return Dns::Ok;
+Dns resolve(const char* host, uint32_t& out) {
+    ip4_addr_t lit;
+    if (ip4addr_aton(host, &lit)) { out = lit.addr; return Dns::Ok; }
     while (xSemaphoreTake(dnsDone, 0) == pdTRUE) {}   // a late answer to a lookup given up on
     static uint32_t lastId = 0;
     if (++lastId == 0) ++lastId;   // 0 means none
@@ -147,99 +185,73 @@ Dns resolve(const char* host, IPAddress& out) {
     snprintf(dnsName, sizeof(dnsName), "%s", host);
     dnsWant = id;
     Dns r = Dns::Failed;
-    const uint32_t t0 = millis();
+    const uint32_t t0 = nowMs();
     if (tcpip_callback(dnsStart, reinterpret_cast<void*>(static_cast<uintptr_t>(id))) == ERR_OK) {
         r = Dns::NoAnswer;
         for (;;) {
-            const uint32_t spent = millis() - t0;
+            const uint32_t spent = nowMs() - t0;
             if (spent >= kDnsWaitMs || xSemaphoreTake(dnsDone, pdMS_TO_TICKS(kDnsWaitMs - spent)) != pdTRUE) break;
             if (dnsGot != id) continue;   // an answer to an earlier lookup, given just before this one began
             // No address after lwIP's own retries ran out is silence; a server's "no such name" arrives within a
             // round trip or two.
-            r = dnsAddr ? Dns::Ok : millis() - t0 >= kDnsSilentMs ? Dns::NoAnswer : Dns::Failed;
-            if (r == Dns::Ok) out = IPAddress(static_cast<uint32_t>(dnsAddr));
+            r = dnsAddr ? Dns::Ok : nowMs() - t0 >= kDnsSilentMs ? Dns::NoAnswer : Dns::Failed;
+            if (r == Dns::Ok) out = dnsAddr;
             break;
         }
     }
     dnsWant = 0;
-    dnsLastMs = millis() - t0;
+    dnsLastMs = nowMs() - t0;
     return r;
 }
 
-// ---------- the connection ----------
+// ---------- the connections ----------
 
-// One HTTPS connection, kept open between train requests. The train API's certificate chain is ECDSA, which this
-// chip checks in software: a full TLS handshake there takes about 2.2 s, so reusing the connection is what makes
-// the stations load in seconds. Only one connection is ever open (each holds about 45 KB, its big buffers in PSRAM): a request
-// to another host closes it first, and those requests (one a minute or rarer) close theirs when done.
+// One esp_http_client handle per host, each keeping its host's last TLS session (save_client_session), so a
+// connection opened again resumes it when the server agrees: the train API's certificate chain is ECDSA, which this
+// chip checks in software, so a full handshake there takes about 2.2 s, and a resumed one about one round trip. A
+// session is only ever offered back to the host it came from, and certificates are checked in full (the certificate
+// bundle) on every handshake that doesn't resume. All of mbedTLS's memory is in PSRAM (sdkconfig.defaults).
 //
-// A connection that has to be opened again resumes the host's last TLS session when the server agrees (the train
-// API does, every minute, when the bus poll has closed its connection): the handshake then skips the certificate
-// checks and the key exchange, and takes about one round trip instead of seconds of CPU and radio time. A server
-// that declines just runs a full handshake. Certificates are checked in full on every handshake that doesn't
-// resume, and a session is only ever offered back to the host it came from.
-// mbedTLS's memory (the dock's net.cpp does the same): this core's build puts all of it in internal RAM (about 33 KB
-// of buffers with a connection open). Its big blocks (the 16 KB record buffer coming in, the 4 KB one going out) go to
-// PSRAM instead, by the rule every other malloc here follows (4 KB and up in PSRAM); the small ones stay internal.
-// Either heap if the other is out.
-constexpr size_t kTlsPsramFrom = 4096;
-void* tlsCalloc(size_t n, size_t size) {
-    if (size && n > SIZE_MAX / size) return nullptr;
-    const uint32_t first = n * size >= kTlsPsramFrom ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL;
-    const uint32_t second = first == MALLOC_CAP_SPIRAM ? MALLOC_CAP_INTERNAL : MALLOC_CAP_SPIRAM;
-    if (void* p = heap_caps_calloc(n, size, first | MALLOC_CAP_8BIT)) return p;
-    return heap_caps_calloc(n, size, second | MALLOC_CAP_8BIT);
-}
-
-class Tls : public NetworkClientSecure {   // NetworkClientSecure keeps these protected
-public:
-    mbedtls_ssl_context* ssl() { return &sslclient->ssl_ctx; }
-    // stop() leaves a failed connection's plain-start flag set, and HTTPClient's connected() check would then poll
-    // the closed socket as a plain one. On core 3.2 it also forgets the CA bundle (3.3 keeps it), and every full
-    // handshake after that would fail for want of a trusted root.
-    void stop() override {
-        NetworkClientSecure::stop();
-        _stillinPlainStart = false;
-        attach_ssl_certificate_bundle(sslclient.get(), true);
-    }
-};
-
+// Only one connection is open at a time: a request to another host closes the open one first. Within one poll pass
+// the due stations share the train API's connection; each pass's bus poll closes it, so the next pass's first
+// station opens it again (resuming its session); the idle close only matters when polling stops.
 struct Conn {
-    Tls tls;
-    HTTPClient http;
-    char host[64] = "";
-    uint32_t lastUsed = 0;
-    int64_t date = 0;   // the last response's Date header (Unix time), 0 without one
-};
-Conn* conn;
-// Within one poll pass the due stations share the connection. Each pass's bus poll (another host) closes it, so
-// the next pass's first station opens it again (resuming its session); this idle close only matters when polling
-// stops.
-constexpr uint32_t kIdleCloseMs = 90000;
-
-// The last session with each host, serialized in PSRAM: it holds the session's master secret, so it never leaves
-// RAM and is never logged.
-struct Session {
     char host[48];
-    uint8_t* data;   // kSessionMax bytes in PSRAM, allocated on first use
-    size_t len;      // 0: none
+    esp_http_client_handle_t h;
+    bool open;          // a kept-alive connection the next request may reuse
+    bool resumable;     // a handshake has finished, so the next one offers its session
+    // Offered sessions failed twice in a row, fast: the host's sessions can't be used, so none is kept. The bus API's
+    // tickets (about 4 KB) don't fit the 4 KB record going out, which fails the handshake before it is sent.
+    uint8_t resumeFails;
+    bool noResume;
+    uint32_t lastUsed;
 };
-constexpr int kSessions = 4;           // one per host: trains, alerts, weather (buses' don't fit, below)
-constexpr size_t kSessionMax = 4096;   // a session with the server's certificate: about 1.2-1.3 KB for those three
-constexpr uint32_t kQuickFailMs = 3000;   // a resuming handshake that fails faster was refused, not lost (openConn)
-Session sessions[kSessions] = {};
-int nextSession = 0;
+constexpr int kConns = 5;   // trains, buses, alerts, weather, and one spare
+Conn conns[kConns] = {};
+constexpr uint32_t kIdleCloseMs = 90000;
+constexpr uint32_t kQuickFailMs = 3000;   // a resuming handshake that fails faster was refused, not lost (fetch)
+// The handshake took less than this: resumed. shortcut: esp_http_client doesn't say whether a session resumed, so
+// the power log's tls event goes by time (a full ECDSA handshake takes about 2.2 s at 240 MHz); read the session from
+// the TLS context if a log ever needs it exact.
+constexpr uint32_t kResumedMs = 1000;
+constexpr int kTimeoutMs = 12000;   // connect, handshake, and each read (HTTPClient's response timeout)
 
-Session* sessionFor(const char* host, bool add) {
-    for (Session& s : sessions)
-        if (s.data && strcmp(s.host, host) == 0) return &s;
-    if (!add) return nullptr;
-    Session& s = sessions[nextSession++ % kSessions];
-    if (!s.data) s.data = static_cast<uint8_t*>(heap_caps_malloc(kSessionMax, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!s.data) return nullptr;
-    snprintf(s.host, sizeof(s.host), "%s", host);
-    s.len = 0;
-    return &s;
+// The response body (decision D6): one buffer in PSRAM for the network task, NUL-terminated.
+// shortcut: a fixed 256 KB cap; grow it only if a real reply hits the cap.
+constexpr size_t kMaxBody = 256 * 1024;
+char* body = nullptr;
+size_t bodyLen = 0;
+
+// From the header event of the response being read.
+int64_t respDate = 0;     // its Date header (Unix time), 0 without one
+bool respClose = false;   // the server will close the connection after it
+
+esp_err_t onHttpEvent(esp_http_client_event_t* e) {   // the network task, inside fetch()
+    if (e->event_id != HTTP_EVENT_ON_HEADER) return ESP_OK;
+    int64_t t;
+    if (strcasecmp(e->header_key, "Date") == 0 && cta::parseHttpDate(e->header_value, t)) respDate = t;
+    if (strcasecmp(e->header_key, "Connection") == 0 && strcasecmp(e->header_value, "close") == 0) respClose = true;
+    return ESP_OK;
 }
 
 // The last request's DNS lookup got no answer at all (the network passing no traffic): netTask rests.
@@ -254,128 +266,146 @@ void hostOf(const char* url, char* out, size_t cap) {
     out[n] = 0;
 }
 
-void closeConn() {
-    conn->tls.stop();
-    conn->host[0] = 0;
+void closeConn(Conn& c) {
+    if (c.h && c.open) esp_http_client_close(c.h);
+    c.open = false;
 }
 
-enum class Open : uint8_t { Ok, Silent, Unreachable, Failed, FailedResuming };
+// Forgets the connection and its session (not what's learned about the host): the next handshake is a full one.
+void dropConn(Conn& c) {
+    if (c.h) esp_http_client_cleanup(c.h);
+    c.h = nullptr;
+    c.open = c.resumable = false;
+}
 
-// Opens conn to host:443: DNS, TCP, then the TLS handshake (resuming the host's last session if there is one). The
-// lookup and the TCP connection only wait on the network, so full speed (fast) starts at the handshake. kind is for
-// the power log, as in get().
-Open openConn(const char* host, cpuclk::Lazy& fast, char kind) {
-    IPAddress ip;
-    const Dns d = resolve(host, ip);
-    if (d != Dns::Ok) {
-        Serial.printf("net: %s for %s\n", d == Dns::NoAnswer ? "no DNS answer" : "DNS lookup failed", host);
-        return d == Dns::NoAnswer ? Open::Silent : Open::Unreachable;
-    }
-    conn->tls.setPlainStart();   // the TCP connection and the TLS setup now, the handshake below
-    if (!conn->tls.connect(ip, 443, host, nullptr, nullptr, nullptr)) return Open::Unreachable;
-    fast.on();
-    Session* s = sessionFor(host, false);
-    bool offered = false;
-    mbedtls_time_t offeredStart = 0;
-    if (s && s->len) {
-        mbedtls_ssl_session saved;
-        mbedtls_ssl_session_init(&saved);
-        if (mbedtls_ssl_session_load(&saved, s->data, s->len) == 0 && mbedtls_ssl_set_session(conn->tls.ssl(), &saved) == 0) {
-            offered = true;
-            offeredStart = saved.MBEDTLS_PRIVATE(start);
+// The handle for url's host, made on first use. nullptr if out of memory.
+Conn* connFor(const char* url, const char* host) {
+    Conn* c = nullptr;
+    for (Conn& k : conns)
+        if (k.host[0] && strcmp(k.host, host) == 0) c = &k;
+    if (!c) {   // a new host: a free slot, else the least recently used
+        for (Conn& k : conns) {
+            if (!k.host[0]) { c = &k; break; }
+            if (!c || k.lastUsed < c->lastUsed) c = &k;
         }
-        mbedtls_ssl_session_free(&saved);
+        dropConn(*c);
+        snprintf(c->host, sizeof(c->host), "%s", host);
+        c->resumeFails = 0;
+        c->noResume = false;
     }
-    const uint32_t t0 = millis();
-    if (!conn->tls.startTLS()) {   // the handshake failed (and the client stopped)
-        if (s) s->len = 0;         // perhaps over the offered session: the next try starts fresh
-        // A server that refuses the session answers at once; a handshake that timed out (lost replies) would only
-        // time out again, so it isn't tried twice.
-        return offered && millis() - t0 < kQuickFailMs ? Open::FailedResuming : Open::Failed;
+    if (!c->h) {
+        esp_http_client_config_t cfg = {};
+        cfg.url = url;
+        cfg.crt_bundle_attach = esp_crt_bundle_attach;   // TLS is always verified (spec 11)
+        cfg.timeout_ms = kTimeoutMs;
+        cfg.event_handler = onHttpEvent;
+        cfg.disable_auto_redirect = true;   // as HTTPClient: a redirect is just a status
+        // Over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (allocations up to it stay internal), so both buffers are in PSRAM.
+        cfg.buffer_size = CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL + 1;
+        cfg.buffer_size_tx = CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL + 1;   // the alerts URL is up to 768 bytes
+        cfg.save_client_session = !c->noResume;
+        c->h = esp_http_client_init(&cfg);
+        c->open = c->resumable = false;
     }
-    // Keep the session, straight from the connection (no copy in internal RAM); a resumed one may have brought a
-    // new ticket. A session too big for its slot isn't kept: the bus API's tickets are about 4 KB, so its
-    // handshakes stay full ones (RSA, about 0.5 s). A resumed session keeps its first handshake's start time; a
-    // full handshake starts a new one.
-    const mbedtls_ssl_session* now = conn->tls.ssl()->MBEDTLS_PRIVATE(session);
-    const bool resumed = now && offered && now->MBEDTLS_PRIVATE(start) == offeredStart;
-    size_t n = 0;
-    if (now && mbedtls_ssl_session_save(now, nullptr, 0, &n) == MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL && n <= kSessionMax) {
-        if (!s) s = sessionFor(host, true);
-        if (s) s->len = mbedtls_ssl_session_save(now, s->data, kSessionMax, &n) == 0 ? n : 0;
-    } else if (s) {
-        s->len = 0;   // the old one is no use now
-    }
-#ifdef POWER_LOG
-    plog::event("tls,%c,%s", kind, resumed ? "resumed" : "full");
-#else
-    (void)kind;
-    (void)resumed;
-#endif
-    return Open::Ok;
+    return c->h ? c : nullptr;
 }
 
-// GETs url, into body unless it's null, and notes the response's Date header (conn->date). Returns the HTTP status,
-// or a negative HTTPClient error. Never logs the URL (it has keys). keep: leave the connection open for the next
-// request to the same host. Full speed (fast) from the handshake, or from the request on a kept-open connection.
-int fetch(const char* url, String* body, bool keep, cpuclk::Lazy& fast, char kind) {
+// GETs url, into body unless wantBody is false, and notes the response's Date header (respDate). Returns the HTTP
+// status, or a negative code as HTTPClient's: -1 no connection, -5 connection lost, -8 out of memory, -10 body over
+// kMaxBody, -11 no response in time. Never logs the URL (it has keys). keep: leave the connection open for the next
+// request to the same host. Full speed (fast) from the connection, or from the request on a kept-open one. kind is
+// for the power log, as in get().
+int fetch(const char* url, bool wantBody, bool keep, cpuclk::Lazy& fast, char kind) {
     lastSilent = false;
-    conn->date = 0;
-    char host[sizeof(conn->host)];
+    respDate = 0;
+    bodyLen = 0;
+    if (body) body[0] = 0;
+    char host[sizeof(Conn::host)];
     hostOf(url, host, sizeof(host));
-    if (strcmp(host, conn->host) != 0) {
-        closeConn();
-        snprintf(conn->host, sizeof(conn->host), "%s", host);
-    }
+    Conn* c = connFor(url, host);
+    if (!c || (wantBody && !body)) return -8;
+    for (Conn& o : conns)
+        if (&o != c) closeConn(o);
     bool fullRetried = false;
     for (int attempt = 0;; ++attempt) {
-        // begin() first: it drops a connected client whose host differs from the last request's, so it has to run
-        // before openConn() makes a new connection. GET() then finds the connection open and sends on it.
-        conn->http.setReuse(true);
-        if (!conn->http.begin(conn->tls, url)) return -1;
-        const bool reused = conn->tls.connected();
-        if (reused) {
-            fast.on();
-        } else {
-            const Open o = openConn(host, fast, kind);
-            if (o != Open::Ok) {
-                closeConn();
-                snprintf(conn->host, sizeof(conn->host), "%s", host);
-                if (o == Open::FailedResuming && !fullRetried) {   // once more, with a full handshake
-                    fullRetried = true;
-                    continue;
-                }
-                lastSilent = o == Open::Silent;
-                return HTTPC_ERROR_CONNECTION_REFUSED;   // what HTTPClient's own connect returned
+        const bool reused = c->open;
+        if (!reused) {
+            uint32_t ip;   // the lookup that tells a silent network from a missing name; lwIP caches the answer
+            const Dns d = resolve(host, ip);
+            if (d != Dns::Ok) {
+                printf("net: %s for %s\n", d == Dns::NoAnswer ? "no DNS answer" : "DNS lookup failed", host);
+                lastSilent = d == Dns::NoAnswer;
+                return -1;
             }
         }
-        const int code = conn->http.GET();
-        if (code == 200 && body) *body = conn->http.getString();
-        int64_t t;
-        if (code > 0 && cta::parseHttpDate(conn->http.header("Date").c_str(), t)) conn->date = t;
-        conn->http.end();   // keeps the connection open when the server allows it
-        conn->lastUsed = millis();
-        if (code == 200 && body) {
-            if (!keep) closeConn();
-            return code;
+        // shortcut: full speed from the TCP connect, not the handshake (esp_http_client does both in open()); that
+        // costs one round trip at 240 MHz. Split them only if the power A/B shows it.
+        fast.on();
+        esp_http_client_set_url(c->h, url);
+        respClose = false;
+        const uint32_t t0 = nowMs();
+        if (esp_http_client_open(c->h, 0) != ESP_OK) {
+            const bool quick = nowMs() - t0 < kQuickFailMs;
+            const bool offered = !reused && c->resumable;
+            closeConn(*c);
+            if (reused && attempt == 0) continue;   // the server had closed the idle connection: retry fresh
+            // A server that refuses the session answers at once; a handshake that timed out (lost replies) would
+            // only time out again, so it isn't tried twice.
+            if (offered && quick && !fullRetried) {
+                fullRetried = true;
+                if (++c->resumeFails >= 2) c->noResume = true;
+                dropConn(*c);
+                if (!connFor(url, host)) return -8;
+                continue;
+            }
+            if (offered) dropConn(*c);   // perhaps over the offered session: the next try starts fresh
+            return -1;
         }
-        closeConn();   // an error or an unread body: start clean next time
-        snprintf(conn->host, sizeof(conn->host), "%s", host);
-        if (code < 0 && reused && attempt == 0) continue;   // the server had closed the idle connection: retry fresh
+        if (!reused) {
+#ifdef POWER_LOG
+            plog::event("tls,%c,%s", kind, c->resumable && nowMs() - t0 < kResumedMs ? "resumed" : "full");
+#else
+            (void)kind;
+#endif
+            if (c->resumable) c->resumeFails = 0;   // an offered session went through
+            c->resumable = !c->noResume;
+        }
+        c->open = true;
+        int code = esp_http_client_fetch_headers(c->h) < 0 ? -11 : esp_http_client_get_status_code(c->h);
+        if (code <= 0 && reused && attempt == 0) {   // the idle connection had died: retry fresh
+            closeConn(*c);
+            continue;
+        }
+        if (code <= 0) code = -11;
+        if (code == 200 && wantBody) {
+            for (;;) {
+                if (bodyLen >= kMaxBody) { code = -10; break; }
+                const int n = esp_http_client_read(c->h, body + bodyLen, kMaxBody - bodyLen);
+                if (n < 0) { code = -5; break; }
+                if (n == 0) break;
+                bodyLen += n;
+            }
+            if (code == 200 && !esp_http_client_is_complete_data_received(c->h)) code = -5;
+            if (code != 200) bodyLen = 0;
+            body[bodyLen] = 0;
+        }
+        c->lastUsed = nowMs();
+        // An error or an unread body: start clean next time, as the server's "Connection: close" does.
+        if (code != 200 || !wantBody || !keep || respClose) closeConn(*c);
         return code;
     }
 }
 
-// kind, for the power log: t trains, b buses, a alerts, w weather.
-int get(const char* url, String& body, char kind, cpuclk::Lazy& fast, bool keep = false) {
+// kind, for the power log: t trains, b buses, a alerts, w weather. The reply is in body/bodyLen.
+int get(const char* url, char kind, cpuclk::Lazy& fast, bool keep = false) {
 #ifdef POWER_LOG
     plog::reqStart(kind);
-    const uint32_t t0 = millis();
-    const int code = fetch(url, &body, keep, fast, kind);
-    plog::reqEnd(kind, code, code == 200 ? body.length() : 0, millis() - t0);
+    const uint32_t t0 = nowMs();
+    const int code = fetch(url, true, keep, fast, kind);
+    plog::reqEnd(kind, code, code == 200 ? bodyLen : 0, nowMs() - t0);
     return code;
 #else
-    return fetch(url, &body, keep, fast, kind);
+    return fetch(url, true, keep, fast, kind);
 #endif
 }
 
@@ -383,20 +413,20 @@ int get(const char* url, String& body, char kind, cpuclk::Lazy& fast, bool keep 
 // guest networks do. Good to about a second, which is plenty for minute countdowns; NTP corrects it if it ever
 // gets through.
 bool clockFromDate(int code) {
-    if (code <= 0 || !conn->date) {
-        Serial.printf("net: clock from HTTP failed (HTTP %d)\n", code);
+    if (code <= 0 || !respDate) {
+        printf("net: clock from HTTP failed (HTTP %d)\n", code);
         return false;
     }
-    const timeval tv = {static_cast<time_t>(conn->date), 0};
+    const timeval tv = {static_cast<time_t>(respDate), 0};
     settimeofday(&tv, nullptr);
-    Serial.println("net: clock set from HTTP (NTP gave nothing)");
+    puts("net: clock set from HTTP (NTP gave nothing)");
     return true;
 }
 
 // The clock from a bare request to the train API, for when there's no station to poll (no nearby list yet).
 bool clockFromHttp() {
     cpuclk::Lazy fast;   // a TLS handshake: full speed, as every request
-    const int code = fetch("https://lapi.transitchicago.com/", nullptr, false, fast, 'c');
+    const int code = fetch("https://lapi.transitchicago.com/", false, false, fast, 'c');
     return clockFromDate(code);
 }
 
@@ -417,7 +447,7 @@ bool takeLink() {
         pinPolled = 0;
         if (pinOf(cta::Kind::Bus)) busPolled = 0;
     }
-    Serial.printf("net: pinned %s, following %s\n", id[0] ? id : "nothing",
+    printf("net: pinned %s, following %s\n", id[0] ? id : "nothing",
                   store.pin() && p.follow > 0 ? p.followMsg.vehicle : p.follow ? "nothing" : "as before");
     return true;
 }
@@ -427,8 +457,10 @@ void publish() {
     if (ntpSynced()) store.updateFollow(static_cast<uint32_t>(time(nullptr)));   // after every poll (spec 5.7)
     clear(*building);
     store.fill(*building);
-    building->wifiUp = WiFi.status() == WL_CONNECTED;
-    building->homeWifi = building->wifiUp && nets->nets[0].ssid[0] && WiFi.SSID() == nets->nets[0].ssid;
+    building->wifiUp = wifiUp;
+    char ssid[33];
+    wifiSsid(ssid, sizeof(ssid));
+    building->homeWifi = building->wifiUp && nets->nets[0].ssid[0] && strcmp(ssid, nets->nets[0].ssid) == 0;
     snprintf(building->status, sizeof(building->status), "%s", status);
     building->requests = requests;
     xSemaphoreTake(mu, portMAX_DELAY);
@@ -474,17 +506,16 @@ void pollStation(int st, uint32_t now) {
     const char* id = store.nearby().trains[st];
     if (now) stationPolled[st] = now;
     if (!cta::trainArrivalsUrl(url, sizeof(url), CTA_TRAIN_KEY, id)) return;
-    String body;
-    const uint32_t t0 = millis();
-    const int code = get(url, body, 't', fast, true);
+    const uint32_t t0 = nowMs();
+    const int code = get(url, 't', fast, true);
     ++requests;
     if (!now) {
         if (!ntpSynced() && !clockFromDate(code)) return;
         now = static_cast<uint32_t>(time(nullptr));
         stationPolled[st] = now;
     }
-    const int n = code == 200 ? store.applyTrains(st, body.c_str(), body.length(), now) : -1;
-    Serial.printf("net: trains %s: HTTP %d, %d cards, %u ms\n", id, code, n, static_cast<unsigned>(millis() - t0));
+    const int n = code == 200 ? store.applyTrains(st, body, bodyLen, now) : -1;
+    printf("net: trains %s: HTTP %d, %d cards, %u ms\n", id, code, n, static_cast<unsigned>(nowMs() - t0));
     if (n < 0) stationPolled[st] = retryStamp(now, sec);
 }
 
@@ -502,13 +533,11 @@ void pollBuses(uint32_t now) {
         if (!listed) ids[n++] = p->id;
     }
     if (!cta::busPredictionsUrl(url, sizeof(url), CTA_BUS_KEY, ids, n)) return;
-    String body;
-    const uint32_t t0 = millis();
-    const int code = get(url, body, 'b', fast);
+    const uint32_t t0 = nowMs();
+    const int code = get(url, 'b', fast);
     ++requests;
-    const int cards = code == 200 ? store.applyBuses(body.c_str(), body.length(), now) : -1;
-    Serial.printf("net: buses, %d stops: HTTP %d, %d cards, %u ms\n", n, code, cards,
-                  static_cast<unsigned>(millis() - t0));
+    const int cards = code == 200 ? store.applyBuses(body, bodyLen, now) : -1;
+    printf("net: buses, %d stops: HTTP %d, %d cards, %u ms\n", n, code, cards, static_cast<unsigned>(nowMs() - t0));
     if (cards < 0) busPolled = retryStamp(now, cta::kHandheldBusPollSec);
 }
 
@@ -532,12 +561,11 @@ void pollPin(uint32_t now) {
     const cta::PickedStop& p = *store.pin();
     pinPolled = now;
     if (!url || !cta::trainArrivalsUrl(url, kUrlCap, CTA_TRAIN_KEY, p.id)) return;
-    String body;
-    const uint32_t t0 = millis();
-    const int code = get(url, body, 't', fast, true);
+    const uint32_t t0 = nowMs();
+    const int code = get(url, 't', fast, true);
     ++requests;
-    const int n = code == 200 ? store.applyPin(body.c_str(), body.length(), now) : -1;
-    Serial.printf("net: pinned %s: HTTP %d, %d cards, %u ms\n", p.id, code, n, static_cast<unsigned>(millis() - t0));
+    const int n = code == 200 ? store.applyPin(body, bodyLen, now) : -1;
+    printf("net: pinned %s: HTTP %d, %d cards, %u ms\n", p.id, code, n, static_cast<unsigned>(nowMs() - t0));
     if (n < 0) pinPolled = retryStamp(now, cta::kHandheldClosePollSec);
 }
 
@@ -549,10 +577,9 @@ void pollAlerts(uint32_t now) {
     const int nRoutes = store.routes(routes, Store::kMaxRoutes);
     // Unplanned disruptions only: elevator outages and planned bus-stop notes would mark nearly every route.
     if (!cta::alertsUrl(url, sizeof(url), routes, nRoutes, true)) return;
-    String body;
-    const int code = get(url, body, 'a', fast);
-    const int n = code == 200 ? store.applyAlerts(body.c_str(), body.length()) : -1;
-    Serial.printf("net: alerts, %d routes: HTTP %d, %d alerted\n", nRoutes, code, n);
+    const int code = get(url, 'a', fast);
+    const int n = code == 200 ? store.applyAlerts(body, bodyLen) : -1;
+    printf("net: alerts, %d routes: HTTP %d, %d alerted\n", nRoutes, code, n);
     if (n < 0) alertsPolled = retryStamp(now, cta::kAlertsPollSec);
 }
 
@@ -561,10 +588,9 @@ void pollWeather(uint32_t now) {
     static char url[160];
     weatherPolled = now;
     if (!cta::weatherUrl(url, sizeof(url), store.nearby().lat, store.nearby().lon)) return;
-    String body;
-    const int code = get(url, body, 'w', fast);
-    const bool ok = code == 200 && store.applyWeather(body.c_str(), body.length());
-    Serial.printf("net: weather: HTTP %d, %s\n", code, ok ? "ok" : "failed");
+    const int code = get(url, 'w', fast);
+    const bool ok = code == 200 && store.applyWeather(body, bodyLen);
+    printf("net: weather: HTTP %d, %s\n", code, ok ? "ok" : "failed");
     if (!ok) weatherPolled = retryStamp(now, cta::kWeatherPollSec);
 }
 
@@ -605,21 +631,38 @@ void burstOne(uint32_t now) {
 }
 #endif
 
+// A blocking scan of every channel, as Arduino's scanNetworks() ran it (active, 100-300 ms a channel). The records
+// (up to max) go to out; returns how many networks were seen in all.
+int scan(wifi_ap_record_t* out, uint16_t max) {
+    wifi_scan_config_t cfg = {};
+    cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+    cfg.scan_time.active.min = 100;
+    cfg.scan_time.active.max = 300;
+    if (esp_wifi_scan_start(&cfg, true) != ESP_OK) return 0;
+    uint16_t found = 0;
+    esp_wifi_scan_get_ap_num(&found);
+    uint16_t n = max;
+    if (esp_wifi_scan_get_ap_records(&n, out) != ESP_OK) n = 0;
+    esp_wifi_clear_ap_list();   // the driver's copy of whatever didn't fit
+    return n < found ? found : n;
+}
+
+constexpr uint16_t kMaxSeen = 24;
+wifi_ap_record_t* seenAps;   // kMaxSeen scan records, in PSRAM (start)
+
 // After a failed join: is the network in reach, and on what? The ESP32-S3 has 2.4 GHz only, and the most common
 // failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Logs only our SSID.
 void reportScan(const char* ssid) {
     const cpuclk::Fast fast;
-    const int n = WiFi.scanNetworks();
-    for (int i = 0; i < n; ++i)
-        if (WiFi.SSID(i) == ssid) {
-            Serial.printf("net: %s is in reach: channel %d, RSSI %d, auth %d\n", ssid, WiFi.channel(i), WiFi.RSSI(i),
-                          static_cast<int>(WiFi.encryptionType(i)));
-            WiFi.scanDelete();
+    const int found = scan(seenAps, kMaxSeen);
+    for (int i = 0; i < found && i < kMaxSeen; ++i)
+        if (strcmp(reinterpret_cast<const char*>(seenAps[i].ssid), ssid) == 0) {
+            printf("net: %s is in reach: channel %d, RSSI %d, auth %d\n", ssid, seenAps[i].primary, seenAps[i].rssi,
+                   static_cast<int>(seenAps[i].authmode));
             return;
         }
-    Serial.printf("net: %s not seen among %d networks on 2.4 GHz; check the name, and that the router offers 2.4 GHz\n",
-                  ssid, n);
-    WiFi.scanDelete();
+    printf("net: %s not seen among %d networks on 2.4 GHz; check the name, and that the router offers 2.4 GHz\n", ssid,
+           found);
 }
 
 // The saved network to join (F1): the strongest in range, skipping the slots in skip (failed or just dropped), or any
@@ -631,23 +674,38 @@ int pickNet(uint8_t skip) {
         if (nets->nets[s].ssid[0]) { only = s; ++saved; }
     if (saved <= 1) return only;
     const cpuclk::Fast fast;
-    constexpr int kMaxSeen = 24;
-    using Name = char[cta::kSsidLen + 1];
-    static Name* names = static_cast<Name*>(heap_caps_malloc(sizeof(Name) * kMaxSeen, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!names) return only;
     cta::SeenNet seen[kMaxSeen];
-    const int found = WiFi.scanNetworks();
-    int n = 0;
-    for (int i = 0; i < found && n < kMaxSeen; ++i) {
-        snprintf(names[n], sizeof(names[n]), "%s", WiFi.SSID(i).c_str());
-        seen[n] = {names[n], static_cast<int8_t>(WiFi.RSSI(i))};
-        ++n;
-    }
-    WiFi.scanDelete();
+    const int found = scan(seenAps, kMaxSeen);
+    const int n = found < kMaxSeen ? found : kMaxSeen;
+    for (int i = 0; i < n; ++i) seen[i] = {reinterpret_cast<const char*>(seenAps[i].ssid), seenAps[i].rssi};
     int slot = cta::strongestSaved(*nets, seen, n, skip);
     if (slot < 0 && skip) slot = cta::strongestSaved(*nets, seen, n, 0);
-    Serial.printf("net: %d networks in reach; joining slot %d\n", n, slot);
+    printf("net: %d networks in reach; joining slot %d\n", n, slot);
     return slot;
+}
+
+// Joins net, as Arduino's WiFi.begin did: a fast scan, the strongest access point, WPA2 or better (open if it has
+// no password), PMF when offered. eapUser: WPA2-Enterprise (PEAP) with this account and net.pass as its password.
+void join(const cta::SavedNet& net, const char* eapUser) {
+    wifi_config_t cfg = {};
+    memcpy(cfg.sta.ssid, net.ssid, strnlen(net.ssid, sizeof(cfg.sta.ssid)));   // all 32 bytes may be used
+    cfg.sta.scan_method = WIFI_FAST_SCAN;
+    cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    cfg.sta.threshold.rssi = -127;
+    cfg.sta.pmf_cfg.capable = true;
+    if (eapUser) {
+        cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_ENTERPRISE;
+        esp_eap_client_set_identity(reinterpret_cast<const uint8_t*>(eapUser), strlen(eapUser));
+        esp_eap_client_set_username(reinterpret_cast<const uint8_t*>(eapUser), strlen(eapUser));
+        esp_eap_client_set_password(reinterpret_cast<const uint8_t*>(net.pass), strlen(net.pass));
+        esp_wifi_sta_enterprise_enable();
+    } else {
+        memcpy(cfg.sta.password, net.pass, strnlen(net.pass, sizeof(cfg.sta.password)));   // a 64-digit hex key fills it
+        cfg.sta.threshold.authmode = net.pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+        esp_wifi_sta_enterprise_disable();
+    }
+    esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    esp_wifi_connect();
 }
 
 void netTask(void*) {
@@ -655,44 +713,40 @@ void netTask(void*) {
     for (const cta::SavedNet& s : nets->nets) anyNet = anyNet || s.ssid[0];
     if (!anyNet || !CTA_TRAIN_KEY[0] || !CTA_BUS_KEY[0]) {
         setStatus(anyNet ? "No API key" : "No Wi-Fi set up");
-        Serial.printf("net: %s; staying offline\n", anyNet ? "no CTA keys in firmware/secrets.h" : "no Wi-Fi saved");
+        printf("net: %s; staying offline\n", anyNet ? "no CTA keys in firmware/secrets.h" : "no Wi-Fi saved");
         publish();
         vTaskDelete(nullptr);
         return;
     }
-    conn = new Conn();
-    conn->tls.setCACertBundle(kCaBundleStart, kCaBundleEnd - kCaBundleStart);
-    conn->tls.setHandshakeTimeout(12);   // seconds; the default is 120 s, long enough to miss a dropped Wi-Fi
-    // The timeouts HTTPClient used to set when it connected: 8 s for the TCP connection (and the socket's reads and
-    // writes), 12 s for a response.
-    conn->tls.setConnectionTimeout(8000);
-    conn->tls.setTimeout(12000);
-    conn->http.setTimeout(12000);
-    conn->http.setConnectTimeout(8000);   // were HTTPClient ever to connect by itself (it then sets the client's too)
-    static const char* dateHeader[] = {"Date"};
-    conn->http.collectHeaders(dateHeader, 1);
-    WiFi.mode(WIFI_STA);
+    // Wi-Fi in station mode, settings in RAM only (as Arduino's WiFi.persistent(false)). Nothing reconnects by itself:
+    // this loop joins and backs off. Why a join or a connection ended comes from the driver's events, in its words
+    // (wifi_err_reason_t: 15 and 204 are a wrong password, 201 the network out of reach, 8 left on purpose); the loop
+    // below logs it.
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_t* sta = esp_netif_create_default_wifi_sta();
+    esp_netif_set_hostname(sta, hostLabel);
+    const wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&wcfg);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_START, onWifiEvent, nullptr);
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, onWifiEvent, nullptr);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, onWifiEvent, nullptr);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, onWifiEvent, nullptr);
+    esp_wifi_set_mode(WIFI_MODE_STA);
 #ifdef WIFI_MAC
     {
         // A replacement MAC from secrets.h, for a router that has blocked the board's own (one did, 2026-11-09,
         // after a reboot loop: it ignored every join from the factory MAC and admitted a new one at once).
         uint8_t mac[6] = WIFI_MAC;
-        Serial.printf("net: using the MAC from secrets.h%s\n", esp_wifi_set_mac(WIFI_IF_STA, mac) == ESP_OK ? "" : " (refused)");
+        printf("net: using the MAC from secrets.h%s\n", esp_wifi_set_mac(WIFI_IF_STA, mac) == ESP_OK ? "" : " (refused)");
     }
 #endif
-    // Why a join or a connection ended, in the driver's words (wifi_err_reason_t: 15 and 204 are a wrong password,
-    // 201 the network out of reach, 8 left on purpose); the loop below logs it. On ESP-IDF's event loop, not
-    // WiFi.onEvent: core 3.2's list of Arduino handlers has no lock, and adding one while its task runs the start
-    // event that mode() just posted could read a freed list. The handler only notes the reason: it runs on the 2 KB
-    // system event task, too small for printf.
-    static volatile uint8_t discReason = 0;
-    static volatile uint32_t discCount = 0;
-    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, [](void*, esp_event_base_t, int32_t, void* data) {
-        discReason = static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
-        discCount = discCount + 1;
-    }, nullptr);
+    esp_wifi_start();
+    // Joining before the driver has started fails with "no AP found" (seen on the first boot on IDF); Arduino's
+    // WiFi.mode() waited for this too.
+    for (int i = 0; i < 200 && !staStarted; ++i) vTaskDelay(pdMS_TO_TICKS(10));
     uint32_t discShown = 0;
-    WiFi.setAutoReconnect(false);   // the driver would rescan right after every miss; this loop backs off instead
     // NTP servers by address, not name: while SNTP's own DNS lookup is pending (as it stays on a network that
     // blocks it), an HTTPS request's hostByName() clears the DNS cache, which runs SNTP's callback outside the
     // TCP/IP lock and trips an lwIP assert (a reboot; seen 2026-11-09, core 3.3). These are time.google.com's and
@@ -720,7 +774,7 @@ void netTask(void*) {
         // many times a second).
         if (discCount != discShown) {
             discShown = discCount;
-            Serial.printf("net: disconnected, reason %u\n", discReason);
+            printf("net: disconnected, reason %u\n", discReason);
         }
         if (nearbyPending) {   // a new list: start over with its stops
             static cta::Nearby n;
@@ -731,53 +785,51 @@ void netTask(void*) {
             store.setNearby(n);
             memset(stationPolled, 0, sizeof(stationPolled));
             busPolled = alertsPolled = weatherPolled = 0;
-            Serial.printf("net: nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
+            printf("net: nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
             restUntil = 0;
             publish();
         }
         if (takeLink()) publish();   // a pin or follow from the app: poll its stop from now on
-        if (conn->host[0] && millis() - conn->lastUsed > kIdleCloseMs) closeConn();
+        for (Conn& c : conns)
+            if (c.open && nowMs() - c.lastUsed > kIdleCloseMs) closeConn(c);
         if (woke) {
             woke = false;
             if (!wasUp && !joining) { lastBegin = 0; retryMs = kWifiRetryMinMs; scanned = false; }
         }
-        if (WiFi.status() != WL_CONNECTED) {
+        if (!wifiUp) {
             if (wasUp) {   // F1: rescan and move to the next strongest saved network
-                Serial.println("net: Wi-Fi lost");
-                esp_wifi_disconnect();   // stops core 3.2's own reconnect try, which would fail pickNet's scan
+                puts("net: Wi-Fi lost");
+                for (Conn& c : conns) closeConn(c);
+                esp_wifi_disconnect();
                 lastBegin = 0;
                 retryMs = kWifiRetryMinMs;
                 skip = slot >= 0 ? static_cast<uint8_t>(1u << slot) : 0;
             }
             wasUp = false;
-            if (joining && millis() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
+            if (joining && nowMs() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
                 setJoining(false);
-                const int why = WiFi.status();
-                esp_wifi_disconnect();   // core 3.2's WiFi.disconnect() skips this until associated, leaving a join running
-                Serial.printf("net: no %s (status %d); next try in %u s\n", nets->nets[slot].ssid, why,
-                              static_cast<unsigned>(retryMs / 1000));
+                esp_wifi_disconnect();   // ends the join still running, so the radio rests
+                printf("net: no %s (reason %u); next try in %u s\n", nets->nets[slot].ssid, discReason,
+                       static_cast<unsigned>(retryMs / 1000));
                 skip |= static_cast<uint8_t>(1u << slot);
                 if (!scanned) {   // once per boot or wake: say whether the network is in reach at all
                     scanned = true;
                     reportScan(nets->nets[slot].ssid);
                 }
             }
-            if (!joining && (lastBegin == 0 || millis() - lastBegin > retryMs)) {
+            if (!joining && (lastBegin == 0 || nowMs() - lastBegin > retryMs)) {
                 if (lastBegin != 0) retryMs = retryMs * 2 > kWifiRetryMaxMs ? kWifiRetryMaxMs : retryMs * 2;
-                lastBegin = millis();
+                lastBegin = nowMs();
                 slot = pickNet(skip);
                 if (slot < 0) {
-                    Serial.printf("net: no saved network in reach; next try in %u s\n", static_cast<unsigned>(retryMs / 1000));
+                    printf("net: no saved network in reach; next try in %u s\n", static_cast<unsigned>(retryMs / 1000));
                     skip = 0;
                 } else {
                     const cta::SavedNet& net = nets->nets[slot];
-                    Serial.printf("net: connecting to %s\n", net.ssid);
+                    printf("net: connecting to %s\n", net.ssid);
                     setJoining(true);
-                    if (slot == 0 && netsFromSecrets && WIFI_EAP_USER[0])
-                        WiFi.begin(net.ssid, WPA2_AUTH_PEAP, WIFI_EAP_USER, WIFI_EAP_USER, net.pass);
-                    else
-                        WiFi.begin(net.ssid, net.pass);
-                    lastBegin = millis();
+                    join(net, slot == 0 && netsFromSecrets && WIFI_EAP_USER[0] ? WIFI_EAP_USER : nullptr);
+                    lastBegin = nowMs();
                 }
             }
             setStatus(joining ? "Connecting to Wi-Fi" : "No Wi-Fi");
@@ -790,7 +842,11 @@ void netTask(void*) {
         if (!wasUp) {
             wasUp = true;
             skip = 0;
-            Serial.printf("net: Wi-Fi up, %s, RSSI %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+            wifi_ap_record_t ap = {};
+            esp_wifi_sta_get_ap_info(&ap);
+            const uint32_t ip = wifiIp;
+            printf("net: Wi-Fi up, %u.%u.%u.%u, RSSI %d\n", static_cast<unsigned>(ip & 0xFF), static_cast<unsigned>(ip >> 8 & 0xFF),
+                   static_cast<unsigned>(ip >> 16 & 0xFF), static_cast<unsigned>(ip >> 24), ap.rssi);
             // The HTTP link, the first time only (it outlives reconnects): before Wi-Fi has an IP, httpd and mDNS
             // assert in lwIP and boot-loop the board.
             lan::start(hostLabel);
@@ -804,11 +860,11 @@ void netTask(void*) {
             // request goes at once and its Date sets the clock (pollStation), so the stops load without waiting for
             // the clock and without a request of its own; with none yet, a bare request after 10 s without NTP.
             static uint32_t waitingSince = 0, lastHttpTry = 0;
-            if (!waitingSince) waitingSince = millis();
+            if (!waitingSince) waitingSince = nowMs();
             if (strcmp(status, "Setting the clock") != 0) { setStatus("Setting the clock"); publish(); }
             const bool station = store.located() && store.nearby().nTrains > 0;
-            if ((station || millis() - waitingSince > 10000) && (!lastHttpTry || millis() - lastHttpTry > 30000)) {
-                lastHttpTry = millis();
+            if ((station || nowMs() - waitingSince > 10000) && (!lastHttpTry || nowMs() - lastHttpTry > 30000)) {
+                lastHttpTry = nowMs();
                 if (station) {
                     pollStation(0, 0);
                     publish();
@@ -831,8 +887,8 @@ void netTask(void*) {
 #ifdef POWER_LOG
         if (burstReset) { burstReset = false; burstCount = 0; burstNext = 0; }
         if (burst && burstCount < kBurstMax) {
-            if (millis() - burstLast >= kBurstGapMs) {
-                burstLast = millis();
+            if (nowMs() - burstLast >= kBurstGapMs) {
+                burstLast = nowMs();
                 ++burstCount;
                 burstOne(static_cast<uint32_t>(time(nullptr)));
                 publish();
@@ -842,12 +898,12 @@ void netTask(void*) {
             continue;
         }
 #endif
-        if (restUntil && static_cast<int32_t>(millis() - restUntil) < 0) {
+        if (restUntil && static_cast<int32_t>(nowMs() - restUntil) < 0) {
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
         }
         restUntil = 0;
-        const uint32_t pollMs = millis();
+        const uint32_t pollMs = nowMs();
         if (pollOne(static_cast<uint32_t>(time(nullptr)))) {
             if (lastSilent) restUntil = pollMs + (dnsLastMs + kOldConnectMs < kSilentGapMs ? dnsLastMs + kOldConnectMs : kSilentGapMs);
             publish();
@@ -861,31 +917,40 @@ void netTask(void*) {
 }  // namespace
 
 void start() {
-    mbedtls_platform_set_calloc_free(tlsCalloc, heap_caps_free);   // before any TLS: blocks are freed where they were made
     mu = xSemaphoreCreateMutex();
     dnsDone = xSemaphoreCreateBinary();
-    published = static_cast<Snapshot*>(ps_malloc(sizeof(Snapshot)));
-    building = static_cast<Snapshot*>(ps_malloc(sizeof(Snapshot)));
-    pendingLink = static_cast<PendingLink*>(ps_calloc(1, sizeof(PendingLink)));
-    nets = static_cast<cta::WifiList*>(ps_calloc(1, sizeof(cta::WifiList)));
-    if (!published || !building || !pendingLink || !nets || !store.init()) { Serial.println("net: out of memory"); return; }
+    constexpr uint32_t kPsram = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    published = static_cast<Snapshot*>(heap_caps_malloc(sizeof(Snapshot), kPsram));
+    building = static_cast<Snapshot*>(heap_caps_malloc(sizeof(Snapshot), kPsram));
+    pendingLink = static_cast<PendingLink*>(heap_caps_calloc(1, sizeof(PendingLink), kPsram));
+    nets = static_cast<cta::WifiList*>(heap_caps_calloc(1, sizeof(cta::WifiList), kPsram));
+    body = static_cast<char*>(heap_caps_malloc(kMaxBody + 1, kPsram));
+    seenAps = static_cast<wifi_ap_record_t*>(heap_caps_malloc(sizeof(wifi_ap_record_t) * kMaxSeen, kPsram));
+    if (!published || !building || !pendingLink || !nets || !body || !seenAps || !store.init()) {
+        puts("net: out of memory");
+        return;
+    }
     clear(*published);
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);   // the factory MAC, as in GET /info's id and the BLE name
     snprintf(hostLabel, sizeof(hostLabel), "cta-pet-%02x%02x", mac[4], mac[5]);
     // The last nearby list (spec 8.3: kept in flash), and the saved networks (F1; written by BLE setup).
-    Preferences prefs;
-    if (prefs.begin("trackie", true)) {
-        const String saved = prefs.getString("nearby", "");
-        if (prefs.getBytesLength("wifi") == sizeof(cta::WifiList)) prefs.getBytes("wifi", nets, sizeof(cta::WifiList));
-        prefs.end();
-        cta::Nearby n;
-        if (saved.length() && cta::parseNearby(saved.c_str(), saved.length(), n)) {
-            store.setNearby(n);
-            Serial.printf("net: saved nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
+    nvs_handle_t h;
+    if (nvs_open("trackie", NVS_READONLY, &h) == ESP_OK) {   // Preferences' entries: a string and a blob
+        size_t len = 0;
+        if (nvs_get_str(h, "nearby", nullptr, &len) == ESP_OK && len > 1 && len <= kMaxBody &&
+            nvs_get_str(h, "nearby", body, &len) == ESP_OK) {
+            cta::Nearby n;
+            if (cta::parseNearby(body, len - 1, n)) {
+                store.setNearby(n);
+                printf("net: saved nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
+            }
         }
+        len = sizeof(cta::WifiList);
+        if (nvs_get_blob(h, "wifi", nets, &len) != ESP_OK || len != sizeof(cta::WifiList)) memset(nets, 0, sizeof(cta::WifiList));
+        nvs_close(h);
     }
-    if (!store.located()) Serial.println("net: no nearby list yet; send one with tools/send_nearby.py");
+    if (!store.located()) puts("net: no nearby list yet; send one with tools/send_nearby.py");
     bool anyNet = false;
     for (cta::SavedNet& s : nets->nets) {
         s.ssid[cta::kSsidLen] = s.pass[cta::kPassLen] = 0;   // whatever flash held
@@ -906,10 +971,19 @@ bool setNearby(const char* json, size_t len) {
     cta::Nearby n;
     if (!mu || !cta::parseNearby(json, len, n)) return false;
     if (!published) return false;   // the network task never started (no memory)
-    Preferences prefs;
-    if (!prefs.begin("trackie", false)) return false;
-    const bool saved = prefs.putString("nearby", String(json, len)) > 0;
-    prefs.end();
+    // Saved as a string, as Preferences' putString did. The caller's buffer isn't NUL-terminated at len, so a copy
+    // (PSRAM: up to cta::kMaxBody) gets one.
+    char* str = static_cast<char*>(heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!str) return false;
+    memcpy(str, json, len);
+    str[len] = 0;
+    nvs_handle_t h;
+    bool saved = nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK;
+    if (saved) {
+        saved = nvs_set_str(h, "nearby", str) == ESP_OK && nvs_commit(h) == ESP_OK;
+        nvs_close(h);
+    }
+    heap_caps_free(str);
     if (!saved) return false;
     xSemaphoreTake(mu, portMAX_DELAY);
     pendingNearby = n;
@@ -962,4 +1036,13 @@ bool read(Snapshot& out, uint32_t& version) {
 
 uint32_t unixNow() { return ntpSynced() ? static_cast<uint32_t>(time(nullptr)) : 0; }
 
+bool wifiConnected() { return wifiUp; }
+
+void wifiSsid(char* out, size_t cap) {
+    wifi_ap_record_t ap;
+    if (cap) out[0] = 0;
+    if (wifiUp && esp_wifi_sta_get_ap_info(&ap) == ESP_OK) snprintf(out, cap, "%s", reinterpret_cast<const char*>(ap.ssid));
+}
+
 }  // namespace live
+#endif

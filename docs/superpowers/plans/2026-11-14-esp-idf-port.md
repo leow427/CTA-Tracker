@@ -263,7 +263,7 @@ Per board:
 | `millis()` | `static inline uint32_t nowMs() { return (uint32_t)(esp_timer_get_time() / 1000); }` in each board's own header | Same 32-bit wrap. Replace mechanically. |
 | `delay(n)` | `vTaskDelay(pdMS_TO_TICKS(n))` | Needs the 1000 Hz tick. |
 | `ESP.getCycleCount()`, `ESP.restart()` | `esp_cpu_get_cycle_count()`, `esp_restart()` | — |
-| `WiFi.*` | `esp_netif_init`, `esp_event_loop_create_default`, `esp_netif_create_default_wifi_sta`, `esp_wifi_init(WIFI_INIT_CONFIG_DEFAULT)`, `esp_wifi_set_storage(WIFI_STORAGE_RAM)` (= `persistent(false)`), `esp_wifi_set_mode(STA)`, `esp_wifi_set_config`, `esp_wifi_connect`/`disconnect`; status from `WIFI_EVENT_STA_DISCONNECTED` / `IP_EVENT_STA_GOT_IP` handlers setting a flag; RSSI and SSID from `esp_wifi_sta_get_ap_info`; scans with `esp_wifi_scan_start(nullptr, true)` + `esp_wifi_scan_get_ap_records` + `esp_wifi_clear_ap_list`; `WIFI_MAC` with `esp_wifi_set_mac` before start; hostname with `esp_netif_set_hostname` | Set `scan_method = WIFI_ALL_CHANNEL_SCAN`, `sort_method = WIFI_CONNECT_AP_BY_SIGNAL` (Arduino's), `threshold.authmode = WIFI_AUTH_WPA2_PSK` and `pmf_cfg.capable = true`. There is no auto-reconnect unless you call it, which is what both join loops already want; the 3.2.0 `WiFi.disconnect()` workaround goes. Event handlers stay tiny: they set flags and copy the reason, and the network task logs it, as now. |
+| `WiFi.*` | `esp_netif_init`, `esp_event_loop_create_default`, `esp_netif_create_default_wifi_sta`, `esp_wifi_init(WIFI_INIT_CONFIG_DEFAULT)`, `esp_wifi_set_storage(WIFI_STORAGE_RAM)` (= `persistent(false)`), `esp_wifi_set_mode(STA)`, `esp_wifi_set_config`, `esp_wifi_connect`/`disconnect`; status from `WIFI_EVENT_STA_DISCONNECTED` / `IP_EVENT_STA_GOT_IP` handlers setting a flag; RSSI and SSID from `esp_wifi_sta_get_ap_info`; scans with `esp_wifi_scan_start(nullptr, true)` + `esp_wifi_scan_get_ap_records` + `esp_wifi_clear_ap_list`; `WIFI_MAC` with `esp_wifi_set_mac` before start; hostname with `esp_netif_set_hostname` | Set `scan_method = WIFI_FAST_SCAN`, `sort_method = WIFI_CONNECT_AP_BY_SIGNAL` (Arduino's, see Track W's notes), `threshold.authmode = WIFI_AUTH_WPA2_PSK` and `pmf_cfg.capable = true`. There is no auto-reconnect unless you call it, which is what both join loops already want; the 3.2.0 `WiFi.disconnect()` workaround goes. Event handlers stay tiny: they set flags and copy the reason, and the network task logs it, as now. |
 | `configTzTime(tz, ip…)` | `esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL)`, `esp_sntp_setservername(i, "<ip>")` ×3, `esp_sntp_init()`, `setenv("TZ", tz, 1)`, `tzset()` | Keep the servers by IP (the lwIP assert note). Restart SNTP on Wi-Fi up, as now. |
 | `HTTPClient` + `NetworkClientSecure` + `Tls` | `esp_http_client` (decision D4): `esp_http_client_open` → `fetch_headers` → `read` loop into the PSRAM body buffer → `close` when not keeping; `esp_http_client_get_status_code`, `get_content_length` (−1 when chunked; `read` handles chunked) | **Response headers:** `esp_http_client_get_header` reads request headers, so take `Date` in the `HTTP_EVENT_ON_HEADER` event handler. **Timeouts:** `timeout_ms` covers connect and read; keep today's values. **Errors:** they are `esp_err_t`, not `HTTPC_ERROR_*`; map them to the same negative codes the perf log prints. **Resume detection:** for the perf log's `tls,resumed|full`, use the connect time, with a one-line `shortcut:` comment (`esp_http_client` doesn't report it). |
 | `Preferences` | `nvs_open(ns)`, then `nvs_get/set_str`, `_u8`, `_u32`, `_blob`, `nvs_commit` | Same namespaces and keys. Arduino's `putFloat`/`getFloat` stored a 4-byte **blob**, so `geoLat`/`geoLon` stay blobs or the saved location is lost. `getUInt` → `u32`. Verify on board that the saved picks, nearby list and token load after the reflash. |
@@ -540,6 +540,28 @@ The original Task 7 from `21a0fd7` (the plan before Appendix A), on IDF.
 
 ## Track W — wearable
 
+**As built (Track W, 2026-11-14):** what the board and the sources showed, against the plan above.
+
+- **Space in the path.** ESP-IDF refuses a build directory with a space in it ("Final Project"), and
+  `-fmacro-prefix-map` breaks on one too. `build_dir = ~/.platformio-dock/build/${PROJECT_HASH}` (one folder per
+  checkout) and `CONFIG_COMPILER_HIDE_PATHS_MACROS=n` fix both.
+- **high_perf parity is in its `qio_opi/include/sdkconfig.h`, not the top-level `sdkconfig`.** It has dynamic Wi-Fi
+  TX buffers and 6-frame block-ack windows (the table's `STATIC_TX_BUFFER` and `RX_BA_WIN=16` are the top-level
+  file's), and the Wi-Fi, SPI, GDMA and peripheral-control code out of IRAM. Dynamic TX buffers also need
+  `CONFIG_SPIRAM_IGNORE_NOTFOUND=y`, or Kconfig silently picks 16 static ones (26 KB of internal RAM). Arduino's WiFi
+  library also set 4 static RX and 4 cached TX buffers at init; on IDF 4 static RX buffers lost packets under a burst
+  (link requests timed out at 4-5 s), so the wearable keeps 8.
+- **Joining:** Arduino 3.2.0's `WiFi.begin` uses `WIFI_FAST_SCAN` (not all-channel), RSSI threshold -127, and copies
+  the full 32-byte SSID and 64-byte password; joining before `WIFI_EVENT_STA_START` fails with reason 201.
+- **mDNS:** pinned to 1.8.2, the version arduino-esp32 3.2.0 shipped. Looking up `cta-pet-xxxx.local` from the Mac
+  waits 5 s for an AAAA answer on either build (no IPv6); `link_send.py` by IP is instant.
+- **TLS:** `esp_http_client` with `save_client_session` resumes the train API (70 ms reopen against about 1.8 s in
+  full). One handle per host. The bus API's ~4 KB ticket overflows the 4 KB outgoing record
+  (`MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL`), so after two fast failures a host stops keeping sessions. The client's buffers
+  must be over `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` (the limit is inclusive) to land in PSRAM.
+- **AXP2101:** folded into `power.cpp` (its only user) instead of a separate `axp2101.*`.
+- **Pixels:** serial `h` hashes four fixed frames through the strip path; identical on both builds.
+
 ### Task W1: The wearable builds and boots on ESP-IDF
 
 **Files:**
@@ -550,8 +572,8 @@ The original Task 7 from `21a0fd7` (the plan before Appendix A), on IDF.
 - Modify: `live.cpp`, `live_model.cpp`, `power.cpp` (wrap them in `#ifdef HANDHELD_LIVE`); `power_log.cpp`,
   `stress.cpp` (`#ifdef POWER_LOG`), the files `build_src_filter` used to exclude
 
-- [ ] **Step 1:** Write the project files, with BLE off and the console on USB-Serial/JTAG.
-- [ ] **Step 2:** `app_main` runs today's setup and loop on core 1. `pio run -e mock` builds once each Arduino
+- [x] **Step 1:** Write the project files, with BLE off and the console on USB-Serial/JTAG.
+- [x] **Step 2:** `app_main` runs today's setup and loop on core 1. `pio run -e mock` builds once each Arduino
   include is stubbed (W2/W3 replace them). The boot line shows IDF 5.4.1 (verify on board).
 
 ### Task W2: Display, touch and PMU without Arduino libraries
@@ -584,7 +606,7 @@ void shutdown();
 
 `power::State` and `power::` functions don't change.
 
-- [ ] **Step 1: The display.** Use `spi_bus_initialize(SPI2_HOST, CO5300_PANEL_BUS_QSPI_CONFIG(38, 4, 5, 6, 7,
+- [x] **Step 1: The display.** Use `spi_bus_initialize(SPI2_HOST, CO5300_PANEL_BUS_QSPI_CONFIG(38, 4, 5, 6, 7,
   kStripBytes), SPI_DMA_CH_AUTO)`, then `esp_lcd_new_panel_io_spi` with CS 12 at 80 MHz, then
   `esp_lcd_new_panel_co5300` (`use_qspi_interface = 1`, RST 39, 16 bpp).
   - **Init commands:** before removing the library, copy `Arduino_CO5300`'s init sequence from `.pio/libdeps` (GFX
@@ -592,7 +614,7 @@ void shutdown();
     mode) is identical.
   - **Offset:** `esp_lcd_panel_set_gap(panel, 6, 0)`.
   - **Brightness:** `esp_lcd_panel_io_tx_param(io, 0x51, &v, 1)` replaces `setBrightness`.
-- [ ] **Step 2: The send task.** `gfx->draw16bitBeRGBBitmap(x, y, px, w, h)` becomes
+- [x] **Step 2: The send task.** `gfx->draw16bitBeRGBBitmap(x, y, px, w, h)` becomes
   `esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, px)`; the bytes are already big-endian panel order, so pass
   them as is.
   - **Wait after each call:** draw_bitmap is **asynchronous**, so take a semaphore given by `on_color_trans_done`
@@ -601,9 +623,9 @@ void shutdown();
     bounds; verify on board).
   - **TE:** no TE sync is in the code today (B1's report isn't on main), so none is added. B1 resumes on the IDF
     send path.
-- [ ] **Step 3: Touch and PMU.** `i2c_new_master_bus` on SDA 15, SCL 14. The touch task (8 ms) reads `cst9217` and,
+- [x] **Step 3: Touch and PMU.** `i2c_new_master_bus` on SDA 15, SCL 14. The touch task (8 ms) reads `cst9217` and,
   once a second, `axp2101`, as now. Touch reset is 40, INT 11. The touch-to-screen mapping `(W-1-ty, tx)` stays.
-- [ ] **Step 4: Pixels.** The serial `profile` command prints the frame hash per screen. On the mock build, check
+- [x] **Step 4: Pixels.** The serial `profile` command prints the frame hash per screen. On the mock build, check
   that Home, Stops, Detail and Dim each hash identically to the `arduino-final` mock build at the same build-time
   clock, and look at the panel once.
 
@@ -612,8 +634,8 @@ void shutdown();
 **Files:** `live.cpp`/`live.h`, `link.cpp` (Task 8), `live_store.*` (unchanged unless it includes Arduino),
 `cpu_clock.cpp`, `power_log.cpp`, `stress.cpp`, `main.cpp` (serial), and a new `src/clock_ms.h` (`nowMs()`).
 
-- [ ] **Step 1:** Make the mechanical swaps (shared table).
-- [ ] **Step 2:**
+- [x] **Step 1:** Make the mechanical swaps (shared table).
+- [x] **Step 2:**
   - `live.cpp`:
     - esp_wifi with the Wi-Fi list joining the strongest (`strongestSaved`), and `homeWifi` from
       `esp_wifi_sta_get_ap_info`'s SSID;
@@ -622,28 +644,34 @@ void shutdown();
     - `tlsCalloc` deleted;
     - `Preferences` → NVS (namespace `trackie`, key `nearby`, a string).
   - `link.cpp`: mDNS with underscores; httpd stack in PSRAM.
-- [ ] **Step 3:** `cpu_clock.cpp`: `setCpuFrequencyMhz` → `rtc_clk_cpu_freq_mhz_to_config` +
+- [x] **Step 3:** `cpu_clock.cpp`: `setCpuFrequencyMhz` → `rtc_clk_cpu_freq_mhz_to_config` +
   `rtc_clk_cpu_freq_set_config` (decision D9).
-- [ ] **Step 4:** Serial on USB-Serial/JTAG per the shared table. The `nearby` line (about 250 bytes) still arrives
+- [x] **Step 4:** Serial on USB-Serial/JTAG per the shared table. The `nearby` line (about 250 bytes) still arrives
   whole: rx buffer 1024.
-- [ ] **Step 5:** `pio run` for `mock`, `live` and `power`; the same grep as D2 is clean.
+- [x] **Step 5:** `pio run` for `mock`, `live` and `power`; the same grep as D2 is clean.
 
 ### Task W4: Wearable board checks against the gates
 
-- [ ] **Boot, pixels, touch:** W2 Step 4's hashes. Gestures as listed in the handheld README ("Using it"). With no
+- [x] **Boot, pixels, touch:** W2 Step 4's hashes. Gestures as listed in the handheld README ("Using it"). With no
   monitor attached, the loop keeps running past 60 s (the USB print bug).
-- [ ] **Network:**
+- [x] **Network:**
   - `send_nearby.py` fills the cards;
   - `link_send.py cta-pet-xxxx.local info`, `nearby`, `pin` and `follow` behave as Task 8's Step 3;
   - `--burst` answers all 20 within 500 ms (Arduino 33–132 ms); `--garbage` gives 400/413/401/401;
   - `dns-sd -B _ctatracker._tcp` lists it.
-- [ ] **RAM:** internal minimum over TLS polling plus the burst **≥ 40 KB** and not below Arduino's 73.2 KB.
-- [ ] **Power:** `python3 tools/power_run.py`, interleaved A/B against `arduino-final`, under the power analysis
+- [x] **RAM:** internal minimum over TLS polling plus the burst **≥ 40 KB** and not below Arduino's 73.2 KB.
+- [x] **Power:** `python3 tools/power_run.py`, interleaved A/B against `arduino-final`, under the power analysis
   rules (`docs/superpowers/specs/2026-11-09-handheld-power-analysis-design.md`). Dim idle within 5% of 40.2 mA, and
   projected battery life ≥ 44.7 h (5% under 47.1). Stops scroll no slower than today (about 23 fps, 27 ms frames).
-- [ ] **TLS:** the train host resumes (power log `tls` events).
-- [ ] **Commit:** review first, then `feat(handheld): native ESP-IDF build, no Arduino`, and write the run results
+- [x] **TLS:** the train host resumes (power log `tls` events).
+- [x] **Commit:** review first, then `feat(handheld): native ESP-IDF build, no Arduino`, and write the run results
   into `docs/power/log.md`.
+- *Result (2026-11-14):* `h` hashes identical to arduino-final's on 4 screens; the loop ran 30 min after a flash
+  with no monitor; mDNS browse lists it; `--garbage` 400/413/401/401; `--burst` by IP during routine polls 28-200 ms,
+  but right after a `nearby` (overlapping the first full handshake) 26-779 ms with one over 500 on either build
+  (arduino-final 25-529 ms, same network, same minute); internal RAM minimum 114 KB over the stress test
+  (Arduino 66; the stress test includes its own network burst) and 124 KB over normal polling; power passes (log.md); train TLS resumes. Touch gestures and
+  a look at the panel are Leo's.
 
 ### Task W5: Measure BLE on the wearable
 
