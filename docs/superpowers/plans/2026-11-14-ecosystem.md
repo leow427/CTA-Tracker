@@ -532,8 +532,15 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
 enum TokenStore { static func token() -> String?; static func setToken(_ t: String) }   // Keychain
 ```
 
-- [ ] **Step 1:** Implement: `NWBrowser` for `_ctatracker._tcp`, resolve to an IP, remember `lastIP`, fall back to
+- [x] **Step 1:** Implement: `NWBrowser` for `_ctatracker._tcp`, resolve to an IP, remember `lastIP`, fall back to
   it when Bonjour finds nothing; every write adds the bearer token; each poll feeds `DeviceWatch`.
+  *As built:* `lastIP` holds `"ip:port"` (IPv4, so the fake board's port works too); `devices: [Device]` is a settable,
+  saved list on `DeviceLink` (Tasks 11–12 add and forget through it); `DeviceLink.pollSec = 2` lives in the app since
+  `Config` is CTAKit's; AppModel calls `setActive` from `UIApplication` did-become-active / will-resign-active. The
+  app had no test target, so this task adds `CTATrackerTests` (hosted, Swift Testing, `ios/CTATrackerTests/`) for the
+  pure parts (`DeviceLinkTests`); `Info.plist` is excluded from the synced folder's resources. Run the tests with
+  ad-hoc signing (`CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=`): the Keychain test needs a
+  signed app, and `CODE_SIGNING_ALLOWED=NO` fails it.
 - [ ] **Step 2: Verify against the fake board:** `python3 tools/link_send.py --serve --type dock` on the Mac, app on
   the iPhone on the same network: the local network prompt appears once, the fake board shows as online, and
   stopping the server shows "Not connected" within 6 s.

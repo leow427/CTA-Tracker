@@ -10,6 +10,9 @@ import SwiftUI
 
     let index: StopIndex?
     let location = LocationService()
+    /// The dock and wearable on this Wi-Fi (ecosystem spec 4.2), polled only while the app is active.
+    let devices = DeviceLink()
+    @ObservationIgnored private var lifecycle: [NSObjectProtocol] = []
 
     /// The list follows this: the user's location, or wherever the map was panned to.
     var center: CLLocationCoordinate2D = AppModel.loop { didSet { rebuild() } }
@@ -43,6 +46,13 @@ import SwiftUI
         let stops = index
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
+        let nc = NotificationCenter.default
+        lifecycle = [(UIApplication.didBecomeActiveNotification, true), (UIApplication.willResignActiveNotification, false)]
+            .map { name, active in
+                nc.addObserver(forName: name, object: nil, queue: .main) { [devices] _ in
+                    MainActor.assumeIsolated { devices.setActive(active) }
+                }
+            }
     }
 
     func stop(for slot: Slot) -> Stop? {
