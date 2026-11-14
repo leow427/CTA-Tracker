@@ -327,16 +327,23 @@ void finish(Model& m) {
     sortCards(m.buses, m.nBuses);
 
     // On the heap, so the device puts these 16 KB in PSRAM (internal RAM is for Wi-Fi and TLS).
-    static cta::StopRecord* const recs = new cta::StopRecord[2 * kMaxCards];
-    static bool eligible[2 * kMaxCards];
-    static const Card* owners[2 * kMaxCards];
+    constexpr int kMaxRecs = 2 * kMaxCards + 1;   // both lists, and a pinned stop that isn't in them
+    static cta::StopRecord* const recs = new cta::StopRecord[kMaxRecs];
+    static bool eligible[kMaxRecs];
+    static const Card* owners[kMaxRecs];
     int n = 0;
     for (int i = 0; i < m.nTrains; ++i) { recs[n] = m.trains[i].rec; owners[n] = &m.trains[i]; eligible[n++] = m.trains[i].close; }
-    const int firstBus = n;
     for (int i = 0; i < m.nBuses; ++i) { recs[n] = m.buses[i].rec; owners[n] = &m.buses[i]; eligible[n++] = m.buses[i].close; }
+    // The pinned stop counts as close for Hyped (ecosystem spec 5.6), also when no list card shows it.
+    bool listed = false;
+    for (int i = 0; i < n && !listed; ++i)
+        listed = strcmp(recs[i].id, m.pin.rec.id) == 0 && strcmp(recs[i].route, m.pin.rec.route) == 0 &&
+                 strcmp(recs[i].dir, m.pin.rec.dir) == 0;
+    if (m.hasPin && !listed && m.pin.rec.count) { recs[n] = m.pin.rec; owners[n] = &m.pin; eligible[n++] = true; }
+    auto isBus = [&](int i) { return recs[i].type == cta::Kind::Bus; };
 
     const int lm = localMinutes(now);
-    bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+    bool night = m.night(lm);
 #ifdef POWER_LOG
     if (stress::running()) night = false;   // stress-v2: every run measures daytime behaviour, whatever the hour
 #endif
@@ -358,7 +365,7 @@ void finish(Model& m) {
     // The home card: fresh before stale, then a close stop, then the soonest.
     const Card* soonest = nullptr;
     int soonestIdx = -1;
-    static bool fresh[2 * kMaxCards];
+    static bool fresh[kMaxRecs];
     for (int i = 0; i < n; ++i) fresh[i] = !cta::isStale(recs[i], now);
     for (int i = 0; i < n; ++i) {
         if (!recs[i].count) continue;
@@ -368,7 +375,7 @@ void finish(Model& m) {
         else if (!better) better = recs[i].arrivals[0].min < soonest->rec.arrivals[0].min;
         if (better) { soonest = owners[i]; soonestIdx = i; }
     }
-    const bool soonestBus = soonestIdx >= firstBus;
+    const bool soonestBus = soonestIdx >= 0 && isBus(soonestIdx);
     if (m.docked) {
         m.glance = soonest; m.glanceIsBus = soonestBus;
         if (m.battery < 0) snprintf(m.reason, sizeof(m.reason), "On USB power");
@@ -387,20 +394,20 @@ void finish(Model& m) {
         case cta::Mood::Hyped:
             for (int i = 0; i < n; ++i)
                 if (eligible[i] && fresh[i] && recs[i].count && recs[i].arrivals[0].live && recs[i].arrivals[0].min <= cta::kHypedMaxMin) {
-                    say(m, owners[i], i >= firstBus, recs[i].arrivals[0].min <= 1 ? "%s is due!" : "%s in %d min!", recs[i].arrivals[0].min);
+                    say(m, owners[i], isBus(i), recs[i].arrivals[0].min <= 1 ? "%s is due!" : "%s in %d min!", recs[i].arrivals[0].min);
                     return;
                 }
             break;
         case cta::Mood::Sad:
             for (int i = 0; i < n; ++i)
-                if (recs[i].alert && fresh[i]) { say(m, owners[i], i >= firstBus, i >= firstBus ? "%s alert" : "%s Line alert", 0); return; }
+                if (recs[i].alert && fresh[i]) { say(m, owners[i], isBus(i), isBus(i) ? "%s alert" : "%s Line alert", 0); return; }
             break;
         case cta::Mood::Worried:
             for (int i = 0; i < n; ++i)
                 if (fresh[i] && recs[i].count && recs[i].arrivals[0].delayed) {
                     // CTA flags a delay without saying how long; only the mock knows the minutes.
-                    if (owners[i]->delayMin > 0) say(m, owners[i], i >= firstBus, "%s is %d min late", owners[i]->delayMin);
-                    else say(m, owners[i], i >= firstBus, "%s is running late", 0);
+                    if (owners[i]->delayMin > 0) say(m, owners[i], isBus(i), "%s is %d min late", owners[i]->delayMin);
+                    else say(m, owners[i], isBus(i), "%s is running late", 0);
                     return;
                 }
             break;

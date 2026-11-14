@@ -548,16 +548,70 @@ struct Inbox { bool config; cta::ConfigMsg cfg; bool nearby; char nearbyJson[cta
                bool reset; };
 }
 namespace live {
-void setPin(const cta::PickedStop* stop);        // nullptr clears
-void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f->stop
+void setPin(const cta::PickedStop* stop);        // nullptr clears the pin and ends the follow
+void setFollow(const cta::FollowMsg* f);         // nullptr clears the follow; a follow also pins f->stop
 }
+// Contract: setPin(nullptr) clears the published snapshot's hasPin and hasFollow under mu and bumps its version at
+// once, so the loop's next read() drops them (not on the network task's next pass: main.cpp rebuilds the model from
+// the cached snapshot every second, and a swipe-unpin would come back for 1-3 s). setFollow(nullptr) does the same
+// for hasFollow. A snapshot the network task was building when the clear came is cleared too before it's published.
 // live::Snapshot gains: bool hasPin; Rec pin; bool hasFollow; cta::FollowView follow;
 ```
 
-- [ ] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET/POST /config` (pet, settings), `POST /nearby`,
+**As built (worker notes):**
+- Namespace **`lan`** in `link.h/.cpp`, as on the dock (newlib's `link()`); `link.cpp` is wrapped in
+  `HANDHELD_LIVE`, so `platformio.ini` is unchanged. Same calls as the dock: `lan::begin(token)` in `setup()`,
+  `setToken`, `setInfo`, `setConfig`, `take`, `stackLeft` (printed in the 10 s stats line). `lan::start` runs from the
+  network task the first time Wi-Fi is up (never before an IP; later reconnects do nothing). httpd: core 0, 8 KB stack
+  in PSRAM, 3 sockets, 10 handlers. Boot logs internal free (and its minimum) after httpd and after mDNS.
+- **The inbox is smaller than planned:** a pin or follow goes straight from the handler to `live::setPin` /
+  `live::setFollow`, which only copy it under `live`'s mutex for the network task (RAM only, so safe on httpd's PSRAM
+  stack). The inbox carries what touches flash or reboots: `config` (pet, settings; `stops` ignored), `nearby` (raw
+  JSON, checked with `parseNearby` in the handler, saved and applied by the loop through `live::setNearby`), `reset`,
+  `openBle`. The loop's copy of the inbox is in PSRAM (it holds a 1 KB body).
+- Checks run size (413 from `Content-Length`), token (401), JSON (400). POST `/config`, `/nearby`, `/pin`, `/follow`
+  need a body; any body on `DELETE /pin`, `DELETE /follow`, `/ble`, `/reset` must parse (`parseConfig`, `{}` is fine).
+- `live::Store` keeps the pin and follow. The pin polls at `kHandheldClosePollSec` with no duplicate request: a
+  bus pin's stop joins the batched bus poll (stpid list, at most 6 of Bus Tracker's 10); a train pin at a listed
+  station makes that station poll at the close rate; only a train pin outside the list has its own poll, a 6th
+  `Station` slot (one PSRAM block with the others). `followView` gets every record at the pinned stop, from its own poll and
+  the nearby list's, one per line and direction (the newer `ts`); it runs on every `publish()` once the clock is set.
+  `Snapshot` gains `hasPin`, `pin` (with no data yet: the pin's names, no arrivals, `ts` 0), `hasFollow`, `follow`.
+  The pin's ID joins `Snapshot::close` (now `kHypedClosestStops + 1`), so its list cards hype; `mock::finish` also
+  passes the pin's card to `deviceMood` as eligible when no list card is the same stop, line and direction. A pin at another stop ends the
+  follow; a new pin at the same stop keeps it. Docking (`model.docked` going true) calls `live::setPin(nullptr)`.
+  `live::Store` itself moved to PSRAM. `fromLive` copies `hasPin`/`pin`/`hasFollow`/`follow` into Task 18's
+  `mock::Model` fields, building `pin` with the lists' card code (`trainLooks`/`busLooks`: heading, compass, pips
+  from the same station's other lines) and counting the follow's minutes down with the card's. `mock_data.h`
+  includes `live.h` for `setPin`/`setFollow` instead of redeclaring them (the weak stubs in `mock_data.cpp` stay).
+  `tools/live_test.cpp` checks the pin, the follow, and the model's pin card.
+- Wi-Fi (F1): the list is read from NVS (`trackie`/`wifi`, a `cta::WifiList` blob that Task 9's BLE setup writes);
+  with none saved, `secrets.h`'s network is slot 0 (keeping `WIFI_EAP_USER`). With one saved network the join is as
+  before (no scan). With several, each join attempt scans and takes `strongestSaved`, skipping slots that failed or
+  just dropped (all skipped → any in range); attempts keep the old 15 s–5 min backoff. `homeWifi` is slot 0. On a
+  drop, `esp_wifi_disconnect()` first: core 3.2's own reconnect try would fail the rescan (`ESP_ERR_WIFI_STATE`).
+- **TLS buffers in PSRAM:** `live::start` sets `mbedtls_platform_set_calloc_free(tlsCalloc, heap_caps_free)`, as
+  the dock's `net.cpp` does: blocks of 4 KB and up (the 16 KB and 4 KB record buffers) go to PSRAM. This board's
+  build had all of TLS in internal RAM (about 33 KB), which with httpd, mDNS (1.9 KB static, a 4 KB task stack) and a
+  request's JSON pools would have gone under the 40 KB floor during a handshake. Not done: the link's
+  `JsonDocument`s still use the default (internal) heap for their small pools; move them if the board says so.
+- **Reset gesture: two fingers held 10 s, not three.** The CST9217 reports at most two points, and a read with more
+  comes back as none, so three fingers can't be seen. A one-finger read or 40 ms with no point restarts the hold
+  (the controller's empty reads between reports are shorter). The 650 ms two-finger debug cycle still fires first;
+  harmless. `R` / `POST /reset` / the hold forget `wifi` and `token` (pet and settings stay); the board then rejoins
+  `secrets.h`'s network. Serial `T <32 hex>` sets the token (never echoed; the line buffer is wiped).
+- Settings: `screen` scales full brightness (220) by percent; night hours go to `mock::Model::nightStart`/`nightEnd`
+  (default `kNightStartMin`/`kNightEndMin`; `Model::night()` wraps a span past midnight), used for slow polling and
+  by `finish()` for the mood (Sleepy, Sad) and the reason; `led` is ignored (no LEDs). Pet and settings are saved to NVS only when
+  they changed.
+- **Pet recolor waits on Task 6:** the wearable draws Trackie through `ui::drawPet`, which reads
+  `pet::kDefaultPalette565` on `main` today. `main.cpp` keeps a palette copy with `pet::applyColors` applied and a
+  commented `ui::petPalette565 = petPalette;` marked `shortcut:`; uncomment it when Task 6's `card_theme` change merges.
+
+- [x] **Step 1:** Implement `link.cpp`: endpoints `GET /info`, `GET/POST /config` (pet, settings), `POST /nearby`,
   `POST/DELETE /pin`, `POST/DELETE /follow`, `POST /reset`, same error rules as the dock (`POST /pair` comes in
-  Task 9).
-- [ ] **Step 2:** Wire `live`: the pinned stop is polled at the 3 closest stations' rate even when not nearby and
+  Task 9). As built it also serves `POST /ble` (from the earlier BLE plan); Task 9 replaces it.
+- [x] **Step 2:** Wire `live`: the pinned stop is polled at the 3 closest stations' rate even when not nearby and
   counts as close for Hyped; the follow is evaluated with `followView` after every poll of its stop and cleared by
   `followExpired`. Pass `followView` the raw polled records (`live_store`'s, not `live_model`'s counted-down
   cards), keyed by the parent station ID (4xxxx) a follow carries; when the pinned stop and the nearby list both
@@ -566,8 +620,16 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears; also pins f-
 - [ ] **Step 3: Verify on the board:** `link_send.py cta-pet-xxxx.local nearby '<json>'` fills the cards (same as
   `send_nearby.py`); `pin` then `info`; `follow` with a live `rn` from a current arrival counts down in the serial
   log; `--burst` during a station poll: every request answers within 500 ms; `--garbage` gives 400/413/401/401.
-- [ ] **Step 4: Verify power:** `tools/power_run.py` dim, app closed: within 5% of `docs/power/summary.md`.
-- [ ] **Step 5: Commit:** `feat(handheld): HTTP link (nearby, pin, follow, config), Wi-Fi list joins the strongest`.
+  *Result (2026-11-14, from the Mac by IP; the screen check left for later):* `nearby` 200 and the station polls
+  ran at once; `--burst` straight after it, overlapping all 5 station polls and the bus poll: 20/20 answered 200 in
+  33-132 ms; `--garbage` 400/413/401/401; a bus pin outside the list gave `net: buses, 6 stops` and no pinned
+  request; a train pin plus a follow (live `rn`) went due, arrived, then cleared. Lowest internal free over the run
+  73.2 KB (floor 40 KB). The weather request failed once at boot (`startTLS: -1`), then worked.
+- [x] **Step 4: Verify power:** `tools/power_run.py` dim, app closed: within 5% of `docs/power/summary.md`.
+  *Result:* one A/B run at the same hour (A = cc4f38f, B = this task; the second A was cut short). Dim idle 39.4 →
+  40.2 mA (+2.2%), awake still +7.0%, scroll +3.0%, churn +5.2%, burst −4.6%, everything −0.6%; 48.4 → 47.1 h.
+  Lowest internal RAM 43 → 68 KB (TLS buffers in PSRAM). Single runs, so the noise isn't known.
+- [x] **Step 5: Commit:** `feat(handheld): HTTP link (nearby, pin, follow, config), Wi-Fi list joins the strongest`.
 
 ### Task 9: Wearable pairing over the network (Track H)
 

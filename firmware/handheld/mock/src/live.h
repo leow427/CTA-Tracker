@@ -9,7 +9,9 @@
 
 #include "cta_config.h"
 #include "cta_types.h"
+#include "follow.h"
 #include "nearby_msg.h"
+#include "picks.h"
 
 namespace live {
 
@@ -28,8 +30,16 @@ struct Snapshot {
     int nBuses = 0;
     bool loaded = false;       // every stop has been polled once
     bool located = false;      // a nearby list has arrived (spec 6.3: Sleepy until then)
-    char close[cta::kHypedClosestStops][cta::Nearby::kIdLen];   // the 3 closest stops: only these may hype
+    // The 3 closest stops, plus the pinned one (ecosystem spec 5.6): only these may hype.
+    char close[cta::kHypedClosestStops + 1][cta::Nearby::kIdLen];
     int nClose = 0;
+    // The pinned stop (ecosystem spec 5.6): its card for the pin's line and direction, the newer of its own poll and
+    // the nearby list's; with no data yet, the pin's names and no arrivals (ts 0).
+    bool hasPin = false;
+    Rec pin;
+    // The followed vehicle on the pinned card (spec 5.7).
+    bool hasFollow = false;
+    cta::FollowView follow;
     bool wifiUp = false;
     bool homeWifi = false;     // on the first saved network (spec 8.4); the prototype has one
     char status[40] = "";      // what the network side is doing when there's no data: for Trackie's reason
@@ -51,6 +61,11 @@ void setSlow(bool slow);
 bool setNearby(const char* json, size_t len);
 // A wake (spec 8.2): with no Wi-Fi, try to join now instead of waiting out the backoff.
 void wake();
+// The pinned stop (ecosystem spec 5.6; RAM only): polled at the close stations' rate from the next pass on. nullptr
+// clears it and any follow. A pin at another stop also ends the follow. The httpd task may call these two.
+void setPin(const cta::PickedStop* stop);
+// The followed vehicle (spec 5.7): also pins f->stop. nullptr clears the follow and keeps the pin.
+void setFollow(const cta::FollowMsg* f);
 #ifdef POWER_LOG
 // The stress test's network burst (test only): fetch the next stop, the alerts, or the weather every 2 s,
 // at most 180 per run; resetBurstCount() starts a run's count over.

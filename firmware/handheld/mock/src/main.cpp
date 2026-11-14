@@ -20,8 +20,16 @@
 #include "touch_filter.h"
 #include "ui.h"
 #ifdef HANDHELD_LIVE
+#include <Preferences.h>
+#include <esp_mac.h>
+
+#include <new>
+
+#include "link.h"
 #include "live.h"
 #include "live_model.h"
+#include "pet_palette.h"
+#include "pet_sprites.h"
 #include "power.h"
 #include "cta_config.h"
 #endif
@@ -37,6 +45,7 @@ constexpr int kLcdCs = 12, kLcdSclk = 38, kLcdD0 = 4, kLcdD1 = 5, kLcdD2 = 6, kL
 constexpr int kSda = 15, kScl = 14, kTpInt = 11, kTpRst = 40;
 constexpr int W = ui::W;
 constexpr uint8_t kFullBrightness = 220;
+uint8_t fullBrightness = kFullBrightness;   // the app's screen brightness (config.settings.screen) of kFullBrightness
 
 Arduino_DataBus* bus = new Arduino_ESP32QSPI(kLcdCs, kLcdSclk, kLcdD0, kLcdD1, kLcdD2, kLcdD3);
 Arduino_CO5300* gfx = new Arduino_CO5300(bus, kLcdRst, 0, W, W, 6, 0, 0, 0);
@@ -131,7 +140,7 @@ uint16_t frameSeq = 0;
 
 // The end of a frame: the brightness to apply once it's all on the panel.
 void queueEnd() {
-    wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
+    wantBrightness = static_cast<uint8_t>(fullBrightness * ui::brightness(app, model));
 #ifdef POWER_LOG
     plog::frameQueued(frameSeq);
     const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
@@ -238,6 +247,10 @@ QueueHandle_t touchEvents;   // touchf::Event
 portMUX_TYPE pwLock = portMUX_INITIALIZER_UNLOCKED;
 power::State pwShared;
 volatile bool offReq = false;   // serial "O": this task turns the board off
+// The hidden reset (ecosystem spec 5.4): two fingers held 10 s anywhere. The CST9217 reports at most two points
+// (more read as none), so the dock's three fingers can't be seen here. Seen in this task, done by the loop.
+constexpr uint32_t kResetHoldMs = 10000;
+volatile bool resetReq = false;
 #endif
 
 void touchTask(void*) {
@@ -263,6 +276,19 @@ void touchTask(void*) {
 #endif
         int16_t x[2], y[2];
         const uint8_t n = touch.getPoint(x, y, 2);
+#ifdef HANDHELD_LIVE
+        // The reset hold: a read of one finger restarts it, as does no point for longer than the gaps between the
+        // controller's reports (touchf::Filter's 40 ms).
+        static uint32_t twoSince = 0, twoSeen = 0;
+        const uint32_t now = millis();
+        if (n >= 2) {
+            if (!twoSince) twoSince = now | 1;
+            twoSeen = now;
+        } else if (n == 1 || now - twoSeen > 40) {
+            twoSince = 0;
+        }
+        if (twoSince && now - twoSince >= kResetHoldMs) resetReq = true;
+#endif
         touchf::Event ev[2];
         const int k = filter.feed(millis(), n, static_cast<int16_t>(W - 1 - y[0]), x[0], ev);
         for (int i = 0; i < k; ++i) {
@@ -275,6 +301,87 @@ void touchTask(void*) {
 }
 
 bool touchLog = false;   // serial "t": print every touch sample and what each release did
+
+#ifdef HANDHELD_LIVE
+// ---------- the link (ecosystem spec 4–5): what the app set, kept in NVS ("trackie") ----------
+
+// Pet and settings: what GET /config serves. In PSRAM, as the model: internal RAM is for Wi-Fi and TLS.
+cta::ConfigMsg& linkCfg = *new (heap_caps_malloc(sizeof(cta::ConfigMsg), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) cta::ConfigMsg();
+cta::InfoMsg info = {};   // what GET /info serves
+uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
+lan::Inbox* inbox;        // the loop's copy of the link's writes (PSRAM: it holds a 1 KB body)
+
+void applyPet() {
+    memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
+    if (linkCfg.hasPet) pet::applyColors(petPalette, linkCfg.pet.colors);
+    // shortcut: Trackie keeps the default colors until the dock's Task 6 adds ui::petPalette565 to card_theme; then:
+    // ui::petPalette565 = petPalette;
+}
+
+void applySettings() {
+    fullBrightness = static_cast<uint8_t>(kFullBrightness * linkCfg.settings.screen / 100);
+    model.nightStart = linkCfg.settings.nightStart;   // Sleepy and slow polling
+    model.nightEnd = linkCfg.settings.nightEnd;
+}
+
+// Saves a value under key unless flash already holds it.
+void saveBytes(const char* key, const void* v, size_t n) {
+    Preferences prefs;
+    if (!prefs.begin("trackie", false)) { Serial.printf("store: saving %s failed\n", key); return; }
+    uint8_t old[64];   // a PetConfig or DeviceSettings
+    if (prefs.getBytesLength(key) != n || n > sizeof(old) || prefs.getBytes(key, old, n) != n || memcmp(old, v, n) != 0)
+        if (prefs.putBytes(key, v, n) != n) Serial.printf("store: saving %s failed\n", key);
+    prefs.end();
+}
+
+// Forgets the saved networks and the token, then boots fresh (POST /reset, serial "R", the two-finger hold).
+// While secrets.h has WIFI_SSID the board rejoins it after the reboot (the build-time fallback, spec 5.1).
+void resetLink(const char* why) {
+    Serial.printf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    Preferences prefs;
+    if (prefs.begin("trackie", false)) {
+        prefs.remove("wifi");
+        prefs.remove("token");
+        prefs.end();
+    }
+    Serial.flush();
+    ESP.restart();
+}
+
+// Serial "T <32 lowercase hex>": the household token until BLE setup exists, saved and used at once. Never echoed.
+void setTokenFromSerial(const char* t) {
+    bool ok = strlen(t) == cta::kTokenLen;
+    for (const char* p = t; ok && *p; ++p) ok = (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f');
+    if (!ok) { Serial.println("link: a token is 32 lowercase hex characters; not set"); return; }
+    Preferences prefs;
+    if (!prefs.begin("trackie", false) || prefs.putString("token", t) == 0) Serial.println("store: saving the token failed");
+    prefs.end();
+    lan::setToken(t);
+    Serial.println("link: token set");
+}
+
+// The app's writes the link answered already: applied and saved here (flash from this task, not httpd's).
+void drainLink() {
+    if (!inbox || !lan::take(*inbox)) return;
+    if (inbox->nearby)
+        Serial.println(live::setNearby(inbox->nearbyJson, inbox->nearbyLen) ? "nearby: ok" : "nearby: rejected");
+    if (inbox->config && inbox->cfg.hasPet) {
+        linkCfg.pet = inbox->cfg.pet;
+        linkCfg.hasPet = true;
+        saveBytes("pet", &linkCfg.pet, sizeof(linkCfg.pet));
+        applyPet();
+    }
+    if (inbox->config && inbox->cfg.hasSettings) {
+        linkCfg.settings = inbox->cfg.settings;
+        linkCfg.hasSettings = true;
+        saveBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings));
+        applySettings();
+    }
+    if (inbox->config) lan::setConfig(linkCfg);
+    if (inbox->openBle) Serial.println("link: POST /ble (BLE setup comes with Task 9)");
+    if (inbox->reset) resetLink("POST /reset");
+}
+#endif
 
 void handleTouch() {
     touchf::Event e;
@@ -361,8 +468,9 @@ void profile(uint32_t ms) {
 
 // In screen coordinates: "d x y" (down), "m x y" (move), "u x y" (up), "c" (debug cycle), "a" (auto-scroll 6 s),
 // "p" (profile), "s" (frame stats now), "t" (touch log on/off: every sample, and what each release did). Live build:
-// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app over BLE; "O", the
-// board off (against burn-in on a board left plugged in).
+// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app; "O", the
+// board off (against burn-in on a board left plugged in); "R", the link reset (ecosystem spec 5.4); "T <32 hex>",
+// the household token until BLE setup exists (never echoed).
 void pollSerial(uint32_t ms) {
     static char line[640];
     static int n = 0;
@@ -379,6 +487,14 @@ void pollSerial(uint32_t ms) {
         if (line[0] == 'O') {   // the board off, by whichever task owns the I2C bus
             if (touchOk) offReq = true;
             else if (!power::off()) Serial.println("power: no power chip, so no off");
+            continue;
+        }
+        if (line[0] == 'R' && len <= 2) resetLink("serial");   // "R" alone (a CR may trail it)
+        if (line[0] == 'T' && line[1] == ' ') {
+            char* t = line + 2;
+            t[strcspn(t, "\r ")] = 0;
+            setTokenFromSerial(t);
+            memset(line, 0, sizeof(line));   // the token leaves no copy in the line buffer
             continue;
         }
 #else
@@ -463,6 +579,28 @@ void setup() {
     Serial.printf("power: %s\n", power::begin() ? "AXP2101 ok" : "AXP2101 not found");
     pw = pwShared = power::read();   // before the touch task starts; after that only it reads the bus
     mock::fromLive(model, *snap, pw, startUnix, false);
+    {   // the link: the token, and what the app set last (pet, settings)
+        char tok[cta::kTokenLen + 1] = "";
+        linkCfg.settings = {100, 100, static_cast<uint16_t>(cta::kNightStartMin), static_cast<uint16_t>(cta::kNightEndMin)};
+        Preferences prefs;
+        if (prefs.begin("trackie", true)) {
+            prefs.getString("token", tok, sizeof(tok));
+            linkCfg.hasPet = prefs.getBytes("pet", &linkCfg.pet, sizeof(linkCfg.pet)) == sizeof(linkCfg.pet);
+            linkCfg.hasSettings =
+                prefs.getBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings)) == sizeof(linkCfg.settings);
+            prefs.end();
+        }
+        linkCfg.pet.name[cta::kPetNameLen] = 0;
+        inbox = new (heap_caps_malloc(sizeof(lan::Inbox), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) lan::Inbox();
+        lan::begin(tok);   // before live::start: the network task starts the link once Wi-Fi is up
+        applyPet();
+        applySettings();
+        lan::setConfig(linkCfg);
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
+        snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
+    }
     live::start();
 #ifdef POWER_LOG
     plog::begin();
@@ -502,11 +640,20 @@ void loop() {
         live::read(*snap, snapVersion);
         mock::fromLive(model, *snap, pw, now, ntp != 0);
         const int lm = mock::localMinutes(now);
-        bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+        bool night = model.night(lm);   // the app's night hours
 #ifdef POWER_LOG
         if (stress::running()) night = false;   // stress-v2: daytime polling during a run, whatever the hour
 #endif
         live::setSlow(model.docked || night);
+        // Docking clears the pin (spec 5.6). GET /info's view of the wearable, once a second.
+        static bool wasDocked = false;
+        if (model.docked && !wasDocked) live::setPin(nullptr);
+        wasDocked = model.docked;
+        info.battery = static_cast<int8_t>(pw.battery ? pw.percent : -1);
+        info.charging = pw.charging;
+        info.lastUpdate = model.fetchedAt;
+        info.docked = model.docked;
+        lan::setInfo(info);
         // The battery log (spec 8.5): every 15 min, and once at boot.
         static uint32_t lastLog = 0;
         if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {
@@ -535,8 +682,14 @@ void loop() {
     ui::tick(app, model, ms);
 #ifdef HANDHELD_LIVE
     static bool wasDim = false;   // a tap on the dim screen is a wake (spec 8.2)
-    if (wasDim && !app.dim) live::wake();
+    if (wasDim && !app.dim) {
+        live::wake();
+        ++info.wake;   // the app sees it in GET /info and sends a fresh nearby list (ecosystem spec 5.5)
+        lan::setInfo(info);
+    }
     wasDim = app.dim;
+    drainLink();
+    if (resetReq) resetLink("two-finger hold");
 #endif
     // Frames: every frame while something moves; otherwise only when Trackie bobs or the live mark blinks (every
     // 500 ms), and a few frames a second while dim (spec 8: the animation drops when dimmed). A tap that wakes the
@@ -632,8 +785,14 @@ void loop() {
                       mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 #ifdef HANDHELD_LIVE
-        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u%s%s", snap->wifiUp,
-                      static_cast<unsigned>(snap->requests), snap->status[0] ? ", " : "", snap->status);
+        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u, httpd stack left %u%s%s", snap->wifiUp,
+                      static_cast<unsigned>(snap->requests), static_cast<unsigned>(lan::stackLeft()),
+                      snap->status[0] ? ", " : "", snap->status);
+        if (snap->hasPin) k += snprintf(line + k, sizeof(line) - k, ", pinned %s %s", snap->pin.rec.id, snap->pin.rec.route);
+        static const char* const kFollowStates[] = {"waiting", "due", "arrived", "lost"};   // cta::FollowState
+        if (snap->hasFollow)   // the follow's countdown (spec 5.7), for checking on the board
+            k += snprintf(line + k, sizeof(line) - k, ", follow %s %d min",
+                          kFollowStates[static_cast<int>(snap->follow.state)], snap->follow.min);
 #endif
         snprintf(line + k, sizeof(line) - k, "\r\n");
         Serial.print(line);

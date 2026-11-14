@@ -7,6 +7,9 @@
 
 #include "cta_types.h"
 #include "follow.h"
+// live::setPin and live::setFollow: the real ones are live.cpp's; mock_data.cpp has weak stubs for env:mock and the
+// laptop tools, where setPin stops the mock's pin.
+#include "live.h"
 
 namespace mock {
 
@@ -69,6 +72,10 @@ struct Model {
     Card pin{};            // a bus or train card by pin.rec.type
     bool hasFollow = false;
     cta::FollowView follow{};
+    // Night hours, minutes after midnight (the app's config.settings in the live build): Sleepy, and slow polling.
+    uint16_t nightStart = cta::kNightStartMin, nightEnd = cta::kNightEndMin;
+    // Whether local minute lm is in the night hours; a span past midnight (start after end) wraps.
+    bool night(int lm) const { return nightStart <= nightEnd ? lm >= nightStart && lm < nightEnd : lm >= nightStart || lm < nightEnd; }
 };
 
 // Sorts the cards (nearest stop first, soonest first within it), then sets the mood, Trackie's reason, and the
@@ -100,10 +107,3 @@ const char* lineName(const char* route);   // "Brn" → "Brown"; bus routes come
 void weatherInfo(Weather w, const char*& icon, const char*& temp, uint32_t& rgb, int& wmo, float& tempC);
 
 }  // namespace mock
-
-namespace live {
-// Pins a stop or follows a vehicle; nullptr clears. The real ones are live.cpp's (ecosystem Task 8); mock_data.cpp
-// has weak stubs for env:mock and the laptop tools, where setPin's stops the mock's pin.
-void setPin(const cta::PickedStop* stop);
-void setFollow(const cta::FollowMsg* f);
-}  // namespace live

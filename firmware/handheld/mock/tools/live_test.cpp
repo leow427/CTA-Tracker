@@ -1,5 +1,5 @@
-// Checks the live build's data path on a laptop: live::Store (the nearby list, what each response adds, and that a
-// failed one keeps the last good data) and mock::fromLive (the countdown, stale data kept, alerts per route, offline, close stops,
+// Checks the live build's data path on a laptop: live::Store (the nearby list, what each response adds, that a
+// failed one keeps the last good data, the pinned stop and the follow) and mock::fromLive (the countdown, stale data kept, alerts per route, offline, close stops,
 // the home card, docked). Uses the recorded Belmont response and small synthetic Bus Tracker and alerts replies.
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -Isrc -I../../lib/cta/src -I<ArduinoJson>/src tools/live_test.cpp src/live_store.cpp \
@@ -204,6 +204,175 @@ int main() {
         live::clear(e);
         store.fill(e);
         CHECK(e.nTrains == 0 && e.nBuses == 0 && !e.loaded && e.located && !e.hasWeather);
+    }
+
+    // The pinned stop and the followed vehicle (ecosystem spec 5.6, 5.7).
+    {
+        static live::Store ps;
+        static live::Snapshot s;
+        CHECK(ps.init());
+        cta::Nearby far;   // a list without Belmont
+        const char* farJson = "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[\"41210\"],\"buses\":[\"1828\"],\"close\":[\"41210\",\"1828\"]}";
+        CHECK(cta::parseNearby(farJson, strlen(farJson), far));
+        ps.setNearby(far);
+        auto stop = [](const char* route, const char* dir, const char* id, const char* name) {
+            cta::PickedStop p = {};
+            p.type = cta::Kind::Train;
+            snprintf(p.route, sizeof p.route, "%s", route);
+            snprintf(p.dir, sizeof p.dir, "%s", dir);
+            snprintf(p.id, sizeof p.id, "%s", id);
+            snprintf(p.name, sizeof p.name, "%s", name);
+            return p;
+        };
+        auto look = [&]() { live::clear(s); ps.fill(s); };
+
+        // Before any data: the pin's own names, no arrivals, and it counts as close.
+        const cta::PickedStop red = stop("Red", "95th/Dan Ryan", "41320", "Belmont");
+        ps.setPin(&red);
+        look();
+        CHECK(s.hasPin && !s.hasFollow);
+        CHECK(strcmp(s.pin.rec.route, "Red") == 0 && strcmp(s.pin.rec.name, "Belmont") == 0 && s.pin.rec.count == 0 &&
+              s.pin.rec.ts == 0);
+        CHECK(s.nClose == 3 && strcmp(s.close[2], "41320") == 0);
+
+        // Its own poll: the card for its line and direction, and no list card.
+        CHECK(ps.applyPin(belmont.data(), belmont.size(), t0) == 6);
+        look();
+        CHECK(s.pin.rec.ts == t0 && strcmp(s.pin.rec.dir, "95th/Dan Ryan") == 0 && s.pin.rec.count >= 3);
+        CHECK(strcmp(s.pin.rec.arrivals[0].vehicle, "911") == 0);
+        CHECK(s.nTrains == 0);
+
+        // Follow run 911 (8 min): waiting with its minutes; the same record again (a failed poll) changes nothing.
+        cta::FollowMsg f = {};
+        f.stop = red;
+        snprintf(f.vehicle, sizeof f.vehicle, "911");
+        snprintf(f.dest, sizeof f.dest, "95th/Dan Ryan");
+        ps.setFollow(&f);
+        ps.updateFollow(t0 + 5);
+        look();
+        CHECK(s.hasFollow && s.follow.state == cta::FollowState::Waiting && s.follow.min == 8);
+        {   // the model's Home card: built as the list cards are, and the follow counted down with it
+            static mock::Model pm;
+            pm = mock::Model();
+            mock::fromLive(pm, s, bench, t0 + 5, true);
+            CHECK(pm.hasPin && pm.hasFollow && pm.follow.state == cta::FollowState::Waiting && pm.follow.min == 8);
+            CHECK(strcmp(pm.pin.rec.route, "Red") == 0 && strcmp(pm.pin.heading, "To 95th/Dan Ryan") == 0);
+            CHECK(pm.pin.nPips == 0);   // Belmont isn't in this list, so no other lines to show
+            pm = mock::Model();
+            mock::fromLive(pm, s, bench, t0 + 125, true);
+            CHECK(pm.follow.min == 6 && pm.pin.rec.arrivals[0].min == 6);
+            live::Snapshot none = s;
+            none.hasPin = none.hasFollow = false;
+            mock::fromLive(pm, none, bench, t0 + 125, true);
+            CHECK(!pm.hasPin && !pm.hasFollow);
+        }
+        ps.updateFollow(t0 + 120);
+        look();
+        CHECK(s.hasFollow && s.follow.state == cta::FollowState::Waiting);
+
+        // A list holding Belmont too: the newer record of the two is the pinned card; the pin and follow stay.
+        const char* withJson = "{\"lat\":41.9,\"lon\":-87.6,\"trains\":[\"41320\"],\"buses\":[],\"close\":[\"41320\"]}";
+        cta::Nearby with;
+        CHECK(cta::parseNearby(withJson, strlen(withJson), with));
+        ps.setNearby(with);
+        CHECK(ps.applyTrains(0, belmont.data(), belmont.size(), t0 + 60) == 6);
+        look();
+        CHECK(s.pin.rec.ts == t0 + 60 && s.nClose == 1 && s.hasFollow);
+
+        // A pin at the same stop keeps the follow; one at another stop ends it; clearing the pin clears both.
+        ps.setPin(&red);
+        look();
+        CHECK(s.hasFollow);
+        const cta::PickedStop brn = stop("Brn", "Loop", "41210", "Wellington");
+        ps.setPin(&brn);
+        look();
+        CHECK(s.hasPin && !s.hasFollow && strcmp(s.pin.rec.id, "41210") == 0);
+        ps.setFollow(&f);   // re-pins Belmont
+        CHECK(ps.pin() && strcmp(ps.pin()->id, "41320") == 0);
+        ps.setFollow(nullptr);
+        CHECK(ps.pin() != nullptr);
+        ps.setPin(nullptr);
+        look();
+        CHECK(!s.hasPin && !s.hasFollow);
+
+        // Every follow ends: a seen vehicle past its minutes plus the grace is Arrived, then expires, leaving the pin.
+        ps.setFollow(&f);
+        ps.updateFollow(t0 + 70);   // sees 911 on the t0 + 60 record
+        const uint32_t over = t0 + 60 + (8 + cta::kFollowGraceMin) * 60 + 1;
+        ps.updateFollow(over);
+        look();
+        CHECK(s.hasFollow && s.follow.state == cta::FollowState::Arrived);
+        ps.updateFollow(over + cta::kFollowEndedSecs);
+        look();
+        CHECK(!s.hasFollow && s.hasPin);
+
+        // A pinned stop outside the list counts as close for Hyped: Red to Howard, live, due in about 1 min.
+        ps.setNearby(far);
+        const cta::PickedStop howard = stop("Red", "Howard", "41320", "Belmont");
+        ps.setPin(&howard);
+        CHECK(ps.applyPin(belmont.data(), belmont.size(), t0) == 6);
+        look();
+        CHECK(s.nTrains == 0 && s.pin.rec.count && s.pin.rec.arrivals[0].live && s.pin.rec.arrivals[0].min <= cta::kHypedMaxMin);
+        {
+            static mock::Model pm;
+            pm = mock::Model();
+            mock::fromLive(pm, s, bench, t0, true);
+            CHECK(pm.hasPin && pm.mood == cta::Mood::Hyped);
+            // The app's night hours (config.settings): a span past midnight holding this minute is night...
+            const int lm = mock::localMinutes(t0);
+            pm = mock::Model();
+            pm.nightStart = static_cast<uint16_t>(lm);
+            pm.nightEnd = static_cast<uint16_t>((lm + 1439) % 1440);
+            mock::fromLive(pm, s, bench, t0, true);
+            CHECK(pm.mood == cta::Mood::Sleepy && strcmp(pm.reason, "Night hours") == 0);
+            // ...and one that doesn't hold it isn't.
+            pm = mock::Model();
+            pm.nightStart = static_cast<uint16_t>((lm + 1) % 1440);
+            pm.nightEnd = static_cast<uint16_t>((lm + 2) % 1440);
+            mock::fromLive(pm, s, bench, t0, true);
+            CHECK(pm.mood != cta::Mood::Sleepy);
+        }
+        {   // A pinned stop with nothing left to come is no vote: a bus due in 12 min, and a pinned bus stop outside the
+            // list whose only arrival has passed, isn't Sad.
+            static live::Snapshot q;
+            live::clear(q);
+            q.located = q.loaded = true;
+            auto bus = [](cta::StopRecord& r, const char* id, const char* route, int16_t min, uint32_t ts) {
+                r.type = cta::Kind::Bus;
+                snprintf(r.id, sizeof r.id, "%s", id);
+                snprintf(r.route, sizeof r.route, "%s", route);
+                snprintf(r.dir, sizeof r.dir, "Southbound");
+                snprintf(r.name, sizeof r.name, "Stop %s", id);
+                r.count = 1;
+                r.arrivals[0].min = min;
+                snprintf(r.arrivals[0].dest, sizeof r.arrivals[0].dest, "Harrison");
+                r.arrivals[0].live = true;
+                r.ts = ts;
+            };
+            bus(q.buses[0].rec, "1828", "22", 12, t0);
+            q.nBuses = 1;
+            q.hasPin = true;
+            bus(q.pin.rec, "99999", "36", 1, t0 - 180);   // due a minute after it was fetched, 3 min ago
+            static mock::Model pm;
+            pm = mock::Model();
+            mock::fromLive(pm, q, bench, t0, true);
+            CHECK(pm.hasPin && pm.pin.rec.count == 0 && pm.mood != cta::Mood::Sad);
+        }
+
+        // A cleared pin drops its stop's data: pinned again, it has no record until its next poll.
+        ps.setPin(nullptr);
+        ps.setPin(&howard);
+        look();
+        CHECK(s.hasPin && s.pin.rec.ts == 0);
+
+        // A bus pin outside the list rides in the bus poll: no poll of its own, its card from the batched reply.
+        cta::PickedStop b36 = stop("36", "Southbound", "99999", "Not Ours");
+        b36.type = cta::Kind::Bus;
+        ps.setPin(&b36);
+        CHECK(ps.applyPin(buses.data(), buses.size(), t0) == -1);
+        CHECK(ps.applyBuses(buses.data(), buses.size(), t0) == 3);
+        look();
+        CHECK(s.pin.rec.type == cta::Kind::Bus && s.pin.rec.count == 1 && s.pin.rec.ts == t0 && s.nBuses == 0);
     }
 
     printf(failures ? "%d failed\n" : "all passed\n", failures);

@@ -5,19 +5,26 @@
 #include <NetworkClientSecure.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
+#include <esp_mac.h>
 #include <esp_wifi.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcpip.h>
+#include <mbedtls/platform.h>
 #include <mbedtls/ssl.h>
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
 
+#include <new>
+
 #include "cpu_clock.h"
 #include "cta_config.h"
+#include "link.h"
 #include "local_time.h"
 #include "live_store.h"
+#include "wifi_list.h"
 #include "secrets.h"
 #include "urls.h"
 #ifdef POWER_LOG
@@ -51,12 +58,18 @@ constexpr uint32_t kOldConnectMs = 8000;      // what the old code then spent co
 // home), so the radio isn't scanning nonstop; a wake starts over.
 constexpr uint32_t kWifiRetryMinMs = 15000, kWifiRetryMaxMs = 300000, kWifiJoinMs = 20000;   // a campus network took about 12 s to join
 
-// Written only by the network task.
-Store store;
+// Written only by the network task. In PSRAM (up before constructors run): internal RAM is for Wi-Fi and TLS.
+Store& store = *new (heap_caps_malloc(sizeof(Store), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) Store();
 uint32_t stationPolled[cta::kNearbyPerTab] = {};   // Unix time of the last attempt, 0 = never
-uint32_t busPolled = 0, alertsPolled = 0, weatherPolled = 0;
+uint32_t busPolled = 0, alertsPolled = 0, weatherPolled = 0, pinPolled = 0;
 uint32_t requests = 0;
 char status[40] = "Starting";
+
+// The pinned stop, if it's of kind k.
+const cta::PickedStop* pinOf(cta::Kind k) {
+    const cta::PickedStop* p = store.pin();
+    return p && p->type == k ? p : nullptr;
+}
 
 // Shared with the loop.
 SemaphoreHandle_t mu;
@@ -67,6 +80,20 @@ volatile bool slow = false;
 volatile bool woke = false;
 cta::Nearby pendingNearby;          // under mu: a list from setNearby() the network task hasn't taken yet
 volatile bool nearbyPending = false;
+// Under mu: a pin or follow the network task hasn't taken yet (setPin, setFollow), in PSRAM. pin/follow: +1 set,
+// -1 clear, 0 nothing new; a follow is taken after the pin.
+struct PendingLink {
+    int8_t pin, follow;
+    cta::PickedStop pinStop;
+    cta::FollowMsg followMsg;
+};
+PendingLink* pendingLink;
+
+// The saved Wi-Fi networks (ecosystem spec 5.1, F1), slot 0 home, from NVS ("wifi"), else secrets.h's network as
+// slot 0. In PSRAM.
+cta::WifiList* nets;
+bool netsFromSecrets = false;   // slot 0 is secrets.h's network (it may be WPA2-Enterprise)
+char hostLabel[16];             // "cta-pet-xxxx", for mDNS
 
 bool ntpSynced() { return time(nullptr) > 1700000000; }
 
@@ -143,7 +170,7 @@ Dns resolve(const char* host, IPAddress& out) {
 
 // One HTTPS connection, kept open between train requests. The train API's certificate chain is ECDSA, which this
 // chip checks in software: a full TLS handshake there takes about 2.2 s, so reusing the connection is what makes
-// the stations load in seconds. Only one connection is ever open (each holds about 45 KB of internal RAM): a request
+// the stations load in seconds. Only one connection is ever open (each holds about 45 KB, its big buffers in PSRAM): a request
 // to another host closes it first, and those requests (one a minute or rarer) close theirs when done.
 //
 // A connection that has to be opened again resumes the host's last TLS session when the server agrees (the train
@@ -151,6 +178,19 @@ Dns resolve(const char* host, IPAddress& out) {
 // checks and the key exchange, and takes about one round trip instead of seconds of CPU and radio time. A server
 // that declines just runs a full handshake. Certificates are checked in full on every handshake that doesn't
 // resume, and a session is only ever offered back to the host it came from.
+// mbedTLS's memory (the dock's net.cpp does the same): this core's build puts all of it in internal RAM (about 33 KB
+// of buffers with a connection open). Its big blocks (the 16 KB record buffer coming in, the 4 KB one going out) go to
+// PSRAM instead, by the rule every other malloc here follows (4 KB and up in PSRAM); the small ones stay internal.
+// Either heap if the other is out.
+constexpr size_t kTlsPsramFrom = 4096;
+void* tlsCalloc(size_t n, size_t size) {
+    if (size && n > SIZE_MAX / size) return nullptr;
+    const uint32_t first = n * size >= kTlsPsramFrom ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL;
+    const uint32_t second = first == MALLOC_CAP_SPIRAM ? MALLOC_CAP_INTERNAL : MALLOC_CAP_SPIRAM;
+    if (void* p = heap_caps_calloc(n, size, first | MALLOC_CAP_8BIT)) return p;
+    return heap_caps_calloc(n, size, second | MALLOC_CAP_8BIT);
+}
+
 class Tls : public NetworkClientSecure {   // NetworkClientSecure keeps these protected
 public:
     mbedtls_ssl_context* ssl() { return &sslclient->ssl_ctx; }
@@ -360,14 +400,41 @@ bool clockFromHttp() {
     return clockFromDate(code);
 }
 
+// Takes a pin or follow from the app (setPin, setFollow) into the store; true if there was one. Every publish()
+// takes them first, so a snapshot built mid-poll never brings back a pin the loop has just cleared.
+bool takeLink() {
+    if (!pendingLink->pin && !pendingLink->follow) return false;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const PendingLink p = *pendingLink;
+    pendingLink->pin = pendingLink->follow = 0;
+    xSemaphoreGive(mu);
+    char was[sizeof(cta::PickedStop::id)];
+    snprintf(was, sizeof(was), "%s", store.pin() ? store.pin()->id : "");
+    if (p.pin) store.setPin(p.pin > 0 ? &p.pinStop : nullptr);
+    if (p.follow) store.setFollow(p.follow > 0 ? &p.followMsg : nullptr);
+    const char* id = store.pin() ? store.pin()->id : "";
+    if (strcmp(was, id) != 0) {   // a new stop polls at once; the same one keeps its schedule
+        pinPolled = 0;
+        if (pinOf(cta::Kind::Bus)) busPolled = 0;
+    }
+    Serial.printf("net: pinned %s, following %s\n", id[0] ? id : "nothing",
+                  store.pin() && p.follow > 0 ? p.followMsg.vehicle : p.follow ? "nothing" : "as before");
+    return true;
+}
+
 void publish() {
+    takeLink();
+    if (ntpSynced()) store.updateFollow(static_cast<uint32_t>(time(nullptr)));   // after every poll (spec 5.7)
     clear(*building);
     store.fill(*building);
     building->wifiUp = WiFi.status() == WL_CONNECTED;
-    building->homeWifi = building->wifiUp && WiFi.SSID() == WIFI_SSID;
+    building->homeWifi = building->wifiUp && nets->nets[0].ssid[0] && WiFi.SSID() == nets->nets[0].ssid;
     snprintf(building->status, sizeof(building->status), "%s", status);
     building->requests = requests;
     xSemaphoreTake(mu, portMAX_DELAY);
+    // A clear that arrived while this snapshot was being built (setPin/setFollow cleared the published one already).
+    if (pendingLink->pin < 0) building->hasPin = building->hasFollow = false;
+    if (pendingLink->follow < 0) building->hasFollow = false;
     *published = *building;
     pubVersion = pubVersion + 1;
     xSemaphoreGive(mu);
@@ -393,10 +460,17 @@ uint32_t retryStamp(uint32_t now, uint32_t sec) { return now - everyArrivals(sec
 // now 0: the clock isn't set yet. Then this response's Date header sets it (clockFromDate) unless NTP answers first,
 // so the first station loads as soon as Wi-Fi is up instead of after the clock; a response that can't set it is
 // dropped, and netTask tries again.
+// A listed station polls at the close rate when it's one of the 3 closest or the pinned stop (ecosystem spec 5.6).
+uint32_t stationSec(int st) {
+    const cta::PickedStop* p = pinOf(cta::Kind::Train);
+    const bool pinned = p && strcmp(p->id, store.nearby().trains[st]) == 0;
+    return st < kClosePolled || pinned ? cta::kHandheldClosePollSec : cta::kHandheldFarPollSec;
+}
+
 void pollStation(int st, uint32_t now) {
     cpuclk::Lazy fast;
     static char url[256];
-    const uint32_t sec = st < kClosePolled ? cta::kHandheldClosePollSec : cta::kHandheldFarPollSec;
+    const uint32_t sec = stationSec(st);
     const char* id = store.nearby().trains[st];
     if (now) stationPolled[st] = now;
     if (!cta::trainArrivalsUrl(url, sizeof(url), CTA_TRAIN_KEY, id)) return;
@@ -419,17 +493,52 @@ void pollBuses(uint32_t now) {
     static char url[512];
     busPolled = now;
     const cta::Nearby& nb = store.nearby();
-    const char* ids[cta::kNearbyPerTab];
-    for (int b = 0; b < nb.nBuses; ++b) ids[b] = nb.buses[b];
-    if (!cta::busPredictionsUrl(url, sizeof(url), CTA_BUS_KEY, ids, nb.nBuses)) return;
+    const char* ids[cta::kNearbyPerTab + 1];   // the list's stops and a pinned one outside it: Bus Tracker takes 10
+    int n = 0;
+    for (int b = 0; b < nb.nBuses; ++b) ids[n++] = nb.buses[b];
+    if (const cta::PickedStop* p = pinOf(cta::Kind::Bus)) {
+        bool listed = false;
+        for (int b = 0; b < nb.nBuses; ++b) listed = listed || strcmp(nb.buses[b], p->id) == 0;
+        if (!listed) ids[n++] = p->id;
+    }
+    if (!cta::busPredictionsUrl(url, sizeof(url), CTA_BUS_KEY, ids, n)) return;
     String body;
     const uint32_t t0 = millis();
     const int code = get(url, body, 'b', fast);
     ++requests;
-    const int n = code == 200 ? store.applyBuses(body.c_str(), body.length(), now) : -1;
-    Serial.printf("net: buses, %d stops: HTTP %d, %d cards, %u ms\n", nb.nBuses, code, n,
+    const int cards = code == 200 ? store.applyBuses(body.c_str(), body.length(), now) : -1;
+    Serial.printf("net: buses, %d stops: HTTP %d, %d cards, %u ms\n", n, code, cards,
                   static_cast<unsigned>(millis() - t0));
-    if (n < 0) busPolled = retryStamp(now, cta::kHandheldBusPollSec);
+    if (cards < 0) busPolled = retryStamp(now, cta::kHandheldBusPollSec);
+}
+
+// The pinned stop (ecosystem spec 5.6) at the close stations' rate. A bus pin rides in the bus poll (all at that
+// rate, pollBuses); a train pin at a listed station is that station's poll (stationSec). Only a train pin outside the
+// list polls on its own, here.
+static_assert(cta::kHandheldBusPollSec <= cta::kHandheldClosePollSec, "bus stops poll at the close rate");
+bool pinOwnPoll() {
+    const cta::PickedStop* p = pinOf(cta::Kind::Train);
+    if (!p) return false;
+    const cta::Nearby& nb = store.nearby();
+    for (int i = 0; i < nb.nTrains; ++i)
+        if (strcmp(nb.trains[i], p->id) == 0) return false;
+    return true;
+}
+
+void pollPin(uint32_t now) {
+    cpuclk::Lazy fast;
+    constexpr size_t kUrlCap = 256;
+    static char* url = static_cast<char*>(heap_caps_malloc(kUrlCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));   // not internal
+    const cta::PickedStop& p = *store.pin();
+    pinPolled = now;
+    if (!url || !cta::trainArrivalsUrl(url, kUrlCap, CTA_TRAIN_KEY, p.id)) return;
+    String body;
+    const uint32_t t0 = millis();
+    const int code = get(url, body, 't', fast, true);
+    ++requests;
+    const int n = code == 200 ? store.applyPin(body.c_str(), body.length(), now) : -1;
+    Serial.printf("net: pinned %s: HTTP %d, %d cards, %u ms\n", p.id, code, n, static_cast<unsigned>(millis() - t0));
+    if (n < 0) pinPolled = retryStamp(now, cta::kHandheldClosePollSec);
 }
 
 void pollAlerts(uint32_t now) {
@@ -464,11 +573,12 @@ void pollWeather(uint32_t now) {
 bool pollOne(uint32_t now) {
     const cta::Nearby& nb = store.nearby();
     for (int st = 0; st < nb.nTrains; ++st)
-        if (dueArrivals(stationPolled[st], st < kClosePolled ? cta::kHandheldClosePollSec : cta::kHandheldFarPollSec, now)) {
+        if (dueArrivals(stationPolled[st], stationSec(st), now)) {
             pollStation(st, now);
             return true;
         }
-    if (nb.nBuses && dueArrivals(busPolled, cta::kHandheldBusPollSec, now)) { pollBuses(now); return true; }
+    if (pinOwnPoll() && dueArrivals(pinPolled, cta::kHandheldClosePollSec, now)) { pollPin(now); return true; }
+    if ((nb.nBuses || pinOf(cta::Kind::Bus)) && dueArrivals(busPolled, cta::kHandheldBusPollSec, now)) { pollBuses(now); return true; }
     if (due(weatherPolled, cta::kWeatherPollSec, now)) { pollWeather(now); return true; }
     const char* any[1];
     if (due(alertsPolled, cta::kAlertsPollSec, now) && store.routes(any, 1)) { pollAlerts(now); return true; }
@@ -497,25 +607,55 @@ void burstOne(uint32_t now) {
 
 // After a failed join: is the network in reach, and on what? The ESP32-S3 has 2.4 GHz only, and the most common
 // failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Logs only our SSID.
-void reportScan() {
+void reportScan(const char* ssid) {
     const cpuclk::Fast fast;
     const int n = WiFi.scanNetworks();
     for (int i = 0; i < n; ++i)
-        if (WiFi.SSID(i) == WIFI_SSID) {
-            Serial.printf("net: %s is in reach: channel %d, RSSI %d, auth %d\n", WIFI_SSID, WiFi.channel(i), WiFi.RSSI(i),
+        if (WiFi.SSID(i) == ssid) {
+            Serial.printf("net: %s is in reach: channel %d, RSSI %d, auth %d\n", ssid, WiFi.channel(i), WiFi.RSSI(i),
                           static_cast<int>(WiFi.encryptionType(i)));
             WiFi.scanDelete();
             return;
         }
     Serial.printf("net: %s not seen among %d networks on 2.4 GHz; check the name, and that the router offers 2.4 GHz\n",
-                  WIFI_SSID, n);
+                  ssid, n);
     WiFi.scanDelete();
 }
 
+// The saved network to join (F1): the strongest in range, skipping the slots in skip (failed or just dropped), or any
+// in range if every one in range is skipped; -1 if none is. With one saved network there's no scan: it's tried as
+// before (a hidden network never shows in a scan, and scanning costs radio time away from home).
+int pickNet(uint8_t skip) {
+    int only = -1, saved = 0;
+    for (int s = 0; s < cta::kWifiSlots; ++s)
+        if (nets->nets[s].ssid[0]) { only = s; ++saved; }
+    if (saved <= 1) return only;
+    const cpuclk::Fast fast;
+    constexpr int kMaxSeen = 24;
+    using Name = char[cta::kSsidLen + 1];
+    static Name* names = static_cast<Name*>(heap_caps_malloc(sizeof(Name) * kMaxSeen, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!names) return only;
+    cta::SeenNet seen[kMaxSeen];
+    const int found = WiFi.scanNetworks();
+    int n = 0;
+    for (int i = 0; i < found && n < kMaxSeen; ++i) {
+        snprintf(names[n], sizeof(names[n]), "%s", WiFi.SSID(i).c_str());
+        seen[n] = {names[n], static_cast<int8_t>(WiFi.RSSI(i))};
+        ++n;
+    }
+    WiFi.scanDelete();
+    int slot = cta::strongestSaved(*nets, seen, n, skip);
+    if (slot < 0 && skip) slot = cta::strongestSaved(*nets, seen, n, 0);
+    Serial.printf("net: %d networks in reach; joining slot %d\n", n, slot);
+    return slot;
+}
+
 void netTask(void*) {
-    if (!WIFI_SSID[0] || !CTA_TRAIN_KEY[0] || !CTA_BUS_KEY[0]) {
-        setStatus(WIFI_SSID[0] ? "No API key" : "No Wi-Fi set up");
-        Serial.printf("net: %s in firmware/secrets.h; staying offline\n", WIFI_SSID[0] ? "no CTA keys" : "no WIFI_SSID");
+    bool anyNet = false;
+    for (const cta::SavedNet& s : nets->nets) anyNet = anyNet || s.ssid[0];
+    if (!anyNet || !CTA_TRAIN_KEY[0] || !CTA_BUS_KEY[0]) {
+        setStatus(anyNet ? "No API key" : "No Wi-Fi set up");
+        Serial.printf("net: %s; staying offline\n", anyNet ? "no CTA keys in firmware/secrets.h" : "no Wi-Fi saved");
         publish();
         vTaskDelete(nullptr);
         return;
@@ -560,6 +700,8 @@ void netTask(void*) {
     startSntp();
     uint32_t lastBegin = 0, retryMs = kWifiRetryMinMs;
     bool wasUp = false, joining = false, scanned = false;
+    int slot = -1;      // the saved network being joined or joined
+    uint8_t skip = 0;   // saved slots to pass over on the next pick: ones that failed or dropped since the last join
     // A DNS lookup that gets no answer at all means the network isn't passing traffic: polling rests until
     // kSilentGapMs after that request began, but never past the moment the old code's request would have ended (the
     // lookup, then 8 s connecting to 0.0.0.0), so nothing is tried later than before; in between the radio is idle
@@ -593,31 +735,50 @@ void netTask(void*) {
             restUntil = 0;
             publish();
         }
+        if (takeLink()) publish();   // a pin or follow from the app: poll its stop from now on
         if (conn->host[0] && millis() - conn->lastUsed > kIdleCloseMs) closeConn();
         if (woke) {
             woke = false;
             if (!wasUp && !joining) { lastBegin = 0; retryMs = kWifiRetryMinMs; scanned = false; }
         }
         if (WiFi.status() != WL_CONNECTED) {
-            if (wasUp) { Serial.println("net: Wi-Fi lost"); lastBegin = 0; retryMs = kWifiRetryMinMs; }
+            if (wasUp) {   // F1: rescan and move to the next strongest saved network
+                Serial.println("net: Wi-Fi lost");
+                esp_wifi_disconnect();   // stops core 3.2's own reconnect try, which would fail pickNet's scan
+                lastBegin = 0;
+                retryMs = kWifiRetryMinMs;
+                skip = slot >= 0 ? static_cast<uint8_t>(1u << slot) : 0;
+            }
             wasUp = false;
             if (joining && millis() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
                 setJoining(false);
                 const int why = WiFi.status();
                 esp_wifi_disconnect();   // core 3.2's WiFi.disconnect() skips this until associated, leaving a join running
-                Serial.printf("net: no %s (status %d); next try in %u s\n", WIFI_SSID, why, static_cast<unsigned>(retryMs / 1000));
+                Serial.printf("net: no %s (status %d); next try in %u s\n", nets->nets[slot].ssid, why,
+                              static_cast<unsigned>(retryMs / 1000));
+                skip |= static_cast<uint8_t>(1u << slot);
                 if (!scanned) {   // once per boot or wake: say whether the network is in reach at all
                     scanned = true;
-                    reportScan();
+                    reportScan(nets->nets[slot].ssid);
                 }
             }
             if (!joining && (lastBegin == 0 || millis() - lastBegin > retryMs)) {
                 if (lastBegin != 0) retryMs = retryMs * 2 > kWifiRetryMaxMs ? kWifiRetryMaxMs : retryMs * 2;
-                Serial.printf("net: connecting to %s\n", WIFI_SSID);
-                setJoining(true);
-                if (WIFI_EAP_USER[0]) WiFi.begin(WIFI_SSID, WPA2_AUTH_PEAP, WIFI_EAP_USER, WIFI_EAP_USER, WIFI_PASS);
-                else WiFi.begin(WIFI_SSID, WIFI_PASS);
                 lastBegin = millis();
+                slot = pickNet(skip);
+                if (slot < 0) {
+                    Serial.printf("net: no saved network in reach; next try in %u s\n", static_cast<unsigned>(retryMs / 1000));
+                    skip = 0;
+                } else {
+                    const cta::SavedNet& net = nets->nets[slot];
+                    Serial.printf("net: connecting to %s\n", net.ssid);
+                    setJoining(true);
+                    if (slot == 0 && netsFromSecrets && WIFI_EAP_USER[0])
+                        WiFi.begin(net.ssid, WPA2_AUTH_PEAP, WIFI_EAP_USER, WIFI_EAP_USER, net.pass);
+                    else
+                        WiFi.begin(net.ssid, net.pass);
+                    lastBegin = millis();
+                }
             }
             setStatus(joining ? "Connecting to Wi-Fi" : "No Wi-Fi");
             publish();
@@ -628,7 +789,11 @@ void netTask(void*) {
         retryMs = kWifiRetryMinMs;
         if (!wasUp) {
             wasUp = true;
+            skip = 0;
             Serial.printf("net: Wi-Fi up, %s, RSSI %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+            // The HTTP link, the first time only (it outlives reconnects): before Wi-Fi has an IP, httpd and mDNS
+            // assert in lwIP and boot-loop the board.
+            lan::start(hostLabel);
             if (ntpSynced()) setStatus("");
             else startSntp();   // its first request went out before there was a link
             restUntil = 0;
@@ -696,16 +861,23 @@ void netTask(void*) {
 }  // namespace
 
 void start() {
+    mbedtls_platform_set_calloc_free(tlsCalloc, heap_caps_free);   // before any TLS: blocks are freed where they were made
     mu = xSemaphoreCreateMutex();
     dnsDone = xSemaphoreCreateBinary();
     published = static_cast<Snapshot*>(ps_malloc(sizeof(Snapshot)));
     building = static_cast<Snapshot*>(ps_malloc(sizeof(Snapshot)));
-    if (!published || !building || !store.init()) { Serial.println("net: out of memory"); return; }
+    pendingLink = static_cast<PendingLink*>(ps_calloc(1, sizeof(PendingLink)));
+    nets = static_cast<cta::WifiList*>(ps_calloc(1, sizeof(cta::WifiList)));
+    if (!published || !building || !pendingLink || !nets || !store.init()) { Serial.println("net: out of memory"); return; }
     clear(*published);
-    // The last nearby list (spec 8.3: kept in flash).
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);   // the factory MAC, as in GET /info's id and the BLE name
+    snprintf(hostLabel, sizeof(hostLabel), "cta-pet-%02x%02x", mac[4], mac[5]);
+    // The last nearby list (spec 8.3: kept in flash), and the saved networks (F1; written by BLE setup).
     Preferences prefs;
     if (prefs.begin("trackie", true)) {
         const String saved = prefs.getString("nearby", "");
+        if (prefs.getBytesLength("wifi") == sizeof(cta::WifiList)) prefs.getBytes("wifi", nets, sizeof(cta::WifiList));
         prefs.end();
         cta::Nearby n;
         if (saved.length() && cta::parseNearby(saved.c_str(), saved.length(), n)) {
@@ -714,6 +886,16 @@ void start() {
         }
     }
     if (!store.located()) Serial.println("net: no nearby list yet; send one with tools/send_nearby.py");
+    bool anyNet = false;
+    for (cta::SavedNet& s : nets->nets) {
+        s.ssid[cta::kSsidLen] = s.pass[cta::kPassLen] = 0;   // whatever flash held
+        anyNet = anyNet || s.ssid[0];
+    }
+    if (!anyNet && WIFI_SSID[0]) {   // the build-time fallback (spec 5.1)
+        snprintf(nets->nets[0].ssid, sizeof(nets->nets[0].ssid), "%s", WIFI_SSID);
+        snprintf(nets->nets[0].pass, sizeof(nets->nets[0].pass), "%s", WIFI_PASS);
+        netsFromSecrets = true;
+    }
     // Core 0, below the panel sender (2) and touch (3): TLS handshakes take CPU but never hold up a frame.
     xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
 }
@@ -737,6 +919,32 @@ bool setNearby(const char* json, size_t len) {
 }
 
 void wake() { woke = true; }
+
+void setPin(const cta::PickedStop* stop) {
+    if (!pendingLink || !published) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    pendingLink->pin = stop ? 1 : -1;
+    if (stop) pendingLink->pinStop = *stop;
+    // The newer word wins, as in the store: a follow not yet taken ends unless this pins its own stop.
+    if (pendingLink->follow > 0 && !(stop && cta::samePick(*stop, pendingLink->followMsg.stop))) pendingLink->follow = 0;
+    if (!stop) {   // gone from the next read() at once, not on the network task's next pass
+        published->hasPin = published->hasFollow = false;
+        pubVersion = pubVersion + 1;
+    }
+    xSemaphoreGive(mu);
+}
+
+void setFollow(const cta::FollowMsg* f) {
+    if (!pendingLink || !published) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    pendingLink->follow = f ? 1 : -1;
+    if (f) pendingLink->followMsg = *f;
+    if (!f) {
+        published->hasFollow = false;
+        pubVersion = pubVersion + 1;
+    }
+    xSemaphoreGive(mu);
+}
 
 #ifdef POWER_LOG
 void setBurst(bool on) { burst = on; }
