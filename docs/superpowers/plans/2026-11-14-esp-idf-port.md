@@ -309,8 +309,8 @@ Per board:
 
 ### Task J0: Tag the last Arduino build
 
-- [ ] **Step 1:** `git tag arduino-final 3598b0b && git push origin arduino-final`, the fallback for open question 2.
-  No code.
+- [x] **Step 1:** `git tag arduino-final 3598b0b && git push origin arduino-final`, the fallback for open question 2.
+  No code. (Tagged and pushed 2026-11-14.)
 
 ### Task J1: Port `firmware/lib` from ArduinoJson to cJSON
 
@@ -345,13 +345,39 @@ Per board:
 - **Strings vs numbers:** ArduinoJson's `as<const char*>()` was null for a number, and `is<int32_t>()` false for
   2.5. Mirror that with `cJSON_IsString`/`cJSON_IsNumber` plus an integral check, so mixed-type CTA fields behave
   the same.
-- **Writing into fixed buffers:** use `cJSON_PrintPreallocated(root, tmp, cap + 5, false)`, then `strlen ≤ cap` or
-  return 0. cJSON wants 5 spare bytes; this keeps "a record over 512 bytes encodes to 0" exact.
+- **Writing into fixed buffers:** ~~`cJSON_PrintPreallocated(root, tmp, cap + 5, false)`~~ As built:
+  `json::printInto(root, buf, cap, needNul)` prints with `cJSON_PrintUnformatted` (through the hooks), checks the
+  length (`n < cap` with the NUL, `n ≤ cap` for a stop record), copies and frees. No spare-byte rule, and it keeps
+  "a record over 512 bytes encodes to 0" exact.
 - **Floats:** cJSON prints doubles with `%1.15g`, falling back to `%1.17g`. A value that came from a `float` (lat/lon)
   would print 17 digits. Round it first by `snprintf("%.7g")` → `strtod`, so the output stays short and inside the
   512-byte budget.
 - **Control characters:** cJSON writes them as `\u00XX`. `test_control_characters_stay_valid_json` must still pass
   unchanged.
+- **Nesting (added in J1):** ArduinoJson failed past 10 levels; cJSON recurses up to 1000, which a 1 KB body of
+  brackets could use to overflow a task stack. `json::parse` scans the bytes first and rejects nesting past 10.
+
+**As built (J1):**
+- `json_util.h` helpers: `parse`, `printInto`, `Doc`, `at` (case-sensitive, the last duplicate wins, as
+  ArduinoJson), `str`/`strOr`, `isInt<T>` (an integral number in range), `asInt<T>` and `asBool` (ArduinoJson's
+  `as<T>()` conversions), `numOr`, `forEachItem`, `toInt32`, `noListResult`, `minutesFrom`; counters `liveBytes`,
+  `peakBytes`, `resetPeakBytes`.
+- The hooks are installed by a static initializer in `json_heap.cpp` (so nothing is ever freed by the wrong
+  allocator, and the native tests count bytes without calling `setJsonHeap`) and again by `setJsonHeap`. Each block
+  carries a 16-byte size header for the counter. `JsonHeap::reallocate` is kept for the signature but unused.
+  "PSRAM first, internal if that fails" is the board's `JsonHeap::allocate` (D2/W3; the dock's `psAlloc` today has
+  no fallback).
+- No encoder writes a float (records, picks, info and config are strings, integers and booleans), so the float
+  rounding bite above has nothing to apply to yet.
+- The laptop tools compile cJSON as C first (`cc -O2 -c …/native/lib/cJSON/cJSON.c -o /tmp/cJSON.o`), then link
+  `/tmp/cJSON.o`.
+- Behaviour differences found by running the old and new parsers on the fixtures and ~1500 mutants: a whole number
+  written as a float (`2.0`, `1e0`) now reads as an integer; doubles keep full precision (ArduinoJson stored
+  41.8781 as 41.878098); single-quoted strings, unquoted keys and a lone surrogate escape are now malformed; control
+  characters in `encodeInfo`/`encodeConfig`/`encodePicks` strings are escaped instead of written raw; a lone `pt`
+  object inside a list of bus patterns is now read (the old list filter dropped it).
+- Version: the installed Arduino libs package (IDF 5.5.5) carries cJSON 1.7.19, so whether 54.03.20's espidf is
+  1.7.18 is unverified until the first espidf build. 1.7.18 → 1.7.19 is a bug-fix release.
 
 **Memory:** the hooks send every node to PSRAM (`heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)`, internal
 if that fails); on the laptop they use plain malloc.
@@ -363,14 +389,14 @@ if that fails); on the laptop they use plain malloc.
 - `shortcut: unfiltered trees cost more PSRAM and parse time; parse patterns incrementally only if the dock's PSRAM
   low point drops under 1 MB`.
 
-- [ ] **Step 1:** Vendor cJSON into `firmware/native/lib/cJSON` and switch `native/platformio.ini`. Run
+- [x] **Step 1:** Vendor cJSON into `firmware/native/lib/cJSON` and switch `native/platformio.ini`. Run
   `pio test -e native`; expect build failures in the lib (ArduinoJson includes).
-- [ ] **Step 2:** Port `json_util.h` and `json_heap.cpp`, then the parsers one at a time, running each one's suite
+- [x] **Step 2:** Port `json_util.h` and `json_heap.cpp`, then the parsers one at a time, running each one's suite
   (`-f test_train`, `test_bus`, `test_alerts_weather`, `test_stop_record`, `test_link`, `test_link_follow`,
   `test_nearby`, `test_approach`, `test_train_cards`, `test_dock`) until it passes unchanged.
 - [ ] **Step 3:** The `unfilteredPasses` assertions: as Leo decides (open question 1). Without his answer, leave them
   failing in a scratch run, don't commit a change to them, and ask.
-- [ ] **Step 4:** `pio test -e native` passes in full. Grep: `grep -rn "ArduinoJson\|JsonDocument" firmware/lib
+- [x] **Step 4:** `pio test -e native` passes in full. Grep: `grep -rn "ArduinoJson\|JsonDocument" firmware/lib
   firmware/native` finds nothing. Build the laptop tools with their updated command lines; `tools/preview.cpp`
   renders the same PNGs (byte-compare against a render from before the change).
 - [ ] **Step 5:** Review (Agent-Workflow), then commit: `refactor(lib): cJSON instead of ArduinoJson, nodes in
@@ -672,7 +698,7 @@ see.
    - mDNS underscores;
    - response headers read in the event handler;
    - case-sensitive cJSON lookups;
-   - the 5 spare bytes for `PrintPreallocated`;
+   - `printInto`'s length check (with or without the NUL);
    - float printing;
    - draw_bitmap's asynchrony;
    - the USB print with no host.

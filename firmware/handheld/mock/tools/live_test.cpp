@@ -2,8 +2,9 @@
 // failed one keeps the last good data, the pinned stop and the follow) and mock::fromLive (the countdown, stale data kept, alerts per route, offline, close stops,
 // the home card, docked). Uses the recorded Belmont response and small synthetic Bus Tracker and alerts replies.
 // Build and run (from firmware/handheld/mock):
-//   c++ -std=c++17 -Isrc -I../../lib/cta/src -I<ArduinoJson>/src tools/live_test.cpp src/live_store.cpp \
-//       src/live_model.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp -o /tmp/live_test && /tmp/live_test
+//   cc -O2 -c ../../native/lib/cJSON/cJSON.c -o /tmp/cJSON.o
+//   c++ -std=c++17 -Isrc -I../../lib/cta/src -I../../native/lib/cJSON tools/live_test.cpp src/live_store.cpp \
+//       src/live_model.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp /tmp/cJSON.o -o /tmp/live_test && /tmp/live_test
 #include <stdio.h>
 #include <string.h>
 

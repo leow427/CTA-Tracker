@@ -1,8 +1,8 @@
 #include "stop_record.h"
 
-#include <ArduinoJson.h>
 #include <string.h>
 
+#include "json_util.h"
 #include "text.h"
 
 namespace cta {
@@ -12,30 +12,8 @@ namespace {
 constexpr size_t kIdLen = sizeof(StopRecord::id) - 1;  // ids and routes: 7 bytes
 static_assert(sizeof(StopRecord::route) - 1 == kIdLen, "ids and routes share one limit");
 
-// An ArduinoJson writer into a fixed buffer that never writes past cap (serializeJson's char* overload always
-// reserves a byte for the NUL, which would make an exactly-512-byte record not fit).
-class BoundedWriter {
-public:
-    BoundedWriter(char* buf, size_t cap) : buf_(buf), cap_(cap) {}
-    size_t write(uint8_t c) {
-        if (n_ >= cap_) return 0;
-        buf_[n_++] = static_cast<char>(c);
-        return 1;
-    }
-    size_t write(const uint8_t* s, size_t len) {
-        size_t i = 0;
-        while (i < len && write(s[i])) ++i;
-        return i;
-    }
-
-private:
-    char* buf_;
-    size_t cap_;
-    size_t n_ = 0;
-};
-
-// A copy of a record string with control characters (< 0x20) written as spaces: ArduinoJson writes them raw,
-// which isn't valid JSON, and CTA names never contain them.
+// A copy of a record string with control characters (< 0x20) written as spaces: cJSON would write each as a
+// six-byte \u00XX, and CTA names never contain them.
 struct Clean {
     char s[kNameLen + 1];
     explicit Clean(const char* src) {
@@ -55,7 +33,6 @@ int16_t clampMinutes(long m) {
 }
 
 size_t encode(const StopRecord& r, char* buf, size_t cap, bool vehicles) {
-    // The cleaned copies live until serialization ends, so the document may keep pointers to them.
     const Clean id(r.id), route(r.route), dir(r.dir), name(r.name);
     const uint8_t count = r.count < kMaxArrivals ? r.count : static_cast<uint8_t>(kMaxArrivals);
     const Clean dests[kMaxArrivals] = {Clean(r.arrivals[0].dest), Clean(r.arrivals[1].dest),
@@ -63,30 +40,28 @@ size_t encode(const StopRecord& r, char* buf, size_t cap, bool vehicles) {
     const Clean vehs[kMaxArrivals] = {Clean(r.arrivals[0].vehicle), Clean(r.arrivals[1].vehicle),
                                       Clean(r.arrivals[2].vehicle), Clean(r.arrivals[3].vehicle)};
     static_assert(kMaxArrivals == 4, "dests and vehs list one Clean per arrival");
-    JsonDocument doc;
-    doc["id"] = id.s;
-    doc["type"] = r.type == Kind::Bus ? "bus" : "train";
-    doc["route"] = route.s;
-    doc["dir"] = dir.s;
-    doc["name"] = name.s;
-    JsonArray arrivals = doc["arrivals"].to<JsonArray>();
-    for (uint8_t i = 0; i < count; ++i) {
-        JsonObject a = arrivals.add<JsonObject>();
-        a["min"] = r.arrivals[i].min;
-        a["dest"] = dests[i].s;
-        a["live"] = r.arrivals[i].live;
-        a["delayed"] = r.arrivals[i].delayed;
-        if (vehicles && vehs[i].s[0] != '\0') a["veh"] = vehs[i].s;
+    json::Doc doc(cJSON_CreateObject());
+    cJSON* root = doc.root;
+    bool ok = cJSON_AddStringToObject(root, "id", id.s) &&
+              cJSON_AddStringToObject(root, "type", r.type == Kind::Bus ? "bus" : "train") &&
+              cJSON_AddStringToObject(root, "route", route.s) && cJSON_AddStringToObject(root, "dir", dir.s) &&
+              cJSON_AddStringToObject(root, "name", name.s);
+    cJSON* arrivals = ok ? cJSON_AddArrayToObject(root, "arrivals") : nullptr;
+    ok = arrivals != nullptr;
+    for (uint8_t i = 0; ok && i < count; ++i) {
+        cJSON* a = cJSON_CreateObject();
+        ok = cJSON_AddItemToArray(arrivals, a);
+        if (!ok) {
+            cJSON_Delete(a);
+            break;
+        }
+        ok = cJSON_AddNumberToObject(a, "min", r.arrivals[i].min) && cJSON_AddStringToObject(a, "dest", dests[i].s) &&
+             cJSON_AddBoolToObject(a, "live", r.arrivals[i].live) &&
+             cJSON_AddBoolToObject(a, "delayed", r.arrivals[i].delayed) &&
+             (!vehicles || vehs[i].s[0] == '\0' || cJSON_AddStringToObject(a, "veh", vehs[i].s));
     }
-    doc["alert"] = r.alert;
-    doc["ts"] = r.ts;
-    if (doc.overflowed()) return 0;
-    const size_t len = measureJson(doc);
-    if (len > cap) return 0;
-    BoundedWriter w(buf, cap);
-    if (serializeJson(doc, w) != len) return 0;
-    if (len < cap) buf[len] = '\0';
-    return len;
+    ok = ok && cJSON_AddBoolToObject(root, "alert", r.alert) && cJSON_AddNumberToObject(root, "ts", r.ts);
+    return ok ? json::printInto(root, buf, cap, false) : 0;
 }
 
 }  // namespace
@@ -98,31 +73,30 @@ size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
 }
 
 bool decodeStopRecord(const char* json, size_t len, StopRecord& out) {
-    if (json == nullptr) return false;
-    JsonDocument doc;
-    if (deserializeJson(doc, json, len) != DeserializationError::Ok) return false;
-    JsonObjectConst root = doc.as<JsonObjectConst>();
-    if (root.isNull() || !root["id"].is<const char*>()) return false;
-    const char* type = root["type"].as<const char*>();
+    json::Doc doc(json::parse(json, len));
+    const cJSON* root = doc.root;
+    if (!cJSON_IsObject(root) || !cJSON_IsString(json::at(root, "id"))) return false;
+    const char* type = json::str(json::at(root, "type"));
     if (type == nullptr || (strcmp(type, "train") != 0 && strcmp(type, "bus") != 0)) return false;
 
     StopRecord r{};
-    copyTruncated(r.id, root["id"].as<const char*>(), kIdLen);
+    copyTruncated(r.id, json::str(json::at(root, "id")), kIdLen);
     r.type = strcmp(type, "bus") == 0 ? Kind::Bus : Kind::Train;
-    copyTruncated(r.route, root["route"].as<const char*>(), kIdLen);
-    copyTruncated(r.dir, root["dir"].as<const char*>(), kNameLen);
-    copyTruncated(r.name, root["name"].as<const char*>(), kNameLen);
-    for (JsonObjectConst a : root["arrivals"].as<JsonArrayConst>()) {
+    copyTruncated(r.route, json::str(json::at(root, "route")), kIdLen);
+    copyTruncated(r.dir, json::str(json::at(root, "dir")), kNameLen);
+    copyTruncated(r.name, json::str(json::at(root, "name")), kNameLen);
+    const cJSON* arrivals = json::at(root, "arrivals");
+    for (const cJSON* a = cJSON_IsArray(arrivals) ? arrivals->child : nullptr; a != nullptr; a = a->next) {
         if (r.count == kMaxArrivals) break;
         Arrival& dst = r.arrivals[r.count++];
-        dst.min = clampMinutes(a["min"].as<long>());
-        copyTruncated(dst.dest, a["dest"].as<const char*>(), kNameLen);
-        dst.live = a["live"].as<bool>();
-        dst.delayed = a["delayed"].as<bool>();
-        copyTruncated(dst.vehicle, a["veh"].as<const char*>(), kVehicleLen);
+        dst.min = clampMinutes(json::asInt<long>(json::at(a, "min")));
+        copyTruncated(dst.dest, json::str(json::at(a, "dest")), kNameLen);
+        dst.live = json::asBool(json::at(a, "live"));
+        dst.delayed = json::asBool(json::at(a, "delayed"));
+        copyTruncated(dst.vehicle, json::str(json::at(a, "veh")), kVehicleLen);
     }
-    r.alert = root["alert"].as<bool>();
-    r.ts = root["ts"].as<uint32_t>();
+    r.alert = json::asBool(json::at(root, "alert"));
+    r.ts = json::asInt<uint32_t>(json::at(root, "ts"));
     out = r;
     return true;
 }

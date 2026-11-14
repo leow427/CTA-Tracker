@@ -286,6 +286,22 @@ static void rejects_oversize() {
     TEST_ASSERT_TRUE(cta::parseConfig(cfg.c_str(), cta::kMaxBody, c));
 }
 
+static void rejects_nesting_past_10() {
+    // Ten levels parse; eleven are malformed, so a body of brackets can't recurse deep into the parser's stack.
+    // Brackets inside a string don't count.
+    std::string stop = kStop;
+    stop.insert(stop.size() - 1, ",\"x\":[[[[[[[[[]]]]]]]]]");
+    cta::PickedStop s;
+    TEST_ASSERT_TRUE(p(stop, s, cta::parseStop));
+    stop.insert(stop.size() - 1, ",\"y\":[[[[[[[[[[]]]]]]]]]]");
+    TEST_ASSERT_FALSE(p(stop, s, cta::parseStop));
+    std::string named = kStop;
+    named.replace(named.find("Belmont"), 7, "[[[[[[[[[[[[{{{{");
+    TEST_ASSERT_TRUE(p(named, s, cta::parseStop));
+    TEST_ASSERT_EQUAL_STRING("[[[[[[[[[[[[{{{{", s.name);
+    TEST_ASSERT_FALSE(p(std::string(600, '['), s, cta::parseStop));
+}
+
 static void info_has_new_fields() {
     cta::InfoMsg in = {};
     in.dock = false;
@@ -369,6 +385,7 @@ int main() {
     RUN_TEST(config_round_trips);
     RUN_TEST(bad_json_leaves_state);
     RUN_TEST(rejects_oversize);
+    RUN_TEST(rejects_nesting_past_10);
     RUN_TEST(info_has_new_fields);
     RUN_TEST(strongest_picks_highest_rssi);
     RUN_TEST(strongest_skips_masked_slot);

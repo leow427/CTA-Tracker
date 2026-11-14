@@ -234,7 +234,7 @@ static void test_over_limit_does_not_encode() {
 
 static void test_control_characters_stay_valid_json() {
     cta::StopRecord r = sample();
-    strcpy(r.name, "Bel\x01mont\tStop\n\x0B\x1F");  // 0x0B and 0x1F are also written raw by ArduinoJson
+    strcpy(r.name, "Bel\x01mont\tStop\n\x0B\x1F");  // 0x0B and 0x1F are control characters too
     char buf[cta::kBleMaxPayload + 1];
     const size_t n = cta::encodeStopRecord(r, buf, sizeof(buf));
     TEST_ASSERT_TRUE(n > 0);

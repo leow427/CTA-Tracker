@@ -160,8 +160,8 @@ static void test_geoip() {
     const std::string ok = readFixture("geoip.json"), bad = readFixture("geoip_error.json");
     double lat = 1, lon = 2;
     TEST_ASSERT_TRUE(cta::parseGeoIp(ok.c_str(), ok.size(), lat, lon));
-    TEST_ASSERT_TRUE(fabs(lat - 41.8781) < 1e-4);   // about 11 m, as ArduinoJson may store floats
-    TEST_ASSERT_TRUE(fabs(lon + 87.6298) < 1e-4);   // about 11 m, as ArduinoJson may store floats
+    TEST_ASSERT_TRUE(fabs(lat - 41.8781) < 1e-4);   // about 11 m, in case floats are stored as 32-bit
+    TEST_ASSERT_TRUE(fabs(lon + 87.6298) < 1e-4);   // about 11 m, in case floats are stored as 32-bit
     lat = 1;
     TEST_ASSERT_FALSE(cta::parseGeoIp(bad.c_str(), bad.size(), lat, lon));
     for (const char* b : {"{\"latitude\":91,\"longitude\":0}", "{\"latitude\":41}", "{\"latitude\":\"41\",\"longitude\":1}", "{"})

@@ -7,11 +7,11 @@
 // checked against the plain picture; it prints how many bands each kind of frame drew. Both checks also run with the
 // bands copied late, as the dock's DMA copies them (dma_copy.h), through two band buffers.
 // Build and run (from firmware/dock):
-//   c++ -std=c++17 -O2 -Isrc -Iinclude -I../lib/gfx/src -I../lib/cta/src -I../lib/pet/src -I<ArduinoJson>/src \
+//   cc -O2 -c ../native/lib/cJSON/cJSON.c -o /tmp/cJSON.o
+//   c++ -std=c++17 -O2 -Isrc -Iinclude -I../lib/gfx/src -I../lib/cta/src -I../lib/pet/src -I../native/lib/cJSON \
 //       tools/preview.cpp src/dock_ui.cpp src/bands.cpp ../lib/gfx/src/*.cpp ../lib/cta/src/*.cpp \
-//       ../lib/pet/src/*.cpp -lz -o /tmp/dock_preview
+//       ../lib/pet/src/*.cpp /tmp/cJSON.o -lz -o /tmp/dock_preview
 //   /tmp/dock_preview <out dir>
-// (<ArduinoJson> is any ArduinoJson 7 checkout, e.g. .pio/libdeps/dock/ArduinoJson after a pio run.)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

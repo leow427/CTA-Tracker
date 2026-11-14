@@ -35,42 +35,40 @@ void defaultPicks(PickedStop out[kDockStops]) {
 }
 
 size_t encodePicks(const PickedStop in[kDockStops], char* buf, size_t cap) {
-    JsonDocument doc;
-    JsonArray list = doc.to<JsonArray>();
+    json::Doc doc(cJSON_CreateArray());
     for (int i = 0; i < kDockStops; ++i) {
-        JsonObject o = list.add<JsonObject>();
+        cJSON* o = cJSON_CreateObject();
+        if (!cJSON_AddItemToArray(doc.root, o)) {
+            cJSON_Delete(o);
+            return 0;
+        }
         const PickedStop& p = in[i];
         if (!p.id[0]) continue;
-        o["type"] = p.type == Kind::Bus ? "bus" : "train";
-        o["route"] = p.route;
-        o["dir"] = p.dir;
-        o["id"] = p.id;
-        o["name"] = p.name;
-        o["rtnm"] = p.routeName;
+        if (!cJSON_AddStringToObject(o, "type", p.type == Kind::Bus ? "bus" : "train") ||
+            !cJSON_AddStringToObject(o, "route", p.route) || !cJSON_AddStringToObject(o, "dir", p.dir) ||
+            !cJSON_AddStringToObject(o, "id", p.id) || !cJSON_AddStringToObject(o, "name", p.name) ||
+            !cJSON_AddStringToObject(o, "rtnm", p.routeName))
+            return 0;
     }
-    const size_t need = measureJson(doc);
-    if (buf == nullptr || need + 1 > cap) return 0;
-    return serializeJson(doc, buf, cap);
+    return json::printInto(doc.root, buf, cap, true);
 }
 
 bool decodePicks(const char* json, size_t len, PickedStop out[kDockStops]) {
-    if (json == nullptr) return false;
-    JsonDocument doc;
-    if (deserializeJson(doc, json, len) != DeserializationError::Ok) return false;
-    JsonArrayConst list = doc.as<JsonArrayConst>();
-    if (list.isNull() || list.size() != kDockStops) return false;
+    json::Doc doc(json::parse(json, len));
+    if (!cJSON_IsArray(doc.root) || cJSON_GetArraySize(doc.root) != kDockStops) return false;
     PickedStop got[kDockStops];
-    for (int i = 0; i < kDockStops; ++i) {
-        JsonVariantConst v = list[i];
+    const cJSON* v = doc.root->child;
+    for (int i = 0; i < kDockStops; ++i, v = v->next) {
         memset(&got[i], 0, sizeof(got[i]));
-        if (v.isNull()) continue;
-        if (!v.is<JsonObjectConst>()) return false;
-        const char* id = v["id"];
+        if (cJSON_IsNull(v)) continue;
+        if (!cJSON_IsObject(v)) return false;
+        const char* id = json::str(json::at(v, "id"));
         if (id == nullptr || !*id) continue;
-        const char* type = v["type"] | "";
+        const char* type = json::strOr(json::at(v, "type"), "");
         if (strcmp(type, "train") != 0 && strcmp(type, "bus") != 0) return false;
-        got[i] = make(strcmp(type, "bus") == 0 ? Kind::Bus : Kind::Train, v["route"] | "", v["dir"] | "", id,
-                      v["name"] | "", v["rtnm"] | "");
+        got[i] = make(strcmp(type, "bus") == 0 ? Kind::Bus : Kind::Train, json::strOr(json::at(v, "route"), ""),
+                      json::strOr(json::at(v, "dir"), ""), id, json::strOr(json::at(v, "name"), ""),
+                      json::strOr(json::at(v, "rtnm"), ""));
     }
     memcpy(out, got, sizeof(got));
     return true;
