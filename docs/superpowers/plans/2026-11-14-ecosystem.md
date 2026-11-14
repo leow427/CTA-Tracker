@@ -66,12 +66,16 @@ CoreBluetooth, Network.framework (`NWBrowser`), Swift Testing in CTAKit.
 **Who runs it (Leo, 2026-11-14):** one **orchestrator** agent runs the whole plan. It spawns a worker for each task
 and fresh reviewers to check it (`docs/Agent-Workflow.md`, `docs/reviewer.md`: at most 3 rounds, early stop on small
 findings), and it decides which branches get spawned and when, following the tracks and the day-by-day order below.
-It also hands out the boards, so two workers never flash the same board at once.
+It also hands out the boards, so two workers never flash the same board at once. **Every session runs with ponytail
+set to full** (the `ponytail:ponytail` skill, level full: the smallest change that fully solves the task): the
+orchestrator, each worker, and each reviewer, so each one invokes it before starting its work.
 
 Work runs as **tracks**: each track's workers run on their own branch and worktree and own a set of files no other
 track writes. A track's tasks run in order; tracks run at the same time. Hardware is the other limit: there is **one dock**
-(Tracks D and B2 share it; whoever isn't flashing works on the laptop) and **three wearables** (Tracks H, H-UI, and B1
-each take one).
+(Tracks D and B2 share it) and **one wearable** (Tracks S, H, H-UI, and B1 share it; Leo, 2026-11-14). Whoever
+doesn't hold a board works on the laptop: `tools/preview.cpp` renders, the native tests, the mock build's logic,
+profile logs captured earlier. The orchestrator books board time in blocks (a morning, an afternoon), and the
+wearable goes to the critical path first: S, then H, then H-UI and B1 in the gaps.
 
 | Track | Owns (files) | Tasks | Waits on |
 |---|---|---|---|
@@ -97,7 +101,8 @@ each take one).
 Today is 2026-11-14; the showcase is 2026-11-23. "Start" means open the track's session.
 
 - **Day 1 (11/15).** Start **S** (Task 1, needs both boards), **L** (Task 2), **K** (Task 4), **F7**, **F4** (design:
-  try fonts in the laptop previews), **B1** (wearable #2). Six sessions at once; S is the critical path.
+  try fonts in the laptop previews), **B1** on the laptop (Waveshare's and Espressif's notes on the CO5300's tearing signal, the frame-time probe for
+  the serial profile); it gets the wearable once S lets it go. Six sessions at once; S is the critical path.
 - **Day 2 (11/16).** S reports the BLE-or-fallback decision. **L** does Task 3. **K** does Task 5. Start **D**
   (Task 6) and **H** (Task 8) once Task 2 is merged. Start **A** (Task 10, discovery against `tools/link_send.py
   --serve`, which fakes a board on the Mac). Start **F6** (needs Task 4 merged).
