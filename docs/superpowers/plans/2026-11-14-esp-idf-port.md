@@ -32,6 +32,8 @@ esp_http_client, esp_http_server, nvs_flash, i2c_master, NimBLE. Unity native te
    keep their intent (big replies stay bounded in memory) and assert a peak-bytes bound read from the cJSON
    allocator hooks instead. That changes test code, and the workflow says tests are never weakened, so it needs your
    OK. Every other parser assertion stays as it is.
+   **Approved (Leo, 2026-11-14).** Done in J1 as its own commit: each check is now `assertParseBounded(len)`
+   (`firmware/native/test/json_bound.h`): peak cJSON bytes ≤ 8 × the reply's length, and nothing left allocated.
 2. **The fallback cut-off.** If a board still misses its gates on IDF at 18:00 on 11/17, should it demo from the last
    Arduino commit (tagged `arduino-final`, Task J0) or keep going on IDF? My recommendation: the cut-off as stated,
    decided per board.
@@ -394,7 +396,7 @@ if that fails); on the laptop they use plain malloc.
 - [x] **Step 2:** Port `json_util.h` and `json_heap.cpp`, then the parsers one at a time, running each one's suite
   (`-f test_train`, `test_bus`, `test_alerts_weather`, `test_stop_record`, `test_link`, `test_link_follow`,
   `test_nearby`, `test_approach`, `test_train_cards`, `test_dock`) until it passes unchanged.
-- [ ] **Step 3:** The `unfilteredPasses` assertions: as Leo decides (open question 1). Without his answer, leave them
+- [x] **Step 3:** The `unfilteredPasses` assertions: as Leo decides (open question 1). Without his answer, leave them
   failing in a scratch run, don't commit a change to them, and ask.
 - [x] **Step 4:** `pio test -e native` passes in full. Grep: `grep -rn "ArduinoJson\|JsonDocument" firmware/lib
   firmware/native` finds nothing. Build the laptop tools with their updated command lines; `tools/preview.cpp`

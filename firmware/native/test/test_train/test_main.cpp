@@ -7,9 +7,9 @@
 #include <string>
 
 #include "cta_types.h"
-#include "json_util.h"
 #include "train_parse.h"
 #include "../fixture.h"
+#include "../json_bound.h"
 
 void setUp() {}
 void tearDown() {}
@@ -175,29 +175,29 @@ static void test_equal_times_keep_response_order() {
     TEST_ASSERT_EQUAL_STRING("Howard", r.arrivals[3].dest);  // ties the fifth at the cutoff and came first
 }
 
-static void test_big_responses_stay_filtered() {
-    unsigned& passes = cta::json::unfilteredPasses();
+static void test_big_responses_stay_bounded() {
     cta::StopRecord r = fresh("41320");
     cta::TrainPos pos[8];
     std::string f = readFixture("train_arrivals_station.json");
-    passes = 0;
+    cta::json::resetPeakBytes();
     TEST_ASSERT_TRUE(cta::parseTrainArrivals(f.c_str(), f.size(), 1, r));
-    TEST_ASSERT_EQUAL_UINT(0, passes);
-    TEST_ASSERT_TRUE(parse(response("2026-11-05T08:00:00", eta("Red", "Howard", "2026-11-05T08:04:00")), 1, r));
-    TEST_ASSERT_EQUAL_UINT(0, passes);  // a lone eta object has its own filter
+    assertParseBounded(f.size());
+    const std::string lone = response("2026-11-05T08:00:00", eta("Red", "Howard", "2026-11-05T08:04:00"));
+    TEST_ASSERT_TRUE(parse(lone, 1, r));
+    assertParseBounded(lone.size());  // a lone eta object
     f = readFixture("train_positions_red.json");
     TEST_ASSERT_EQUAL_INT(2, cta::parseTrainPositions(f.c_str(), f.size(), pos, 8));
-    TEST_ASSERT_EQUAL_UINT(0, passes);
+    assertParseBounded(f.size());
     // one route as an object, as a single-line request may return, with a whole line's trains
     std::string trains;
     for (int i = 0; i < 40; ++i) trains += std::string(i ? "," : "") + "{\"rn\":\"8" + std::to_string(i) + "\",\"nextStpId\":\"30005\",\"lat\":\"41.9\"}";
     const std::string oneRoute = "{\"ctatt\":{\"errCd\":\"0\",\"route\":{\"@name\":\"red\",\"train\":[" + trains + "]}}}";
     TEST_ASSERT_EQUAL_INT(8, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 8));
-    TEST_ASSERT_EQUAL_UINT(0, passes);
-    // only the small shapes fall through: a lone train, or none
+    assertParseBounded(oneRoute.size());
+    // a lone train
     f = readFixture("train_positions_single.json");
     TEST_ASSERT_EQUAL_INT(1, cta::parseTrainPositions(f.c_str(), f.size(), pos, 8));
-    TEST_ASSERT_EQUAL_UINT(1, passes);
+    assertParseBounded(f.size());
 }
 
 static void test_daylight_saving() {
@@ -247,11 +247,10 @@ static void test_positions_shapes() {
     // one route and one train, both lone objects: a line with a single train out
     const std::string loneBoth =
         "{\"ctatt\":{\"errCd\":\"0\",\"route\":{\"@name\":\"y\",\"train\":{\"rn\":\"1\",\"nextStpId\":\"30005\"}}}}";
-    unsigned& passes = cta::json::unfilteredPasses();
-    passes = 0;
+    cta::json::resetPeakBytes();
     TEST_ASSERT_EQUAL_INT(1, cta::parseTrainPositions(loneBoth.c_str(), loneBoth.size(), pos, 4));
     TEST_ASSERT_EQUAL_STRING("30005", pos[0].nextStpId);
-    TEST_ASSERT_EQUAL_UINT(1, passes);  // small: falls through to the unfiltered pass
+    assertParseBounded(loneBoth.size());
     const std::string none = "{\"ctatt\":{\"errCd\":\"0\",\"route\":[{\"@name\":\"red\"}]}}";
     TEST_ASSERT_EQUAL_INT(0, cta::parseTrainPositions(none.c_str(), none.size(), pos, 4));
     TEST_ASSERT_EQUAL_INT(0, cta::parseTrainPositions(oneRoute.c_str(), oneRoute.size(), pos, 0));
@@ -296,7 +295,7 @@ int main(int, char**) {
     RUN_TEST(test_skips_bad_arrivals_and_clamps);
     RUN_TEST(test_sorts_by_seconds_and_keeps_four);
     RUN_TEST(test_equal_times_keep_response_order);
-    RUN_TEST(test_big_responses_stay_filtered);
+    RUN_TEST(test_big_responses_stay_bounded);
     RUN_TEST(test_daylight_saving);
     RUN_TEST(test_truncates_names);
     RUN_TEST(test_positions);
