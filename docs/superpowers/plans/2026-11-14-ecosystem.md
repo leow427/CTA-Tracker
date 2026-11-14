@@ -208,7 +208,26 @@ namespace pet { void applyColors(uint16_t palette565[], const uint32_t colors[2]
 
 `uptime` is new beyond the spec's table: seconds since boot, so the app can tell a reboot (Review Focus 1).
 
-- [ ] **Step 1: Write the failing tests** in `test_link/test_main.cpp`:
+**As built (worker notes):** signatures as above; `kWifiSlots` and the length constants live in `link_msg.h`
+(`wifi_list.h` includes it). Value rules the boards and the app can rely on:
+- `parseStop`/`parseFollow`: `type` train or bus; `route` 1–7 bytes and `id` 1–7 bytes, **rejected** if longer (a
+  cut ID would poll the wrong stop); `dir` and `name` must be strings and are cut to fit (`dir` 39 bytes, `name`
+  24); `vehicle` 1–7 bytes, rejected if longer; `dest` required, cut to 24. IDs aren't format-checked here (pin
+  bodies carry 4xxxx stations, dock stops 3xxxx platforms); the board decides.
+- `parseWifi`: `slot` an integer below `maxSlots`, `ssid` 1–32 bytes, `pass` 0–64 bytes (empty for an open network).
+- `parseConfig`: a key that is present but bad fails the whole body. `pet` needs `name` (cut to 16) and exactly 2
+  `colors` in 0–0xFFFFFF; `settings` needs all four keys, `screen`/`led` 0–100, `night_*` 0–1439; `stops` goes
+  through `decodePicks` (exactly 3 entries). `{}` parses with no `has*` set.
+- `encodeInfo`: `battery` -1 is sent as `null`.
+- `tokenMatches` is false when the saved token isn't a valid 32-hex token (an unset token never matches).
+- `link_send.py`: `pet <json>` posts `{"pet": <json>}` to `/config`; `config` with no json is `GET /config`;
+  `--serve` also takes `--port` (default 80) and advertises as `cta-dock-f4ce` / `cta-pet-f4ce`. The fake checks in
+  the boards' order: size (413, before reading), token (401), JSON (400), and answers 400 to any body the
+  boards' parsers would reject (the rules above, and `nearby_msg.h`'s for `/nearby`), leaving its state alone; an
+  empty body is 400 except on `/ble` and `/reset`. `--garbage` posts to `/config`, which
+  both boards serve, with `{}` as the well-formed body for the token cases.
+
+- [x] **Step 1: Write the failing tests** in `test_link/test_main.cpp`:
 
 ```cpp
 void wifi_accepts_slot_4_rejects_5()   { /* parseWifi(...,5,..) true for slot 4, false for slot 5 */ }
@@ -232,12 +251,12 @@ void strongest_none_seen()             { /* → -1 */ }
 void palette_changes_slots_2_3_only()  { /* applyColors → [2]==rgb565(c0), [3]==rgb565(c1), others unchanged */ }
 ```
 
-- [ ] **Step 2: Run** `cd firmware/native && ~/.platformio/penv/bin/pio test -e native -f test_link`.
+- [x] **Step 2: Run** `cd firmware/native && ~/.platformio/penv/bin/pio test -e native -f test_link`.
   Expected: FAIL (undefined references).
-- [ ] **Step 3: Implement** the declarations above. Parsers use ArduinoJson with the same "fill a temporary, copy
+- [x] **Step 3: Implement** the declarations above. Parsers use ArduinoJson with the same "fill a temporary, copy
   on success" pattern as `parseNearby`; `parseConfig` reuses `decodePicks` for `stops`.
-- [ ] **Step 4: Run** the same command plus the whole suite (`pio test -e native`). Expected: all PASS.
-- [ ] **Step 5: Write `tools/link_send.py`**: `link_send.py <host> info|config|pet|nearby|pin|follow|unpin|unfollow|ble|reset
+- [x] **Step 4: Run** the same command plus the whole suite (`pio test -e native`). Expected: all PASS.
+- [x] **Step 5: Write `tools/link_send.py`**: `link_send.py <host> info|config|pet|nearby|pin|follow|unpin|unfollow|ble|reset
   [json] --token <hex>`, `--burst` (20 pins in 2 s, prints each status and time), `--garbage` (bad JSON, 2 KB body,
   no token, wrong token: expects 400, 413, 401, 401), and `--serve [--type dock|handheld]` (a fake board on the Mac
   answering the same endpoints from memory and advertising `_ctatracker._tcp` with `dns-sd -R`, for Track A).
