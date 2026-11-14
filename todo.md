@@ -259,3 +259,14 @@ the dock polls live, even before the screen shows any of it.
 - Night hours still turn the LEDs off.
 
 **Why fifteenth:** saves power and is calmer, but it's polish on top of the rest.
+
+### F16. Dock option: cycle through the 6 nearest stops
+
+The dock shows the 3 stops the user picked (default, unchanged). As an option, it can instead show the 6 stops
+nearest the dock, 3 at a time, flipping between the two sets every 30 s or so (Leo, 2026-11-14).
+
+- Off by default; a setting on the dock (and in the app's device settings once Task 13 exists).
+- "Nearest" is measured from the dock's location, set once (the dock doesn't move).
+- The LED rows follow whichever 3 are on screen.
+
+**Why sixteenth:** an idea from the ecosystem build; not committed for the showcase unless Leo says so.
