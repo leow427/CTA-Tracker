@@ -196,9 +196,12 @@ kept-open, resumed TLS connection; buses, alerts, weather):
 | BLE compiled in, off, 10 min | 168.5 KB | 87.5 KB |
 | BLE on, advertising, no phone connected, 10 min | | **51.4 KB** |
 | BLE off again | | free back to 93,868 B |
+| BLE on, iPhone connected in LightBlue, 10 min (main 0359878 plus this task, 70 CTA requests) | | **67.1 KB** |
+| BLE off after that | | free back to 109,344 B |
 
-- **Pass so far:** 51.4 KB with BLE on, against the 40 KB floor, without a phone connected. The 10 minutes with an
-  iPhone connected in LightBlue are still to do.
+- **Pass:** 67,132 B lowest with BLE on, an iPhone connected (`CTA-Pet-6bcc`) and TLS polling throughout, against
+  the 40 KB floor (2026-11-14, 20:40-20:54). No late panel sends, no resets. That build had B1's tearing fix and the
+  TLS fixes in, so its figures run higher than the earlier rows'.
 - **The controller's memory is taken at boot:** with `CONFIG_BT_ENABLED=y`, 27 KB less internal RAM is free at boot,
   whether BLE ever starts or not. Starting BLE takes about 35 KB more (free 93.9 → 59.0 KB).
 - **No leak:** off, on, off: the free figure came back to exactly 93,868 B each time.

@@ -737,9 +737,10 @@ The same as D4, on the wearable: `ble_setup.*` minimal, serial `b`, 10 minutes B
 LightBlue connected and TLS polling running, then off/on/off with no leak. Pass means **≥ 40 KB with BLE on**. If it
 fails, use D4's ladder. Results go into `docs/ecosystem/day1-link.md` under "ESP-IDF".
 
-*Partial result (2026-11-14):* BLE compiled in takes 27 KB of internal RAM at boot even while off; BLE on,
-advertising with no phone connected, lowest 50.6 KB over 10 min of polling (off: 87.1 KB); off/on/off returns to the
-same free figure. The 10 minutes with an iPhone connected in LightBlue (Leo) decide the pass.
+- [x] *Result (2026-11-14): pass.* BLE compiled in takes 27 KB of internal RAM at boot even while off. BLE on,
+  advertising with no phone: lowest 50.6 KB over 10 min of polling (off: 87.1 KB); off/on/off returns to the same
+  free figure. BLE on with an iPhone connected in LightBlue for 10 min, TLS polling throughout (main 0359878 plus
+  W5): lowest **67.1 KB**, free back to 109.3 KB after off, no resets.
 
 ### Task W6: Wearable BLE setup (ecosystem Task 9, BLE version)
 
