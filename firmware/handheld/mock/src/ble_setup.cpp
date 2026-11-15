@@ -162,6 +162,9 @@ int onGap(ble_gap_event* e, void*) {   // the host task
         case BLE_GAP_EVENT_ENC_CHANGE:
             shownKey = 0;
             countBonds();
+            // A subscribe can come before encryption (its CCCD isn't protected): notify on the loop's next setInfo,
+            // not at the 30 s heartbeat, which is the app's pairing timeout.
+            if (e->enc_change.status == 0) subNew = true;
             break;
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (e->subscribe.attr_handle == infoHandle) {

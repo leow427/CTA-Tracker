@@ -103,4 +103,6 @@ CONFIG_BT_CTRL_BLE_MASTER=n
 CONFIG_BT_CTRL_BLE_SCAN=n
 # The link's chunks: iOS settles on 185 on many models (unverified for this board)
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=256
+# The host task runs the link's dispatcher (parsers, cJSON): 4096 left about 0.5 KB under a nested 1 KB /config
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=6144
 CONFIG_COMPILER_HIDE_PATHS_MACROS=n
