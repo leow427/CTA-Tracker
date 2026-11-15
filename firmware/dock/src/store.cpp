@@ -84,14 +84,6 @@ bool saveGeo(float lat, float lon, uint32_t when) {
            nvs_set_u32(p.h, "geoT", when) == ESP_OK && nvs_commit(p.h) == ESP_OK;
 }
 
-bool loadWifi(cta::SavedNet& out) {
-    cta::SavedNet n;
-    if (!loadBytes("wifi", &n, sizeof(n)) || !n.ssid[0] || n.ssid[cta::kSsidLen] || n.pass[cta::kPassLen]) return false;
-    out = n;
-    return true;
-}
-bool saveWifi(const cta::SavedNet& n) { return saveBytes("wifi", &n, sizeof(n)); }
-
 bool loadToken(char out[cta::kTokenLen + 1]) {
     char t[cta::kTokenLen + 1];
     if (!loadBytes("token", t, sizeof(t)) || t[cta::kTokenLen]) return false;
@@ -117,7 +109,6 @@ bool saveSettings(const cta::DeviceSettings& s) { return saveBytes("settings", &
 void wipeLink() {
     Nvs p(true);
     if (!p.open) return;
-    nvs_erase_key(p.h, "wifi");
     nvs_erase_key(p.h, "token");
     nvs_commit(p.h);
 }

@@ -830,6 +830,7 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
     switch (what) {
         case Act::None: break;
         case Act::Poke: a.poked = true; a.pokeMs = ms; break;
+        case Act::HidePair: a.pairHidden = true; break;
         case Act::MapToggle:
             if (a.screen == Screen::Map) a.screen = Screen::Home;
             else { a.screen = Screen::Map; a.panX = a.panY = 0; }   // the map opens framed on the picks
@@ -948,10 +949,20 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
         const char* body[] = {"This dock was built without", "CTA API keys."};
         drawMessage(cv, true, ms, "No API key", body, 2, "Add them to secrets.h and reflash");
     } else if (!d.wifiSetUp) {
-        const char* body[] = {"Open the CTA app on your iPhone", "to set up Wi-Fi."};
-        char foot[40];
-        snprintf(foot, sizeof(foot), "%s is waiting", d.name);
-        drawMessage(cv, false, ms, "Set up Wi-Fi", body, 2, foot);
+        // Wi-Fi comes from secrets.h only (ecosystem spec 4.2): no app step can set it
+        const char* body[] = {"This dock was built without", "a Wi-Fi network."};
+        drawMessage(cv, true, ms, "No Wi-Fi", body, 2, "Add it to secrets.h and reflash");
+    } else if (a.pairCode[0]) {
+        drawMessage(cv, false, ms, "Pair with the CTA app", nullptr, 0, nullptr);
+        char code[8];   // "123 456": two groups of three, easier to read off and type
+        snprintf(code, sizeof(code), "%.3s %.3s", a.pairCode, a.pairCode + 3);
+        cv.text(F(900, 64), code, W / 2.f, 452, col::white, Align::Center);
+        cv.text(F(800, 18), "Type this code in the app on your iPhone.", W / 2.f, 548, col::mist, Align::Center);
+        cv.text(F(900, 16), d.name, W / 2.f, 596, col::headlight, Align::Center);
+    } else if (a.pairRestart && !a.pairHidden) {
+        const char* body[] = {"Pairing closes 5 minutes after the dock", "starts, or after 5 wrong codes."};
+        drawMessage(cv, true, ms, "Restart the dock to pair", body, 2, "Tap to see your stops");
+        hit(a, 0, 0, W, H, Act::HidePair);
     } else if (a.screen == Screen::Picker) {
         drawPicker(cv, a, pl, ms);
     } else if (a.screen == Screen::Map) {

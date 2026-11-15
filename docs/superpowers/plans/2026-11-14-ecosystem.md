@@ -516,6 +516,10 @@ void wipeLink();   // the token; pet and settings stay (Wi-Fi is in secrets.h)
 
 ### Task 7: Dock pairing over the network (Track D)
 
+**The dock's Wi-Fi pairing, for good (Leo, 2026-11-14: "the dock is only wifi").** The dock never has BLE; only the
+wearable talks Bluetooth. Built on ESP-IDF as the port plan's D5 (`2026-11-14-esp-idf-port.md`), which has the
+as-built notes; joining the strongest of several `secrets.h` networks is not done yet (F1).
+
 Appendix A. The pairing gate is shared C++ so the wearable (Task 9) uses the same one and it's tested on the laptop.
 
 **Files:**
@@ -554,13 +558,13 @@ mismatch → `wrong++`, WrongCode; else Ok. HTTP: Ok 200 (save the token, then `
 WrongCode 403, AlreadyPaired 409, Locked or Closed 423 (the app says to restart the board). `/pair` needs no bearer
 token and takes the same 1 KB limit.
 
-- [ ] **Step 1: Write the failing tests** in `test_pair`: `right_code_pairs`, `wrong_code_counts`,
+- [x] **Step 1: Write the failing tests** in `test_pair`: `right_code_pairs`, `wrong_code_counts`,
   `locks_after_5_wrong` (the 6th try, right code, is Locked), `closed_after_5_minutes`, `paired_answers_already`,
   `parse_rejects_bad_code` (5 digits, 7 digits, letters), `parse_rejects_bad_token`, `bad_json_leaves_state`,
   `rejects_oversize`; in `test_link`, `info_has_paired`.
-- [ ] **Step 2: Run** `pio test -e native -f test_pair` (FAIL), implement, run it and the whole suite (PASS).
-- [ ] **Step 3: Wire the dock:** at boot, if no token is saved, fill `PairGate.code` and show it on screen ("Pair with
-  the CTA app" over the 6 digits); after 5 minutes or 5 wrong tries, show "Restart the dock to pair". On Ok, save the
+- [x] **Step 2: Run** `pio test -e native -f test_pair` (FAIL), implement, run it and the whole suite (PASS).
+- [x] **Step 3: Wire the dock:** at boot, if no token is saved, fill `PairGate.code` and show it on screen ("Pair with
+  the CTA app" over the 6 digits); after 5 minutes or 5 wrong tries, show "Restart the dock to pair" (a tap puts it away until reboot). On Ok, save the
   token and go to the usual screen. `wipeLink` (reset) brings the code back on the next boot.
 - [ ] **Step 4: Verify on the board:** fresh dock (`R`) shows a code; `link_send.py cta-dock-xxxx.local pair <code>`
   answers 200 and then `config` with that token is accepted; a second `pair` is 409; after a reset, 5 wrong codes
@@ -863,7 +867,8 @@ in the App Group.
 
 ### Task 19: Relay with no Wi-Fi — DROPPED (2026-11-14)
 
-**Dropped with the Appendix A decision:** the relay needs Bluetooth on the wearable, and BLE's ~50 KB of internal RAM
+**Dropped with the Appendix A decision:** the relay is phone to wearable only: the dock has no BLE (Leo, 2026-11-14,
+"the dock is only wifi"). It needs Bluetooth on the wearable, and BLE's ~50 KB of internal RAM
 doesn't fit (`docs/ecosystem/day1-link.md`). Showcase step 7 is out; BLE relay is future work (spec section 12). The
 steps below are kept as the design for that later version; don't build them now.
 

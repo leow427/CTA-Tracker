@@ -30,7 +30,7 @@ own PlatformIO folder, `~/.platformio-dock`.
   - Wi-Fi and lwIP buffers are in PSRAM;
   - driver interrupt code is out of IRAM;
   - all of mbedTLS, mDNS and the httpd stack are in PSRAM;
-  - NimBLE's host memory is in PSRAM, and its controller code runs from flash.
+  - Bluetooth is off: the dock is Wi-Fi only.
   - After changing it, delete `sdkconfig.dock` / `sdkconfig.perf`: an existing one wins.
 - **Components:** `src/idf_component.yml` pulls mDNS, and `dependencies.lock` pins it.
 - **Boot log:** it says which SDK is running, for example `display: SDK 5.4.1, XIP from PSRAM on, data cache line 64 B`.
@@ -61,4 +61,5 @@ Measured with `tools/dock_perf_run.py` (`docs/perf/log.md`, "ESP-IDF port"):
 | Taps | 24–65 ms |
 | Requests | 344–637 ms |
 
-Bluetooth's cost is in `docs/ecosystem/day1-link.md`, "ESP-IDF".
+The dock has no Bluetooth (Leo, 2026-11-14). What it cost while it was compiled in is in
+`docs/ecosystem/day1-link.md`, "ESP-IDF".

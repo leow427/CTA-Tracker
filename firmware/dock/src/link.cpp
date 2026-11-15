@@ -9,6 +9,7 @@
 #include "clock_ms.h"
 #include <esp_heap_caps.h>
 #include <esp_http_server.h>
+#include <esp_random.h>
 #include <esp_wifi.h>
 #include <mdns.h>
 #include <string.h>
@@ -33,6 +34,7 @@ struct Shared {
     cta::ConfigMsg config;
 };
 Shared* sh;   // in PSRAM: internal RAM is for Wi-Fi and TLS
+cta::PairGate gate;   // under mu, with token
 httpd_handle_t server = nullptr;
 volatile uint32_t minStack = 0;
 
@@ -50,8 +52,17 @@ esp_err_t reply(httpd_req_t* r, const char* status, const char* body) {
 }
 
 esp_err_t getInfo(httpd_req_t* r) {
+    cta::InfoMsg m;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    m = sh->info;
+    m.paired = token[0] != 0;
+    xSemaphoreGive(mu);
+    m.uptime = nowMs() / 1000;
+    wifi_ap_record_t ap;
+    m.wifiConnected = net::wifiUp() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
+    snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? reinterpret_cast<const char*>(ap.ssid) : "");
     char buf[384];
-    return infoJson(buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
+    return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
 
 esp_err_t getConfig(httpd_req_t* r) {
@@ -61,6 +72,42 @@ esp_err_t getConfig(httpd_req_t* r) {
     xSemaphoreGive(mu);
     char buf[cta::kMaxBody];
     return cta::encodeConfig(c, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
+}
+
+// The whole body into buf (kMaxBody + 1 bytes, NUL-terminated); false if the client closed or stalled.
+bool readBody(httpd_req_t* r, char* buf, size_t& len) {
+    len = 0;
+    while (len < r->content_len) {
+        const int n = httpd_req_recv(r, buf + len, r->content_len - len);
+        if (n <= 0) return false;   // closed, or stalled past httpd's 5 s timeout: drop it, don't hold the task
+        len += n;
+    }
+    buf[len] = 0;
+    return true;
+}
+
+// POST /pair (ecosystem spec 4.3): no bearer token. Size (413), then the body (400), then the gate.
+esp_err_t postPair(httpd_req_t* r) {
+    if (r->content_len > cta::kMaxBody) return reply(r, "413 Payload Too Large", "{\"error\":\"too large\"}");
+    char body[cta::kMaxBody + 1];
+    size_t len;
+    if (!readBody(r, body, len)) return ESP_FAIL;
+    cta::PairMsg m;
+    if (!cta::parsePair(body, len, m)) return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}");
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const cta::PairResult res = gate.check(m.code, nowMs(), token[0] != 0);
+    if (res == cta::PairResult::Ok) {   // in use at once; the loop saves it (no flash from this PSRAM stack)
+        memcpy(token, m.token, sizeof(token));
+        memcpy(sh->inbox.token, m.token, sizeof(sh->inbox.token));
+        sh->inbox.paired = true;
+    }
+    xSemaphoreGive(mu);
+    switch (res) {
+        case cta::PairResult::Ok: return reply(r, "200 OK", "{}");
+        case cta::PairResult::WrongCode: return reply(r, "403 Forbidden", "{\"error\":\"wrong code\"}");
+        case cta::PairResult::AlreadyPaired: return reply(r, "409 Conflict", "{\"error\":\"already paired\"}");
+        default: return reply(r, "423 Locked", "{\"error\":\"restart to pair\"}");   // Locked, Closed
+    }
 }
 
 // Every write, in the order the fake board (tools/link_send.py --serve) checks: size before reading, token, JSON.
@@ -76,16 +123,11 @@ esp_err_t post(httpd_req_t* r) {
         !cta::tokenMatches(auth, saved))
         return reply(r, "401 Unauthorized", "{\"error\":\"unauthorized\"}");
     char body[cta::kMaxBody + 1];
-    size_t len = 0;
-    while (len < r->content_len) {
-        const int n = httpd_req_recv(r, body + len, r->content_len - len);
-        if (n <= 0) return ESP_FAIL;   // closed, or stalled past httpd's 5 s timeout: drop it, don't hold the task
-        len += n;
-    }
-    body[len] = 0;
+    size_t len;
+    if (!readBody(r, body, len)) return ESP_FAIL;
     const char* uri = r->uri;
     const bool isConfig = strcmp(uri, "/config") == 0;
-    // A body is required on /config only; any body must parse (parseConfig takes {}), as link_send.py --serve checks.
+    // A body is required on /config only (/reset takes none or {}); any body must parse (parseConfig takes {}), as link_send.py --serve checks.
     cta::ConfigMsg c;
     if ((isConfig && !len) || (len && !cta::parseConfig(body, len, c)))
         return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}");
@@ -96,10 +138,9 @@ esp_err_t post(httpd_req_t* r) {
         if (c.hasPet) { sh->inbox.cfg.pet = c.pet; sh->inbox.cfg.hasPet = true; }
         if (c.hasSettings) { sh->inbox.cfg.settings = c.settings; sh->inbox.cfg.hasSettings = true; }
         xSemaphoreGive(mu);
-    } else {
+    } else {   // /reset
         xSemaphoreTake(mu, portMAX_DELAY);
-        if (strcmp(uri, "/reset") == 0) sh->inbox.reset = true;
-        else sh->inbox.openBle = true;
+        sh->inbox.reset = true;
         xSemaphoreGive(mu);
     }
     return reply(r, "200 OK", "{}");
@@ -120,6 +161,11 @@ void begin(const char* t) {
 
 void start(const char* hostLabel) {
     if (server || !mu) return;
+    // The pairing code (ecosystem spec 4.3): new at every boot, never logged. Picked here, with Wi-Fi up, because
+    // esp_random is a true RNG only while the radio runs. % 1000000 is biased by under 0.03%.
+    xSemaphoreTake(mu, portMAX_DELAY);
+    snprintf(gate.code, sizeof(gate.code), "%06u", static_cast<unsigned>(esp_random() % 1000000));
+    xSemaphoreGive(mu);
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.core_id = 0;   // never the frame loop's core
     cfg.stack_size = kStack;
@@ -140,11 +186,11 @@ void start(const char* hostLabel) {
         {"/info", HTTP_GET, getInfo, nullptr},
         {"/config", HTTP_GET, getConfig, nullptr},
         {"/config", HTTP_POST, post, nullptr},
-        {"/ble", HTTP_POST, post, nullptr},
+        {"/pair", HTTP_POST, postPair, nullptr},
         {"/reset", HTTP_POST, post, nullptr},
     };
     for (const httpd_uri_t& u : uris) httpd_register_uri_handler(server, &u);
-    const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx", as in the BLE name
+    const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx"
     // _ctatracker._tcp with its underscores: Arduino's MDNS.addService("ctatracker", "tcp") added them, IDF doesn't.
     mdns_txt_item_t txt[] = {{"type", "dock"}, {"id", id}};
     if (mdns_init() == ESP_OK && mdns_hostname_set(hostLabel) == ESP_OK && mdns_instance_name_set(hostLabel) == ESP_OK &&
@@ -180,7 +226,7 @@ void setConfig(const cta::ConfigMsg& c) {
 bool take(Inbox& out) {
     if (!mu) return false;
     xSemaphoreTake(mu, portMAX_DELAY);
-    const bool any = sh->inbox.config || sh->inbox.reset || sh->inbox.openBle;
+    const bool any = sh->inbox.config || sh->inbox.reset || sh->inbox.paired;
     if (any) {
         out = sh->inbox;
         sh->inbox = Inbox();
@@ -189,17 +235,16 @@ bool take(Inbox& out) {
     return any;
 }
 
-size_t infoJson(char* buf, size_t cap) {
-    if (!mu) return 0;
-    cta::InfoMsg m;
+PairShow pairShow(char code[cta::kPairCodeLen + 1]) {
+    if (!mu) return PairShow::None;
     xSemaphoreTake(mu, portMAX_DELAY);
-    m = sh->info;
+    // No code before Wi-Fi is up (start): there's no way to pair yet.
+    const PairShow show = token[0] || !gate.code[0] ? PairShow::None
+                        : gate.open(nowMs())        ? PairShow::Code
+                                                    : PairShow::Restart;
+    if (show == PairShow::Code) memcpy(code, gate.code, sizeof(gate.code));
     xSemaphoreGive(mu);
-    m.uptime = nowMs() / 1000;
-    wifi_ap_record_t ap;
-    m.wifiConnected = net::wifiUp() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
-    snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? reinterpret_cast<const char*>(ap.ssid) : "");
-    return cta::encodeInfo(m, buf, cap);
+    return show;
 }
 
 uint32_t stackLeft() { return minStack; }

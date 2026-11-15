@@ -187,6 +187,8 @@ const State kStates[] = {
     {"picker4_failed", [](dock::Data&, dock::App& a, dock::PickerLists& pl, dock::Clock&) { picker(a, 4, true); pl.stopsState = dock::Load::Failed; }},
     {"no_wifi", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.wifiSetUp = false; }},
     {"no_key", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.keys = false; }},
+    {"pairing", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { snprintf(a.pairCode, sizeof(a.pairCode), "042917"); }},
+    {"pair_restart", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.pairRestart = true; }},
 };
 
 // ---------- the device's path (bands.cpp, display.cpp) ----------

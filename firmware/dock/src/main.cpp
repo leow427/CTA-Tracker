@@ -13,8 +13,8 @@
 // the screen, "2" a static test pattern, "3" Wi-Fi off/on, "4" single buffer, "5" the next panel timing, "6" the panel restart after a late frame off/on; "f" sends the frame on screen
 // (tools/frame_grab.py), "l" prints the LED colors, "w" checks that the dock's Wi-Fi network is on the
 // air, "x" swaps sections 1 and 2 (a real flash write), "z" powers down (LEDs and backlight off, deep sleep).
-// The link (ecosystem spec 5.4): "R" forgets the Wi-Fi network and token and reboots (as POST /reset and three fingers
-// held 10 s anywhere on screen do); "T <32 hex>" sets the household token until BLE setup exists (never echoed).
+// The link (ecosystem spec 5.4): "R" forgets the token and reboots to pairing (as POST /reset and three fingers held
+// 10 s anywhere on screen do); "T <32 hex>" sets the household token by hand, as POST /pair does (never echoed).
 #include <stdio.h>
 #include <string.h>
 
@@ -36,7 +36,6 @@
 
 #include <new>
 
-#include "ble_setup.h"
 #include "card_theme.h"
 #include "cta_config.h"
 #include "display.h"
@@ -70,7 +69,6 @@ bool wifiOffDiag = false, forceFrame = false;
 cta::ConfigMsg linkCfg;   // stops = picks; pet and settings once saved or sent
 cta::InfoMsg info = {};
 uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
-char bleName[16];   // "CTA-Dock-XXXX"
 constexpr uint32_t kResetHoldMs = 10000;   // three fingers held this long anywhere: the hidden reset
 #ifdef PERF_LOG
 // The perf log's view of the loop: a picker list asked for (and when), and boot milestones (ms since boot, 0 = not yet).
@@ -208,9 +206,9 @@ uint32_t ledScaled(uint32_t rgb) {
     return ((rgb >> 16 & 0xff) * k / 100) << 16 | ((rgb >> 8 & 0xff) * k / 100) << 8 | (rgb & 0xff) * k / 100;
 }
 
-// Forgets the Wi-Fi network and the token, then boots fresh (POST /reset, serial "R", the three-finger hold).
+// Forgets the token, then boots fresh, showing a pairing code (POST /reset, serial "R", the three-finger hold).
 void resetLink(const char* why) {
-    uprintf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    uprintf("link: reset (%s): forgetting the token, rebooting\n", why);
     store::wipeLink();
     flushSerial();
     esp_restart();
@@ -284,12 +282,6 @@ void pollSerial() {
             diagStep = c == '.' ? 0 : static_cast<char>(c);
             forceFrame = true;
             uprintf("diag: step %c\n", c);
-        } else if (c == 'b') {   // BLE on or off (the ESP-IDF port's D4 measurement; D5 runs it on its own)
-            if (ble_setup::running()) ble_setup::stop();
-            else ble_setup::start(bleName);
-            uprintf("ble: %s; internal free %u (min %u), largest block %u\n", ble_setup::running() ? "on" : "off",
-                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
-                   heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         } else if (c == 'w') {
             net::checkWifi();
         } else if (c == 'l') {
@@ -364,7 +356,6 @@ void setup() {
     info.dock = true;
     info.battery = -1;
     snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
-    snprintf(bleName, sizeof(bleName), "CTA-Dock-%02X%02X", mac[4], mac[5]);
     snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
     publishLink();
     net::start(picks);
@@ -460,9 +451,22 @@ void loop() {
             applySettings();
         }
         publishLink();
-        if (in.openBle) uprintf("link: POST /ble (BLE setup comes with Task 7)\n");
+        if (in.paired) {   // POST /pair: the token is in use already; this keeps it
+            if (!store::saveToken(in.token)) uprintf("store: saving the token failed\n");
+            uprintf("link: paired\n");
+        }
         if (in.reset) resetLink("POST /reset");
         dirty = true;
+    }
+    {   // pairing: the code while it's open, then "restart to pair", then nothing once paired
+        char code[cta::kPairCodeLen + 1] = "";
+        const lan::PairShow show = lan::pairShow(code);
+        const bool restart = show == lan::PairShow::Restart;
+        if (strcmp(code, app.pairCode) != 0 || restart != app.pairRestart) {
+            memcpy(app.pairCode, code, sizeof(code));
+            app.pairRestart = restart;
+            dirty = true;
+        }
     }
     if (net::readLists(*lists, listsVersion)) {
         dirty = true;

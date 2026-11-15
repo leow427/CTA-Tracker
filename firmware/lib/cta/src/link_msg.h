@@ -22,6 +22,8 @@ struct WifiMsg {
 };
 bool parseWifi(const char* json, size_t len, uint8_t maxSlots, WifiMsg& out);
 
+// True if t is a token: 32 lowercase hex characters.
+bool validToken(const char* t);
 // {"token":"<32 lowercase hex>"}.
 bool parseToken(const char* json, size_t len, char out[kTokenLen + 1]);
 // True if authHeader is exactly "Bearer <token>" and token is a 32-character token. Constant time in the token.
@@ -74,9 +76,10 @@ struct InfoMsg {
     uint32_t picksVer;
     uint32_t wake;
     bool docked;
+    bool paired;   // has a token; false raises the app's "found" card
 };
 // {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid"},"last_update","uptime",
-//  "picks_ver","wake","docked"}. Returns the length (and a NUL), or 0 if it doesn't fit in cap.
+//  "picks_ver","wake","docked","paired"}. Returns the length (and a NUL), or 0 if it doesn't fit in cap.
 size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap);
 
 }  // namespace cta

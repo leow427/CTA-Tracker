@@ -10,6 +10,7 @@
 #include "bus_picker.h"
 #include "cta_types.h"
 #include "gfx2d.h"
+#include "pair.h"
 #include "picks.h"
 
 namespace dock {
@@ -66,7 +67,7 @@ struct Clock {
 // ---------- the screen's own state ----------
 
 enum class Screen : uint8_t { Home, Map, Picker };
-enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home };
+enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, HidePair };
 struct Hit { int16_t x, y, w, h; Act tap, hold; int16_t arg; };
 
 // What the device must do after an input: fetch a picker list, or save a new pick.
@@ -101,6 +102,10 @@ struct App {
     int pickedSection = 0;
     cta::PickedStop pick;
     int debugMood = -1;                // -1 live; else a cta::Mood shown instead (the debug cycle)
+    // in: pairing (ecosystem spec 4.3), set by the device each frame
+    char pairCode[cta::kPairCodeLen + 1] = "";   // the code on the setup screen ("" = none)
+    bool pairRestart = false;          // pairing closed (5 minutes up or 5 wrong codes): "Restart the dock to pair"
+    bool pairHidden = false;           // a tap put that message away until reboot: the dock works unpaired
 };
 
 // Picks and data can change between frames; draw() reads them as they are.

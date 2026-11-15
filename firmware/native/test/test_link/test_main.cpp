@@ -338,6 +338,18 @@ static cta::WifiList twoSaved() {
     return l;
 }
 
+static void info_has_paired() {
+    cta::InfoMsg in = {};
+    in.dock = true;
+    in.battery = -1;
+    char buf[512];
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"paired\":false"));
+    in.paired = true;
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"paired\":true"));
+}
+
 static void strongest_picks_highest_rssi() {
     const cta::WifiList l = twoSaved();
     const cta::SeenNet seen[] = {{"A", -70}, {"other", -30}, {"B", -55}};
@@ -387,6 +399,7 @@ int main() {
     RUN_TEST(rejects_oversize);
     RUN_TEST(rejects_nesting_past_10);
     RUN_TEST(info_has_new_fields);
+    RUN_TEST(info_has_paired);
     RUN_TEST(strongest_picks_highest_rssi);
     RUN_TEST(strongest_skips_masked_slot);
     RUN_TEST(strongest_none_seen);

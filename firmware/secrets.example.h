@@ -9,7 +9,8 @@
 #define WIFI_SSID ""
 #define WIFI_PASS ""
 
-// Wi-Fi for the dock (firmware/dock), a WPA2-Personal network of its own, until the app sets it over BLE.
+// Wi-Fi for the dock (firmware/dock), a WPA2-Personal network of its own. The dock is Wi-Fi only and nothing sets
+// this over the network: change it here and reflash.
 #define DOCK_WIFI_SSID ""
 #define DOCK_WIFI_PASS ""
 

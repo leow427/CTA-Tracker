@@ -44,8 +44,6 @@ bool isLowerHex(const char* s, size_t n) {
     return true;
 }
 
-bool validToken(const char* t) { return t != nullptr && strlen(t) == kTokenLen && isLowerHex(t, kTokenLen); }
-
 bool readStop(const cJSON* o, PickedStop& p) {
     memset(&p, 0, sizeof(p));
     const char* type = json::strOr(json::at(o, "type"), "");
@@ -91,6 +89,8 @@ bool readSettings(const cJSON* v, DeviceSettings& s) {
 }
 
 }  // namespace
+
+bool validToken(const char* t) { return t != nullptr && strlen(t) == kTokenLen && isLowerHex(t, kTokenLen); }
 
 bool parseWifi(const char* json, size_t len, uint8_t maxSlots, WifiMsg& out) {
     json::Doc doc(parseObject(json, len));
@@ -204,7 +204,8 @@ size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap) {
         cJSON_AddBoolToObject(wifi, "connected", in.wifiConnected) && cJSON_AddStringToObject(wifi, "ssid", in.ssid) &&
         cJSON_AddNumberToObject(root, "last_update", in.lastUpdate) &&
         cJSON_AddNumberToObject(root, "uptime", in.uptime) && cJSON_AddNumberToObject(root, "picks_ver", in.picksVer) &&
-        cJSON_AddNumberToObject(root, "wake", in.wake) && cJSON_AddBoolToObject(root, "docked", in.docked);
+        cJSON_AddNumberToObject(root, "wake", in.wake) && cJSON_AddBoolToObject(root, "docked", in.docked) &&
+        cJSON_AddBoolToObject(root, "paired", in.paired);
     return ok ? json::printInto(root, buf, cap, true) : 0;
 }
 

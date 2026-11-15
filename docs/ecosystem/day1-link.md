@@ -156,6 +156,8 @@ no-Wi-Fi relay are future work (spec section 11), not deleted design.
 
 ## ESP-IDF
 
+**The dock is Wi-Fi only (Leo, 2026-11-14):** no BLE on the dock; the table below is history from D4's measurement.
+
 ### Dock (ESP-IDF port, D4, 2026-11-14)
 
 The dock build has NimBLE (IDF's own) compiled in, using `firmware/dock/src/ble_setup.*`:

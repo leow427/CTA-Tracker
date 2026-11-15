@@ -207,3 +207,24 @@ No late panel frames, no restarts, lowest free internal RAM 49 → 50 KB, no res
 3. **The map stays at 15.7 fps**, as on Arduino: it's drawing-bound (42 ms a frame), B2's job.
 4. **About one boot in fifteen** missed the AP on the first fast scan (Wi-Fi reason 201) and joined on the retry 2 s later (`idf-4`: Wi-Fi up 9.2 s). Eight boots in a row afterwards joined first time. Arduino's join used the same scan settings.
 5. **Serial output costs less.** stdout handed the UART driver one character per ring entry; one write per line (`uprintf`) took core 1 from 61.3 to 60.1 % busy in the picker phase, and the worst map tap from 166 to 59 ms.
+
+## The dock Wi-Fi only, pairing over the network (2026-11-14)
+
+- **Change:** the dock has no BLE (Leo: "the dock is only wifi"): BT off in `sdkconfig.defaults`, `ble_setup.*` and
+  the serial `b` gone, plus ecosystem Task 7 (`POST /pair`, the code on screen) as the port plan's D5. One run,
+  `idf-noble-1`, on a paired dock (so the stress test drives the usual screens), against `idf-nodelay-1..3`.
+- **Boot:** internal free 134.5 KB at "dock: up", 91.1 KB after httpd, 90.3 KB after mDNS: the non-BLE figures again
+  (with NimBLE compiled in, "dock: up" was 131.1 KB).
+
+| Gate | idf-nodelay-1..3 | idf-noble-1 | Pass |
+|---|---|---|---|
+| Lowest free internal RAM | 73 KB | 73.5 KB | yes |
+| Picker scroll | 34.0 fps | 34.0 fps | yes |
+| Map pan | 15.7 fps | 15.7 fps | as before (B2) |
+| Taps (phase means) | 24–65 ms | 24–67 ms | yes |
+| Requests (phase means) | 344–637 ms | 270–567 ms | yes |
+| Late panel frames | 0 | 0 | yes |
+| Wi-Fi up / all loaded after boot | 4.5 / 10.4 s | 4.2 / 11.1 s | within noise |
+
+`dock_perf_report.py`: 2 metrics better beyond noise (core 0 in the network burst, the mixed phase's worst tap), none
+worse.

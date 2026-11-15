@@ -85,8 +85,8 @@ esp_http_client, esp_http_server, nvs_flash, i2c_master, NimBLE. Unity native te
 | Track | Base | Owns (files) | Tasks | Waits on |
 |---|---|---|---|---|
 | **J — cJSON** | main `3598b0b` | `firmware/lib/cta/**`, `firmware/native/**`, the build-command comments in `firmware/dock/tools/preview.cpp` and `firmware/handheld/mock/tools/{preview,frame_test,live_test}.cpp` | J0, J1 | nothing |
-| **D — dock** | `57241f7` (Task 6) | `firmware/dock/**` except the tool comments above; `firmware/lib/cta/src/ble_ids.h` (token UUID, D5) | D1–D5 | J merged before D2's first board build |
-| **W — wearable** | main `3598b0b` | `firmware/handheld/mock/**` except the tool comments above | W1–W6 | J merged before W3's first board build; `ble_ids.h` from D5 for W6 |
+| **D — dock** | `57241f7` (Task 6) | `firmware/dock/**` except the tool comments above; `firmware/lib/cta/src/pair.*` (D5) | D1–D5 (D4 dropped) | J merged before D2's first board build |
+| **W — wearable** | main `3598b0b` | `firmware/handheld/mock/**` except the tool comments above; `firmware/lib/cta/src/ble_ids.h` (token UUID, W6) | W1–W6 | J merged before W3's first board build |
 | **E — ecosystem docs** | main | `docs/superpowers/plans/2026-11-14-ecosystem.md`, `docs/superpowers/specs/2026-11-14-ecosystem-design.md` §12, `todo.md` F17 | E1 | D4 and W5 measured |
 
 **What runs at once:** J, D and W all start now. Each board track has its own board (the dock on the CH343 port, the
@@ -109,8 +109,9 @@ merges. Finished, reviewed work ships without asking (commit, push, merge).
 - **Pause until the port lands on that board:**
   - B1 (wearable send path, rewritten in W2) and B2 (dock drawing; D shares the board).
   - F2 (battery level; `power.cpp` is rewritten in W2).
-  - Tasks 7, 9, 12 and 19, which come back as BLE tasks after D4/W5 (E1). Their Appendix A versions (`POST /pair`)
-    are not built unless BLE fails both fallbacks.
+  - Tasks 9, 12 and 19, which come back as BLE tasks after W5 (E1). Their Appendix A versions (`POST /pair`)
+    are not built unless BLE fails both fallbacks. Task 7 is the dock's Wi-Fi pairing (D5): the dock has no BLE
+    (Leo, 2026-11-14).
   - Task 20 extras, until the showcase steps pass on IDF.
 
 ### Day plan
@@ -517,7 +518,12 @@ Run on the board, with Wi-Fi from `secrets.h` and the token set with serial `T <
 - [x] **Commit:** review first, then `feat(dock): native ESP-IDF build, no Arduino (with the Task 6 link)`, and
   write the run results into `docs/perf/log.md`.
 
-### Task D4: Measure BLE on the dock
+### Task D4: Measure BLE on the dock — DROPPED: the dock has no BLE (Leo)
+
+**Leo, 2026-11-14: "the dock is only wifi."** Only the wearable talks Bluetooth. `f8baa52` compiled NimBLE into the
+dock for this measurement; it's gone again (BT off in `sdkconfig.defaults`, no `ble_setup.*`, no serial `b`), and
+internal RAM is back to the non-BLE figures: 134.5 KB at "dock: up", 91.1 KB after httpd, 90.3 KB after mDNS. The
+steps below and their numbers are kept as history.
 
 **Files:** `firmware/dock/sdkconfig.defaults` (BLE lines on), `firmware/dock/src/ble_setup.h/.cpp` (just enough:
 init, advertise `CTA-Dock-xxxx` with the service from `ble_ids.h`, an `info` read, deinit), `main.cpp` (serial `b`
@@ -541,47 +547,49 @@ toggles BLE, as the spike did).
 - [x] **Step 4:** Write the table (boot, BLE off, BLE on, after off) into `docs/ecosystem/day1-link.md` under a new
   "ESP-IDF" heading. No network names.
 
-### Task D5: Dock BLE setup (ecosystem Task 7, BLE version)
+### Task D5: Dock pairing over Wi-Fi (ecosystem Task 7)
 
-The original Task 7 from `21a0fd7` (the plan before Appendix A), on IDF.
+The dock has no BLE (D4), so its setup is ecosystem Task 7 in its Appendix A form: a 6-digit code on screen and
+`POST /pair` on the home network. Wi-Fi comes from `secrets.h` only.
 
 **Files:**
-- Modify: `firmware/dock/src/ble_setup.h/.cpp`, `main.cpp`, `dock_ui.cpp` (the passkey and "Joining Wi-Fi…" setup
-  messages), `store.*` (a saved Wi-Fi slot: `saveWifi`/`loadWifi`, NVS), `net.cpp` (join the saved slot plus the
-  `secrets.h` networks, strongest first)
-- Modify: `firmware/lib/cta/src/ble_ids.h`: add `kTokenUuid = "5b1e6f0a-3c2d-4e8f-9a7b-1d2c3e4f5a60"`, mirrored in
-  CTAKit `BLEID.token` (Track A/K).
+- Create: `firmware/lib/cta/src/pair.h/.cpp` (`parsePair`, `PairGate`), `firmware/native/test/test_pair/`
+- Modify: `cta_config.h` (`kPairWindowMs`, `kPairMaxWrong`), `link_msg.h/.cpp` (`InfoMsg.paired`, `validToken`
+  public), `test_link` (`info_has_paired`)
+- Modify: `firmware/dock/src/link.*` (`POST /pair`, `pairShow`; `POST /ble` gone), `main.cpp` (saves the token, sets
+  the screen), `dock_ui.*` (the code and "Restart the dock to pair"), `store.*` and `net.cpp` (no stored Wi-Fi slot),
+  `tools/preview.cpp` (`pairing`, `pair_restart`)
+- Modify: `tools/link_send.py`, `tools/test_link_send.py` (`pair <code>` replaces `ble`; the fake serves the gate)
 
-**Interfaces:**
-`namespace ble_setup { void start(const char* name); void stop(); bool running(); uint32_t passkey(); }`
+**As built:**
+- **Gate:** `PairGate::check` in the plan's order (paired 409, locked or window over 423, wrong code 403 and counted,
+  else 200); the compare is constant time. `POST /pair` checks size (413), then the body (400, never counted), then
+  the gate. No bearer token.
+- **The code** is picked in `lan::start`, once Wi-Fi is up, because `esp_random` is a true RNG only while the radio
+  runs. So no code shows before Wi-Fi joins (there's no way to pair then anyway). It's never logged.
+- **The token** is set in RAM by the handler at once (a second `/pair` is 409, `config` with it is accepted) and saved
+  to NVS by the frame loop: httpd's stack is in PSRAM, which must not write flash.
+- **`paired`** in `GET /info` is filled from the token when it's served.
+- **Screens:** while the code is open, "Pair with the CTA app" over the code and the dock's name; after 5 minutes or 5
+  wrong codes, "Restart the dock to pair". A tap puts that second message away until reboot, so an unpaired dock still
+  shows its stops (review round 1). The no-Wi-Fi message now says to add the network to `secrets.h`. Every other
+  screen is byte-identical in `tools/preview.cpp`.
+- **Not done:** joining the strongest of several `secrets.h` networks (`strongestSaved`, spec 5.1 F1). The dock still
+  has one network (`DOCK_WIFI_SSID`); the list format waits on F1 with the wearable.
+- **The fake:** `link_send.py --serve` with no token is a fresh board: it prints its code and takes `/pair`; `/reset`
+  forgets the token and makes a new code.
 
-**What changes for IDF, compared with the original task:**
-- **Library and config:** NimBLE-Arduino is replaced by IDF's NimBLE (`nimble_port_init`,
-  `ble_svc_gap_init`/`ble_svc_gatt_init`, `ble_gatts_count_cfg`/`ble_gatts_add_svcs`,
-  `nimble_port_freertos_init`). There is no `platformio.ini` library line; it is all `sdkconfig`.
-- **Characteristics:** `wifi` and `token` use `BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN`.
-- **Pairing:** `ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY`, `sm_bonding = sm_mitm = sm_sc = 1`. On
-  `BLE_GAP_EVENT_PASSKEY_ACTION`, pick a passkey with `esp_random() % 1000000`, show it on screen (never log it),
-  then call `ble_sm_inject_io`.
-- **Stopping:** `stop()` calls `nimble_port_stop()` + `nimble_port_deinit()`; deinit releases the controller too.
-  Never call `esp_bt_mem_release`, because BLE must be able to start again (`POST /ble`).
-- **Bonds and reset:** bonds live in NVS (`CONFIG_BT_NIMBLE_NVS_PERSIST`). `store::wipeLink()` also calls
-  `ble_store_clear()`.
-- **The writes:** they arrive on the NimBLE host task. Copy them into the link inbox under its mutex; the loop saves
-  them to NVS and joins. No flash writes or Wi-Fi calls from the host task.
-
-- [ ] **Step 1:** Implement under the Global Constraints rule: BLE runs only with no working Wi-Fi (none joined for
-  60 s, or none saved) or for 120 s after `POST /ble`; otherwise it is stopped and its memory freed. Writes:
-  - `info` (read);
-  - `wifi` (encrypted write, `parseWifi(…, 1, …)`: save, then join);
-  - `token` (encrypted write, `parseToken`: save).
-- [ ] **Step 2: Verify with LightBlue:**
-  - a fresh dock (`R`) advertises and passkey pairing works;
-  - writing `{"slot":0,"ssid":"…","pass":"…"}` joins the home network;
-  - writing a token makes `link_send.py config` accepted;
-  - BLE stops itself, and the serial RAM line returns to the D3 level;
-  - re-run D3's gates with one BLE window open during a fetch round.
-- [ ] **Step 3:** Commit: `feat(dock): BLE setup on ESP-IDF (passkey, Wi-Fi, token)`.
+- [x] **Step 1:** Remove BLE from the dock (D4's code); delete `sdkconfig.dock` / `sdkconfig.perf` before building.
+- [x] **Step 2:** `test_pair` and `info_has_paired` fail, then pass; `pio test -e native` passes.
+- [x] **Step 3:** Wire the dock and the fake; `pio run -e dock` and `-e perf` build; the preview's other screens are
+  byte-identical.
+- [x] **Step 4:** RAM back to the non-BLE figures (D4's note), and one `dock_perf_run.py` run with no regression from
+  `docs/perf/log.md` "ESP-IDF port".
+- [ ] **Step 5 (Leo):** ecosystem Task 7's Step 4 on the board: a fresh dock (`R`) shows a code; `link_send.py
+  <dock> pair <code>` answers 200, then `config` with that token is accepted; a second `pair` is 409; after another
+  `R`, 5 wrong codes give 403 ×5 then 423 even with the right code; after 5 minutes, 423 and the restart message,
+  which a tap puts away.
+- [x] **Step 6:** Commit: `feat(dock): Wi-Fi only; pair over the network with the code on screen`.
 
 ---
 
@@ -731,13 +739,30 @@ fails, use D4's ladder. Results go into `docs/ecosystem/day1-link.md` under "ESP
 
 ### Task W6: Wearable BLE setup (ecosystem Task 9, BLE version)
 
-The original Task 9 from `21a0fd7`, on IDF, with the same IDF changes as D5.
+The original Task 9 from `21a0fd7`, on IDF. D5 no longer builds BLE (the dock is Wi-Fi only), so the IDF notes that
+were D5's are this task's now:
+
+- **`ble_ids.h`:** add `kTokenUuid = "5b1e6f0a-3c2d-4e8f-9a7b-1d2c3e4f5a60"`, mirrored in CTAKit `BLEID.token`
+  (Track A/K).
+- **Library and config:** IDF's NimBLE (`nimble_port_init`, `ble_svc_gap_init`/`ble_svc_gatt_init`,
+  `ble_gatts_count_cfg`/`ble_gatts_add_svcs`, `nimble_port_freertos_init`); no `platformio.ini` library line.
+  The `sdkconfig.defaults` lines are in the shared reference above; `CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY` took the dock's
+  advertising low point from 20.2 to 41.8 KB in D4.
+- **Characteristics:** `wifi` and `token` use `BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN`.
+- **Pairing:** `ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY`, `sm_bonding = sm_mitm = sm_sc = 1`. On
+  `BLE_GAP_EVENT_PASSKEY_ACTION`, pick a passkey with `esp_random() % 1000000`, show it on screen (never log it),
+  then call `ble_sm_inject_io`.
+- **Stopping:** `nimble_port_stop()` + `nimble_port_deinit()`; never `esp_bt_mem_release`, so BLE can start again.
+- **Bonds and reset:** bonds in NVS (`CONFIG_BT_NIMBLE_NVS_PERSIST`); `wipeLink()` also calls `ble_store_clear()`.
+- **The writes** arrive on the NimBLE host task: copy them into the link inbox under its mutex; the loop saves them and
+  joins. No flash writes or Wi-Fi calls from the host task.
 
 **Files:** `firmware/handheld/mock/src/ble_setup.h/.cpp` (the same interface as the dock's), `main.cpp`, `ui.cpp`
 setup states only (the passkey and "Joining Wi-Fi…" in Trackie's bubble; coordinate with H-UI), `live.cpp` (Wi-Fi
 slots 0–4 saved in NVS take priority over `secrets.h`).
 
-- [ ] **Step 1:** Implement as D5, with 5 slots (`parseWifi(…, cta::kWifiSlots, …)`), the token and the passkey in
+- [ ] **Step 1:** Implement the BLE setup (Global Constraints: BLE only without working Wi-Fi, or 120 s after
+  `POST /ble`), with 5 slots (`parseWifi(…, cta::kWifiSlots, …)`), the token and the passkey in
   the bubble.
 - [ ] **Step 2: Verify with LightBlue:** a fresh wearable pairs; two networks written to slots 0 and 1; it joins the
   stronger; BLE stops; `POST /ble` reopens it for 120 s. Power A/B with BLE stopped is within 5% of W4's run.
@@ -748,6 +773,9 @@ slots 0–4 saved in NVS take priority over `secrets.h`).
 ## Track E — undo Appendix A in the docs
 
 ### Task E1: Bring the BLE tasks back into the ecosystem plan and spec
+
+> **2026-11-14 (Leo): the dock is Wi-Fi only.** Whatever E1 brings back is the wearable's; ecosystem Task 7 stays the
+> dock's pairing over Wi-Fi (D5), and Task 19's relay never involves the dock.
 
 Run after D4 and W5 have numbers. If either needed fallback 1, write that rule in instead.
 

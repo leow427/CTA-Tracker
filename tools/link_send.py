@@ -1,6 +1,7 @@
 """Drive a board's HTTP link (ecosystem spec 4.4) from this Mac, or stand in for one.
 
     python3 tools/link_send.py cta-pet-a1b2.local info
+    python3 tools/link_send.py cta-dock-a1b2.local pair 042917                 # the code on the board's screen
     python3 tools/link_send.py cta-pet-a1b2.local pin '{"type":"train","route":"Red","dir":"95th/Dan Ryan","id":"41320","name":"Belmont"}'
     python3 tools/link_send.py cta-dock-a1b2.local config                       # GET /config
     python3 tools/link_send.py cta-dock-a1b2.local config '{"settings":{...}}'  # POST /config
@@ -9,7 +10,8 @@
     python3 tools/link_send.py cta-pet-a1b2.local --garbage    # to /config: bad JSON 400, 2 KB 413, no token 401, wrong token 401
     python3 tools/link_send.py --serve --type handheld         # a fake board on this Mac, for the app
 
-Writes need the household token: --token <32 hex> or LINK_TOKEN. It's never printed.
+Writes need the household token: --token <32 hex> or LINK_TOKEN. It's never printed. pair hands the board that token.
+--serve with no token is a fresh board: it prints its pairing code (its "screen") and takes POST /pair.
 """
 import argparse
 import hmac
@@ -19,6 +21,7 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -28,6 +31,8 @@ from send_nearby import CLOSE, PER_TAB
 
 MAX_BODY = 1024  # cta::kMaxBody
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
+CODE_RE = re.compile(r"^[0-9]{6}$")
+PAIR_WINDOW_S, PAIR_MAX_WRONG = 5 * 60, 5   # cta::kPairWindowMs, cta::kPairMaxWrong
 BURST_N, BURST_SECONDS, BURST_LIMIT_MS = 20, 2.0, 500
 FAKE_ID = "f4ce"
 DEFAULT_PIN = {"type": "train", "route": "Red", "dir": "95th/Dan Ryan", "id": "41320", "name": "Belmont"}
@@ -42,7 +47,7 @@ COMMANDS = {
     "follow": ("POST", "/follow", "body"),
     "unpin": ("DELETE", "/pin", None),
     "unfollow": ("DELETE", "/follow", None),
-    "ble": ("POST", "/ble", None),
+    "pair": ("POST", "/pair", "pair"),   # the json argument is the 6-digit code
     "reset": ("POST", "/reset", None),
 }
 
@@ -61,11 +66,17 @@ def request(host, method, path, body=None, token=None, timeout=5):
         conn.close()
 
 
-def build(cmd, arg):
-    """(method, path, body bytes or None) for a command and its optional json argument."""
+def build(cmd, arg, token=None):
+    """(method, path, body bytes or None) for a command and its optional json argument (pair: the code)."""
     method, path, use = COMMANDS[cmd]
     if cmd == "config" and arg is None:
         return "GET", path, None
+    if use == "pair":
+        if arg is None or not CODE_RE.match(arg):
+            raise ValueError("pair needs the 6-digit code")
+        if token is None:
+            raise ValueError("pair needs --token or LINK_TOKEN")
+        return method, path, json.dumps({"code": arg, "token": token}, separators=(",", ":")).encode()
     if use is None:
         return method, path, (b"{}" if method == "POST" else None)
     if arg is None:
@@ -172,10 +183,13 @@ def valid(path, msg):
 class FakeBoard:
     """A board's link API answered from memory (spec 4.4), for building the app without the hardware."""
 
-    def __init__(self, kind, token, now=time.time):
+    def __init__(self, kind, token, now=time.time, code=None):
+        """token None is a fresh board: unpaired, with code (random if None) open for POST /pair."""
         if kind not in ("dock", "handheld"):
             raise ValueError(kind)
         self.kind, self.token, self.now = kind, token, now
+        self.code = code or f"{secrets.randbelow(10 ** 6):06d}"
+        self.wrong = 0   # wrong codes since boot
         self.booted = now()
         self.picks_ver = 0
         self.wake = 0
@@ -188,13 +202,14 @@ class FakeBoard:
         t = self.now()
         return {"type": self.kind, "id": FAKE_ID, "fw": "fake", "battery": None if self.kind == "dock" else 100,
                 "charging": False, "wifi": {"connected": True, "ssid": ""}, "last_update": int(t),
-                "uptime": int(t - self.booted), "picks_ver": self.picks_ver, "wake": self.wake, "docked": False}
+                "uptime": int(t - self.booted), "picks_ver": self.picks_ver, "wake": self.wake, "docked": False,
+                "paired": self.token is not None}
 
     def handle(self, method, path, headers, read):
         """(status, reply dict). headers: a dict-like; read(n) gives the body. Checks run in the boards' order:
         size before reading, then the token, then the JSON."""
         handheld_only = ("/nearby", "/pin", "/follow")
-        routes = {("GET", "/info"), ("GET", "/config"), ("POST", "/config"), ("POST", "/ble"), ("POST", "/reset")}
+        routes = {("GET", "/info"), ("GET", "/config"), ("POST", "/config"), ("POST", "/pair"), ("POST", "/reset")}
         if self.kind == "handheld":
             routes |= {("POST", p) for p in handheld_only} | {("DELETE", "/pin"), ("DELETE", "/follow")}
         if (method, path) not in routes:
@@ -208,12 +223,14 @@ class FakeBoard:
         body = read(length) if length > 0 else b""
         if method == "GET":
             return 200, (self.info() if path == "/info" else {k: v for k, v in self.config.items() if v is not None})
+        if path == "/pair":
+            return self._pair(body)
         if not self._authorized(headers.get("Authorization")):
             return 401, {"error": "unauthorized"}
         if method == "DELETE":
             setattr(self, path[1:], None)
             return 200, {}
-        if not body and path in ("/ble", "/reset"):
+        if not body and path == "/reset":
             body = b"{}"
         try:
             msg = json.loads(body)
@@ -224,7 +241,27 @@ class FakeBoard:
         return self._apply(path, msg)
 
     def _authorized(self, auth):
-        return isinstance(auth, str) and auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], self.token)
+        return (self.token is not None and isinstance(auth, str) and auth.startswith("Bearer ")
+                and hmac.compare_digest(auth[7:], self.token))
+
+    def _pair(self, body):
+        """POST /pair as cta::PairGate (pair.h): no bearer token; a bad body is 400 and counts nothing."""
+        try:
+            msg = json.loads(body)
+        except ValueError:
+            return 400, {"error": "bad json"}
+        if not (isinstance(msg, dict) and isinstance(msg.get("code"), str) and CODE_RE.match(msg["code"])
+                and isinstance(msg.get("token"), str) and TOKEN_RE.match(msg["token"])):
+            return 400, {"error": "bad body"}
+        if self.token is not None:
+            return 409, {"error": "already paired"}
+        if self.wrong >= PAIR_MAX_WRONG or self.now() - self.booted > PAIR_WINDOW_S:
+            return 423, {"error": "restart to pair"}
+        if not hmac.compare_digest(msg["code"], self.code):
+            self.wrong += 1
+            return 403, {"error": "wrong code"}
+        self.token = msg["token"]
+        return 200, {}
 
     def _apply(self, path, msg):
         if not valid(path, msg):
@@ -245,15 +282,22 @@ class FakeBoard:
                 if msg.get(key) is not None:
                     self.config[key] = msg[key]
             return 200, {}
-        if path == "/reset":
-            self.__init__(self.kind, self.token, self.now)
-        return 200, {}   # /ble: nothing to open here
+        self.__init__(self.kind, None, self.now)   # /reset: forgets the token, back to pairing with a new code
+        return 200, {}
 
 
 def serve(board, port):
+    shown = [None]
+
+    def show_code():   # the fake's screen: the code while it's unpaired, again after each /reset
+        if board.token is None and board.code != shown[0]:
+            print(f"Unpaired: pairing code {board.code}, open for {PAIR_WINDOW_S // 60} minutes", file=sys.stderr)
+        shown[0] = board.code if board.token is None else None
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def _any(self):
             status, reply = board.handle(self.command, self.path, self.headers, self.rfile.read)
+            show_code()
             data = json.dumps(reply).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -276,6 +320,7 @@ def serve(board, port):
     else:
         print("dns-sd not found: not advertising over Bonjour", file=sys.stderr)
     print(f"Fake {board.kind} '{name}' on port {port}. Ctrl-C to stop.", file=sys.stderr)
+    show_code()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -290,7 +335,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("host", nargs="?", help="the board: cta-pet-xxxx.local, an IP, or host:port")
     ap.add_argument("command", nargs="?", choices=sorted(COMMANDS))
-    ap.add_argument("json", nargs="?", help="the body (for config, pet, nearby, pin, follow)")
+    ap.add_argument("json", nargs="?", help="the body (for config, pet, nearby, pin, follow), or pair's code")
     ap.add_argument("--token", help="the household token (default: LINK_TOKEN)")
     ap.add_argument("--burst", action="store_true", help=f"send {BURST_N} pins in {BURST_SECONDS:g} s")
     ap.add_argument("--garbage", action="store_true", help="send bad bodies; expect 400, 413, 401, 401")
@@ -303,8 +348,6 @@ def main():
     if token is not None and not TOKEN_RE.match(token):
         ap.error("the token must be 32 lowercase hex characters")
     if args.serve:
-        if token is None:
-            ap.error("--serve needs --token or LINK_TOKEN")
         serve(FakeBoard(args.type, token), args.port)
         return
     if not args.host:
@@ -319,7 +362,7 @@ def main():
     if not args.command:
         ap.error("give a command, --burst, or --garbage")
     try:
-        method, path, body = build(args.command, args.json)
+        method, path, body = build(args.command, args.json, token)
     except ValueError as e:
         ap.error(str(e))
     if method != "GET" and token is None:

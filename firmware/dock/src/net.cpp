@@ -41,6 +41,7 @@
 #include "store.h"
 #include "train_parse.h"
 #include "urls.h"
+#include "wifi_list.h"
 
 #ifndef CTA_TRAIN_KEY
 #define CTA_TRAIN_KEY ""
@@ -89,7 +90,7 @@ volatile uint8_t discReason = 0;    // the last disconnect's reason, and how man
 volatile uint32_t discCount = 0;
 volatile bool gotIp = false;        // Wi-Fi joined with an IP (the event handler)
 volatile bool lostIp = false;       // the lease ran out while joined: netTask rejoins
-cta::SavedNet wifiNet = {};         // the network to join: the store's (set up from the app), else secrets.h's
+cta::SavedNet wifiNet = {};         // the network to join, from secrets.h
 char hostLabel[16];                 // "cta-dock-xxxx", for mDNS
 
 // ---------- the network task's own ----------
@@ -1000,10 +1001,8 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
         return;
     }
     building->keys = CTA_TRAIN_KEY[0] && CTA_BUS_KEY[0];
-    if (!store::loadWifi(wifiNet)) {
-        snprintf(wifiNet.ssid, sizeof(wifiNet.ssid), "%s", DOCK_WIFI_SSID);
-        snprintf(wifiNet.pass, sizeof(wifiNet.pass), "%s", DOCK_WIFI_PASS);
-    }
+    snprintf(wifiNet.ssid, sizeof(wifiNet.ssid), "%s", DOCK_WIFI_SSID);
+    snprintf(wifiNet.pass, sizeof(wifiNet.pass), "%s", DOCK_WIFI_PASS);
     building->wifiSetUp = wifiNet.ssid[0] != 0;
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from eFuse: Wi-Fi isn't started yet
@@ -1012,7 +1011,7 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
     hasGeo = store::loadGeo(geoLat, geoLon, geoWhen);
     applyPicks(picks);
     if (!building->keys || !building->wifiSetUp) {
-        uprintf("net: %s in firmware/secrets.h; staying offline\n", building->keys ? "no saved Wi-Fi and no DOCK_WIFI_SSID" : "no CTA keys");
+        uprintf("net: %s in firmware/secrets.h; staying offline\n", building->keys ? "no DOCK_WIFI_SSID" : "no CTA keys");
         setStatus(building->keys ? "No Wi-Fi set up" : "No API key");
         publish();
         return;

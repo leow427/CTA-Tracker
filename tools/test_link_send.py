@@ -61,7 +61,7 @@ class FakeBoardTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(info["type"], "handheld")
         self.assertEqual(info["uptime"], 42)
-        for key in ("id", "fw", "battery", "charging", "wifi", "last_update", "picks_ver", "wake", "docked"):
+        for key in ("id", "fw", "battery", "charging", "wifi", "last_update", "picks_ver", "wake", "docked", "paired"):
             self.assertIn(key, info)
         self.assertEqual(call(board, "POST", "/reset", b"{}")[0], 200)
         self.assertEqual(call(board, "GET", "/info")[1]["uptime"], 0)
@@ -163,7 +163,7 @@ class RejectsWhatTheBoardsRejectTests(unittest.TestCase):
     def test_empty_config_body_is_bad_json(self):
         board = link_send.FakeBoard("dock", TOKEN)
         self.assertEqual(call(board, "POST", "/config", b"")[0], 400)
-        self.assertEqual(call(board, "POST", "/ble", b"")[0], 200)
+        self.assertEqual(call(board, "POST", "/reset", b"")[0], 200)
 
     def test_stops_rules(self):
         board = link_send.FakeBoard("dock", TOKEN)
@@ -174,12 +174,81 @@ class RejectsWhatTheBoardsRejectTests(unittest.TestCase):
                                                                             "night_end": 1}})
 
 
+class PairTests(unittest.TestCase):
+    """POST /pair as cta::PairGate (pair.h, test_pair): the same answers in the same order."""
+
+    CODE = "042917"
+
+    def fresh(self, clock=None):
+        return link_send.FakeBoard("dock", None, now=clock or Clock(), code=self.CODE)
+
+    def pair(self, board, code, token=TOKEN):
+        return call(board, "POST", "/pair", json.dumps({"code": code, "token": token}).encode(), token=None)[0]
+
+    def test_right_code_pairs_once(self):
+        board = self.fresh()
+        self.assertFalse(call(board, "GET", "/info")[1]["paired"])
+        self.assertEqual(call(board, "POST", "/config", b"{}")[0], 401)   # no token yet: every write 401
+        self.assertEqual(self.pair(board, self.CODE), 200)
+        self.assertTrue(call(board, "GET", "/info")[1]["paired"])
+        self.assertEqual(call(board, "POST", "/config", b"{}")[0], 200)   # the token works at once
+        self.assertEqual(self.pair(board, self.CODE), 409)
+
+    def test_locks_after_5_wrong(self):
+        board = self.fresh()
+        self.assertEqual([self.pair(board, "000000") for _ in range(5)], [403] * 5)
+        self.assertEqual(self.pair(board, self.CODE), 423)   # the right code, too late
+        self.assertFalse(call(board, "GET", "/info")[1]["paired"])
+
+    def test_closed_after_5_minutes(self):
+        clock = Clock()
+        late = self.fresh(clock)
+        clock.t += 300.001
+        self.assertEqual(self.pair(late, self.CODE), 423)
+        self.assertEqual(self.pair(late, "000000"), 423)
+        self.assertEqual(late.wrong, 0)
+        board = self.fresh(clock)
+        clock.t += 300
+        self.assertEqual(self.pair(board, self.CODE), 200)   # the last moment is in
+
+    def test_bad_bodies_are_400_and_count_nothing(self):
+        board = self.fresh()
+        for body in (b"{oops", b"[]", b"{}", json.dumps({"code": 42917, "token": TOKEN}).encode(),
+                     json.dumps({"code": "04291", "token": TOKEN}).encode(),
+                     json.dumps({"code": self.CODE, "token": TOKEN.upper()}).encode()):
+            with self.subTest(body):
+                self.assertEqual(call(board, "POST", "/pair", body, token=None)[0], 400)
+        self.assertEqual(board.wrong, 0)
+        self.assertEqual(call(board, "POST", "/pair", b"{" + b" " * 2046 + b"}", token=None)[0], 413)
+        self.assertEqual(self.pair(board, self.CODE), 200)
+
+    def test_paired_answers_409_before_anything(self):
+        board = link_send.FakeBoard("handheld", TOKEN)   # paired from the start
+        self.assertEqual(self.pair(board, "000000"), 409)
+        self.assertEqual(board.wrong, 0)
+
+    def test_reset_unpairs_with_a_new_code(self):
+        board = link_send.FakeBoard("dock", TOKEN, now=Clock())
+        self.assertEqual(call(board, "POST", "/reset", b"{}")[0], 200)
+        self.assertFalse(call(board, "GET", "/info")[1]["paired"])
+        self.assertRegex(board.code, r"^[0-9]{6}$")
+        self.assertEqual(call(board, "POST", "/config", b"{}")[0], 401)
+        self.assertEqual(self.pair(board, board.code), 200)
+
+
 class BuildTests(unittest.TestCase):
     def test_commands(self):
         self.assertEqual(link_send.build("info", None), ("GET", "/info", None))
         self.assertEqual(link_send.build("config", None), ("GET", "/config", None))
         self.assertEqual(link_send.build("unpin", None), ("DELETE", "/pin", None))
-        self.assertEqual(link_send.build("ble", None), ("POST", "/ble", b"{}"))
+        method, path, body = link_send.build("pair", "042917", TOKEN)
+        self.assertEqual((method, path), ("POST", "/pair"))
+        self.assertEqual(json.loads(body), {"code": "042917", "token": TOKEN})
+        for code in (None, "42917", "04291a"):
+            with self.assertRaises(ValueError):
+                link_send.build("pair", code, TOKEN)
+        with self.assertRaises(ValueError):
+            link_send.build("pair", "042917")   # no token
         method, path, body = link_send.build("pet", '{"name":"T","colors":[1,2]}')
         self.assertEqual((method, path), ("POST", "/config"))
         self.assertEqual(json.loads(body), {"pet": {"name": "T", "colors": [1, 2]}})
