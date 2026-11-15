@@ -41,6 +41,8 @@ struct Data {
     float tempC = 0;
     char status[40] = "";          // what the network side is doing when there's no data
     char name[16] = "CTA-Dock";    // the dock's name, for the setup message
+    char ssid[33] = "";            // the network joined, for Settings ("" = none); never logged
+    int8_t rssi = 0;               // its signal in dBm, 0 = not joined
 };
 
 // The picker's live bus lists (spec 7.2), fetched on request by the network side.
@@ -66,8 +68,8 @@ struct Clock {
 
 // ---------- the screen's own state ----------
 
-enum class Screen : uint8_t { Home, Map, Picker };
-enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, HidePair };
+enum class Screen : uint8_t { Home, Map, Picker, Settings };
+enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, Settings, PairAsk, PairCancel, PairAgain };
 struct Hit { int16_t x, y, w, h; Act tap, hold; int16_t arg; };
 
 // What the device must do after an input: fetch a picker list, or save a new pick.
@@ -104,8 +106,10 @@ struct App {
     int debugMood = -1;                // -1 live; else a cta::Mood shown instead (the debug cycle)
     // in: pairing (ecosystem spec 4.3), set by the device each frame
     char pairCode[cta::kPairCodeLen + 1] = "";   // the code on the setup screen ("" = none)
-    bool pairRestart = false;          // pairing closed (5 minutes up or 5 wrong codes): "Restart the dock to pair"
-    bool pairHidden = false;           // a tap put that message away until reboot: the dock works unpaired
+    bool paired = false;               // has a token, for Settings
+    uint8_t pairWait = 0;              // seconds left of the cooldown after 5 wrong codes (0 = none)
+    bool pairAsk = false;              // Settings' "Pair again?" confirm is up
+    bool pairAgain = false;            // out: forget the token and show a fresh code
 };
 
 // Picks and data can change between frames; draw() reads them as they are.
@@ -115,6 +119,8 @@ void tick(App& a, uint32_t ms);
 void pointerDown(App& a, float x, float y, uint32_t ms);
 void pointerMove(App& a, const PickerLists& pl, float x, float y, uint32_t ms);
 void pointerUp(App& a, const Data& d, const PickerLists& pl, float x, float y, uint32_t ms);
+// Settings' Wi-Fi bars, 0–4, from the signal in dBm (0 dBm = not joined: no bars).
+int wifiBars(int rssi);
 // True while something on screen moves faster than the 2 Hz bob and blink (a drag).
 bool animating(const App& a);
 

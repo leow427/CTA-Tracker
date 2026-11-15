@@ -116,8 +116,14 @@ void setStatus(const char* s) { snprintf(building->status, sizeof(building->stat
 bool hasPick(const Sec& s) { return s.pick.id[0] != 0; }
 bool isBus(const Sec& s) { return s.pick.type == cta::Kind::Bus; }
 
+int wifiRssi() {
+    wifi_ap_record_t ap;
+    return esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
+}
+
 void publish() {
     building->wifiUp = gotIp;
+    building->rssi = static_cast<int8_t>(gotIp ? wifiRssi() : 0);   // Settings' bars
     xSemaphoreTake(mu, portMAX_DELAY);
     *published = *building;
     pubVersion = pubVersion + 1;
@@ -188,11 +194,6 @@ void wifiJoin() {
     c.sta.pmf_cfg.capable = true;
     esp_wifi_set_config(WIFI_IF_STA, &c);
     esp_wifi_connect();
-}
-
-int wifiRssi() {
-    wifi_ap_record_t ap;
-    return esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
 }
 
 // ---------- DNS (the handheld's live.cpp) ----------
@@ -1004,6 +1005,7 @@ void start(const cta::PickedStop picks[cta::kDockStops]) {
     snprintf(wifiNet.ssid, sizeof(wifiNet.ssid), "%s", DOCK_WIFI_SSID);
     snprintf(wifiNet.pass, sizeof(wifiNet.pass), "%s", DOCK_WIFI_PASS);
     building->wifiSetUp = wifiNet.ssid[0] != 0;
+    snprintf(building->ssid, sizeof(building->ssid), "%s", wifiNet.ssid);   // shown in Settings, never logged
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);   // from eFuse: Wi-Fi isn't started yet
     snprintf(building->name, sizeof(building->name), "CTA-Dock-%02X%02X", mac[4], mac[5]);

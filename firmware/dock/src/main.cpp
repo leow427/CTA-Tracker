@@ -8,7 +8,7 @@
 // blinks alternate with the two buffers, so a frame at rest draws nothing (dock performance analysis, round 1).
 //
 // Serial commands (115200): "m" steps Trackie through every mood and back to live (spec 6.3's debug cycle, until the
-// two-finger gesture exists), "s" shows the next screen (stops, map, picker), "h" the stops screen, "p" prints the picks, "d" puts the
+// two-finger gesture exists), "s" shows the next screen (stops, map, picker, settings), "h" the stops screen, "p" prints the picks, "d" puts the
 // default picks back, "g" times the drawing primitives over the next frame. Tearing diagnostics: "0" all off, "1" freeze
 // the screen, "2" a static test pattern, "3" Wi-Fi off/on, "4" single buffer, "5" the next panel timing, "6" the panel restart after a late frame off/on; "f" sends the frame on screen
 // (tools/frame_grab.py), "l" prints the LED colors, "w" checks that the dock's Wi-Fi network is on the
@@ -251,9 +251,11 @@ void pollSerial() {
         } else if (c == 'h') {   // the stops screen
             app.screen = dock::Screen::Home;
             uprintf("debug: screen 0\n");
-        } else if (c == 's') {   // the next screen: stops, map, picker
+        } else if (c == 's') {   // the next screen: stops, map, picker, settings
             app.screen = app.screen == dock::Screen::Home ? dock::Screen::Map
-                       : app.screen == dock::Screen::Map ? dock::Screen::Picker : dock::Screen::Home;
+                       : app.screen == dock::Screen::Map ? dock::Screen::Picker
+                       : app.screen == dock::Screen::Picker ? dock::Screen::Settings : dock::Screen::Home;
+            app.pairAsk = false;
             app.picker.step = 1;
             app.panX = app.panY = 0;
             uprintf("debug: screen %d\n", static_cast<int>(app.screen));
@@ -458,13 +460,21 @@ void loop() {
         if (in.reset) resetLink("POST /reset");
         dirty = true;
     }
-    {   // pairing: the code while it's open, then "restart to pair", then nothing once paired
+    if (app.pairAgain) {   // Settings' "Pair again": forget the token, then a fresh code (no reboot)
+        app.pairAgain = false;
+        store::wipeLink();
+        lan::pairAgain();
+        uprintf("link: pair again: token forgotten\n");
+    }
+    {   // pairing: the code until paired, or the cooldown after 5 wrong codes; nothing once paired
         char code[cta::kPairCodeLen + 1] = "";
-        const lan::PairShow show = lan::pairShow(code);
-        const bool restart = show == lan::PairShow::Restart;
-        if (strcmp(code, app.pairCode) != 0 || restart != app.pairRestart) {
+        uint8_t wait = 0;
+        lan::pairShow(code, wait);
+        const bool paired = lan::paired();
+        if (strcmp(code, app.pairCode) != 0 || wait != app.pairWait || paired != app.paired) {
             memcpy(app.pairCode, code, sizeof(code));
-            app.pairRestart = restart;
+            app.pairWait = wait;
+            app.paired = paired;
             dirty = true;
         }
     }

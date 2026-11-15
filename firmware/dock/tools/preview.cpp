@@ -112,6 +112,8 @@ void sampleData(dock::Data& d) {
     d.wmo = 0;
     d.tempC = 5;   // 41 °F
     snprintf(d.name, sizeof(d.name), "CTA-Dock-3F2A");
+    snprintf(d.ssid, sizeof(d.ssid), "Home Wi-Fi");   // a placeholder: never a real network's name
+    d.rssi = -61;
 }
 
 struct State {
@@ -188,7 +190,11 @@ const State kStates[] = {
     {"no_wifi", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.wifiSetUp = false; }},
     {"no_key", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.keys = false; }},
     {"pairing", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { snprintf(a.pairCode, sizeof(a.pairCode), "042917"); }},
-    {"pair_restart", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.pairRestart = true; }},
+    {"pair_cooldown", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.pairWait = 23; }},
+    {"settings", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.screen = dock::Screen::Settings; a.paired = true; }},
+    {"settings_confirm", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) {
+         a.screen = dock::Screen::Settings; a.paired = true; a.pairAsk = true; }},
+    {"settings_offline", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { a.screen = dock::Screen::Settings; d.wifiUp = false; }},
 };
 
 // ---------- the device's path (bands.cpp, display.cpp) ----------
@@ -324,6 +330,50 @@ bool sequenceMatches(bool late) {
     return ok;
 }
 
+// Settings by touch: the gear opens it, back returns Home, "Pair again" asks first, Cancel keeps the token, and the
+// confirm asks the device to forget it. Also the Wi-Fi bars' thresholds.
+bool settingsFlow() {
+    static uint16_t fb[dock::W * dock::H];
+    static dock::Data d;
+    static dock::PickerLists pl;
+    sampleData(d);
+    dock::App a;
+    dock::Clock c;
+    c.now = kNow;
+    uint32_t ms = 1000;
+    auto tap = [&](float x, float y) {
+        ui::Canvas cv(fb, dock::W, dock::H);
+        dock::draw(cv, a, d, pl, c, ms);   // the hits are the last frame's
+        dock::pointerDown(a, x, y, ms);
+        dock::pointerUp(a, d, pl, x, y, ms += 80);
+        ms += 500;
+    };
+    bool ok = true;
+    auto expect = [&](bool v, const char* what) { if (!v) { printf("settings flow: %s FAILED\n", what); ok = false; } };
+    tap(280, 40);
+    expect(a.screen == dock::Screen::Settings, "the gear opens Settings");
+    tap(30, 40);
+    expect(a.screen == dock::Screen::Home, "back returns Home");
+    a.poked = true; a.pokeMs = ms;
+    tap(280, 40);
+    expect(a.screen == dock::Screen::Home, "no gear while poked");
+    a.poked = false;
+    tap(280, 40);
+    tap(240, 488);
+    expect(a.pairAsk && !a.pairAgain, "Pair again asks first");
+    tap(30, 40);
+    expect(a.screen == dock::Screen::Settings, "back is covered by the confirm");
+    tap(144, 436);
+    expect(!a.pairAsk && !a.pairAgain && a.screen == dock::Screen::Settings, "Cancel keeps the token");
+    tap(240, 488);
+    tap(336, 436);
+    expect(a.pairAgain && !a.pairAsk && a.screen == dock::Screen::Home, "the confirm pairs again");
+    const int rssi[] = {0, -40, -55, -56, -66, -67, -77, -78, -95}, bars[] = {0, 4, 4, 3, 3, 2, 2, 1, 1};
+    for (int k = 0; k < 9; ++k) expect(dock::wifiBars(rssi[k]) == bars[k], "Wi-Fi bars");
+    printf("settings flow: %s\n", ok ? "ok" : "FAILED");
+    return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -355,5 +405,6 @@ int main(int argc, char** argv) {
         if (!same) bad = true;
     }
     if (!sequenceMatches(false) || !sequenceMatches(true)) bad = true;
+    if (!settingsFlow()) bad = true;
     return bad ? 1 : 0;
 }

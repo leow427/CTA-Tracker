@@ -852,6 +852,38 @@ the Bluetooth connection; the last `NearbyMessage` sent and `pinned` are the sto
 - [ ] **Step 3:** Check the diff for network names, home paths and tokens. Commit:
   `docs: Bluetooth link in the READMEs and the demo script`.
 
+### Task S-D: dock Settings page (Track D)
+
+Leo's decisions (2026-11-14): Settings opens from a gear on the dock's Home screen. An unpaired device stays in
+pairing until it's paired (no time window, no "Restart the dock to pair"), and pairing again is done from the
+device's own Settings page.
+
+**Files:** `firmware/dock/src/dock_ui.*` (the gear, `Screen::Settings`, the confirm, the cooldown message),
+`link.*` (the gate: no window, cooldown, reset; `pairAgain`, `paired`), `main.cpp` (wiring; serial `s` also cycles to
+Settings), `net.cpp` (the network's name and RSSI into `Data`), `tools/preview.cpp`.
+
+- [x] **Step 1:** The gear on Home: the strip's only free slot, between Trackie's bubble and the map button
+  (x 262–300; touch target 44 × 80, the strip's full height). Every mood's text ends by x 256; while a poke's reason
+  needs the bubble's full width (2.6 s), the gear is hidden. The map screen's strip has no gear.
+- [x] **Step 2:** Settings: the dock's name (`cta-dock-xxxx`), Wi-Fi (the network's name and 0–4 bars at −55, −66,
+  −77 dBm, as the wearable), paired or not, and **Pair again** behind a confirm ("Pair again?" / "The app will need to pair again." /
+  Cancel, Pair again). The back chevron returns Home. Network names in previews are placeholders ("Home Wi-Fi").
+- [x] **Step 3:** Pairing, on L1's `cta::PairGate` (`d3d7f82`): "Pair again" wipes the token (NVS and RAM) and
+  calls `gate.reset()`, so the pairing screen shows a fresh code without a reboot. The dock picks a code
+  (`esp_random`) in `pairShow` whenever `needsCode` is true and httpd is up. After 5 wrong codes, a 30 s cooldown
+  ("Too many tries, new code in N s"; `POST /pair` gives 423 `{"error":"cooling down","retry_after":N}`), then a new
+  code. "Restart the dock to pair" and its tap-to-dismiss are gone. `GET /info`'s buffer is `cta::kMaxInfo`.
+- [x] **Step 4:** Gates: the preview renders `home_*` with the gear, `settings`, `settings_confirm`,
+  `settings_offline` and `pair_cooldown`, and checks the touch flow and the bars; every other screen is
+  byte-identical to before. `pio test -e native` passes; `pio run -e dock` and `-e perf` build. On the board: 5 wrong
+  codes give 403 × 5, then 423 and the cooldown screen; after 30 s a new code (403 again).
+- [x] **Step 5:** Perf run on the board against "idf-noble" (docs/perf/log.md), one run (`settings-d-1`): picker
+  34.0 fps, map 15.7 fps, lowest free internal RAM 73 KB, tap means 23–61 ms, request means 302–702 ms, no late
+  frames. `dock_perf_report.py`: 10 metrics better, 3 worse beyond noise, all network or one-off: the burst phase's
+  requests (+135 ms) and core 0 (+6.5 %), and the mixed phase's slowest tap (175 ms, the map's own worst case, B2).
+- [ ] **Step 6 (Leo):** look and touch check on the dock: the gear, back, Pair again → Cancel, Pair again → confirm
+  (the pairing screen with a new code), then pair from the app.
+
 ---
 
 ## Not verified (check on the board or at first build)

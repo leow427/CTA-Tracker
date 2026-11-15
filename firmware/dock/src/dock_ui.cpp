@@ -39,6 +39,9 @@ struct { int x, y, s; } constexpr PET = {16, 14, 2};
 struct { int x, cy; } constexpr BUBBLE = {104, 44};
 struct { int top, row, rowH; } constexpr PK = {96, 76, 64};
 struct { int x, y, w, h; } constexpr MAP_BTN = {306, 18, 44, 40};
+// Settings' gear, Home only: the strip's one free slot, between Trackie's bubble (his moods end by x 256) and the map
+// button. Its touch target is the strip's full height.
+struct { int x, y, w, h; } constexpr GEAR = {262, 18, 38, 40};
 struct { int top, padX, padTop, padBottom, track, casing, maxPerLine, car, cell; } constexpr MAP = {STRIP_H, 56, 50, 130, 6, 12, 3, 3, 3};
 struct { int x, y, w, h; } constexpr RECENTER = {W - 16 - 52, H - 20 - 48, 52, 48};
 constexpr int ROUTE_ROW = 84, ROUTE_H = 70;   // the bus route list's pitch and row height
@@ -170,6 +173,17 @@ void drawStrip(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         snprintf(temp, sizeof(temp), "%d\xC2\xB0", static_cast<int>(lroundf(d.tempC * 9 / 5 + 32)));
         const float tw = cv.text(F(800, 18), temp, wifiCx - 22, 61, col::mist, Align::Right, Base::Middle);
         icon(cv, ic, wifiCx - 22 - tw - 14, 60, 3, rgb);
+    }
+    // Settings' gear (Home only), hidden while a poke's reason needs the bubble's full width
+    if (a.screen == Screen::Home && !poked) {
+        PlateStyle gs = smallPlate();
+        gs.edge = 4;
+        cv.plate(GEAR.x, GEAR.y, GEAR.w, GEAR.h, gs);
+        static const char* const kGear[11] = {"....xxx....", ".xx.xxx.xx.", ".xxxxxxxxx.", "..xxx.xxx..", "xxxx...xxxx",
+                                              "xxx.....xxx", "xxxx...xxxx", "..xxx.xxx..", ".xxxxxxxxx.", ".xx.xxx.xx.",
+                                              "....xxx...."};
+        cv.ink(kGear, 11, GEAR.x + (GEAR.w - 22) / 2, GEAR.y + (GEAR.h - 22) / 2, 2, col::white);
+        hit(a, GEAR.x - 6, 0, MAP_BTN.x - GEAR.x, STRIP_H, Act::Settings);
     }
     // the map button: a folded map that turns headlight yellow while the map is up (then it shows the cards icon)
     const bool onMap = a.screen == Screen::Map;
@@ -799,6 +813,52 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     hit(a, RECENTER.x, RECENTER.y, RECENTER.w, RECENTER.h, Act::Recenter);
 }
 
+// ---------- Settings: the dock's name, Wi-Fi, pairing, and "Pair again" behind a confirm ----------
+void settingsRow(Canvas& cv, int y, const char* label, const char* value, uint32_t valueRgb) {
+    cv.plate(24, y, 432, 92, smallPlate());
+    cv.text(F(900, 12), label, 48, y + 20, col::mist);
+    char buf[48];
+    cv.text(F(900, 24), Canvas::fit(F(900, 24), value, 300, buf, sizeof(buf)), 48, y + 42, valueRgb);
+}
+
+void button(Canvas& cv, App& a, int x, int y, int w, int h, const char* label, bool red, Act what) {
+    PlateStyle ps = smallPlate();
+    ps.edge = 4;
+    if (red) { ps.fill = ps.fill2 = kRed; ps.rimAlpha = 0.35f; }
+    cv.plate(x, y, w, h, ps);
+    cv.text(F(900, 21), label, x + w / 2.f, y + h / 2.f, col::white, Align::Center, Base::Middle);
+    hit(a, x, y, w, h, what);
+}
+
+void drawSettings(Canvas& cv, App& a, const Data& d) {
+    chevron(cv, 30, 30, 20, 42, 30, 54, col::mist);
+    cv.text(F(900, 24), "Settings", 48, 28, col::white);
+    char name[sizeof(d.name)];   // the mDNS name, cta-dock-xxxx
+    for (size_t k = 0; k < sizeof(name); ++k) name[k] = static_cast<char>(tolower(static_cast<unsigned char>(d.name[k])));
+    settingsRow(cv, 108, "DOCK", name, col::white);
+    const bool joined = d.wifiUp && d.ssid[0];
+    settingsRow(cv, 216, "WI-FI", joined ? d.ssid : "Not connected", joined ? col::white : col::mist);
+    const int bars = joined ? wifiBars(d.rssi) : 0;
+    for (int k = 0; k < 4; ++k)   // bottom-aligned, rising left to right
+        cv.fillRect(380 + k * 14, 216 + 66 - (k + 1) * 8, 9, (k + 1) * 8, k < bars ? col::white : col::dimInk);
+    settingsRow(cv, 324, "APP", a.paired ? "Paired" : "Not paired", a.paired ? col::signal : col::mist);
+    if (!a.pairAsk) {
+        hit(a, 0, 0, 120, 84, Act::Home);
+        button(cv, a, 24, 452, 432, 72, "Pair again", true, Act::PairAsk);
+        return;
+    }
+    button(cv, a, 24, 452, 432, 72, "Pair again", true, Act::None);
+    cv.fillRect(0, 0, W, H, col::bg, 0.7f);   // the confirm, over the page dimmed
+    PlateStyle ps = smallPlate();
+    ps.fill = ps.fill2 = col::navy;
+    ps.rimAlpha = 0.35f;
+    cv.plate(36, 260, 408, 236, ps);
+    cv.text(F(900, 28), "Pair again?", W / 2.f, 290, col::white, Align::Center);
+    cv.text(F(800, 18), "The app will need to pair again.", W / 2.f, 340, col::mist, Align::Center);
+    button(cv, a, 56, 400, 176, 72, "Cancel", false, Act::PairCancel);
+    button(cv, a, 248, 400, 176, 72, "Pair again", true, Act::PairAgain);
+}
+
 // ---------- full-screen messages: setup, no key ----------
 void drawMessage(Canvas& cv, bool worried, uint32_t ms, const char* title, const char* const* body, int nBody,
                  const char* foot) {
@@ -830,7 +890,10 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
     switch (what) {
         case Act::None: break;
         case Act::Poke: a.poked = true; a.pokeMs = ms; break;
-        case Act::HidePair: a.pairHidden = true; break;
+        case Act::Settings: a.screen = Screen::Settings; a.pairAsk = false; break;
+        case Act::PairAsk: a.pairAsk = true; break;
+        case Act::PairCancel: a.pairAsk = false; break;
+        case Act::PairAgain: a.pairAsk = false; a.pairAgain = true; a.screen = Screen::Home; break;
         case Act::MapToggle:
             if (a.screen == Screen::Map) a.screen = Screen::Home;
             else { a.screen = Screen::Map; a.panX = a.panY = 0; }   // the map opens framed on the picks
@@ -952,6 +1015,12 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
         // Wi-Fi comes from secrets.h only (ecosystem spec 4.2): no app step can set it
         const char* body[] = {"This dock was built without", "a Wi-Fi network."};
         drawMessage(cv, true, ms, "No Wi-Fi", body, 2, "Add it to secrets.h and reflash");
+    } else if (a.pairWait) {   // 5 wrong codes: a cooldown, then a new code
+        drawMessage(cv, true, ms, "Pair with the CTA app", nullptr, 0, nullptr);
+        char wait[48];
+        snprintf(wait, sizeof(wait), "Too many tries, new code in %u s", static_cast<unsigned>(a.pairWait));
+        cv.text(F(900, 22), wait, W / 2.f, 470, col::white, Align::Center);
+        cv.text(F(900, 16), d.name, W / 2.f, 596, col::headlight, Align::Center);
     } else if (a.pairCode[0]) {
         drawMessage(cv, false, ms, "Pair with the CTA app", nullptr, 0, nullptr);
         char code[8];   // "123 456": two groups of three, easier to read off and type
@@ -959,10 +1028,8 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
         cv.text(F(900, 64), code, W / 2.f, 452, col::white, Align::Center);
         cv.text(F(800, 18), "Type this code in the app on your iPhone.", W / 2.f, 548, col::mist, Align::Center);
         cv.text(F(900, 16), d.name, W / 2.f, 596, col::headlight, Align::Center);
-    } else if (a.pairRestart && !a.pairHidden) {
-        const char* body[] = {"Pairing closes 5 minutes after the dock", "starts, or after 5 wrong codes."};
-        drawMessage(cv, true, ms, "Restart the dock to pair", body, 2, "Tap to see your stops");
-        hit(a, 0, 0, W, H, Act::HidePair);
+    } else if (a.screen == Screen::Settings) {
+        drawSettings(cv, a, d);
     } else if (a.screen == Screen::Picker) {
         drawPicker(cv, a, pl, ms);
     } else if (a.screen == Screen::Map) {
@@ -1027,5 +1094,7 @@ void pointerUp(App& a, const Data& d, const PickerLists& pl, float x, float y, u
 }
 
 bool animating(const App& a) { return a.press.down && a.press.moved; }
+
+int wifiBars(int rssi) { return rssi == 0 ? 0 : rssi >= -55 ? 4 : rssi >= -66 ? 3 : rssi >= -77 ? 2 : 1; }  // as the wearable's
 
 }  // namespace dock

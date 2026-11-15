@@ -16,6 +16,7 @@
 
 #include <new>
 
+#include "cta_config.h"
 #include "net.h"
 
 namespace lan {
@@ -61,7 +62,7 @@ esp_err_t getInfo(httpd_req_t* r) {
     wifi_ap_record_t ap;
     m.wifiConnected = net::wifiUp() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
     snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? reinterpret_cast<const char*>(ap.ssid) : "");
-    char buf[384];
+    char buf[cta::kMaxInfo];   // an SSID of escaped control bytes makes it up to 530 bytes
     return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
 
@@ -95,7 +96,9 @@ esp_err_t postPair(httpd_req_t* r) {
     cta::PairMsg m;
     if (!cta::parsePair(body, len, m)) return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}");
     xSemaphoreTake(mu, portMAX_DELAY);
-    const cta::PairResult res = gate.check(m.code, nowMs(), token[0] != 0);
+    const uint32_t now = nowMs();
+    const cta::PairResult res = gate.check(m.code, now, token[0] != 0);
+    const unsigned retry = static_cast<unsigned>(gate.retryAfterSec(now));
     if (res == cta::PairResult::Ok) {   // in use at once; the loop saves it (no flash from this PSRAM stack)
         memcpy(token, m.token, sizeof(token));
         memcpy(sh->inbox.token, m.token, sizeof(sh->inbox.token));
@@ -106,8 +109,11 @@ esp_err_t postPair(httpd_req_t* r) {
         case cta::PairResult::Ok: return reply(r, "200 OK", "{}");
         case cta::PairResult::WrongCode: return reply(r, "403 Forbidden", "{\"error\":\"wrong code\"}");
         case cta::PairResult::AlreadyPaired: return reply(r, "409 Conflict", "{\"error\":\"already paired\"}");
-        default: return reply(r, "423 Locked", "{\"error\":\"restart to pair\"}");   // Locked, Closed
+        case cta::PairResult::CoolingDown: break;
     }
+    char cool[48];
+    snprintf(cool, sizeof(cool), "{\"error\":\"cooling down\",\"retry_after\":%u}", retry);
+    return reply(r, "423 Locked", cool);
 }
 
 // Every write, in the order the fake board (tools/link_send.py --serve) checks: size before reading, token, JSON.
@@ -161,11 +167,6 @@ void begin(const char* t) {
 
 void start(const char* hostLabel) {
     if (server || !mu) return;
-    // The pairing code (ecosystem spec 4.3): new at every boot, never logged. Picked here, with Wi-Fi up, because
-    // esp_random is a true RNG only while the radio runs. % 1000000 is biased by under 0.03%.
-    xSemaphoreTake(mu, portMAX_DELAY);
-    snprintf(gate.code, sizeof(gate.code), "%06u", static_cast<unsigned>(esp_random() % 1000000));
-    xSemaphoreGive(mu);
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.core_id = 0;   // never the frame loop's core
     cfg.stack_size = kStack;
@@ -235,16 +236,40 @@ bool take(Inbox& out) {
     return any;
 }
 
-PairShow pairShow(char code[cta::kPairCodeLen + 1]) {
+PairShow pairShow(char code[cta::kPairCodeLen + 1], uint8_t& waitS) {
+    waitS = 0;
     if (!mu) return PairShow::None;
     xSemaphoreTake(mu, portMAX_DELAY);
-    // No code before Wi-Fi is up (start): there's no way to pair yet.
-    const PairShow show = token[0] || !gate.code[0] ? PairShow::None
-                        : gate.open(nowMs())        ? PairShow::Code
-                                                    : PairShow::Restart;
+    const uint32_t now = nowMs();
+    // A code (ecosystem spec 4.3; never logged) once httpd is up, so there's a way to pair and esp_random is a true
+    // RNG (the radio runs); again after a cooldown or "Pair again". % 1000000 is biased by under 0.03%.
+    if (!token[0] && server && gate.needsCode(now)) {
+        char c[cta::kPairCodeLen + 1];
+        snprintf(c, sizeof(c), "%06u", static_cast<unsigned>(esp_random() % 1000000));
+        gate.setCode(c);
+    }
+    const uint32_t wait = token[0] ? 0 : gate.retryAfterSec(now);
+    const PairShow show = token[0] ? PairShow::None : wait ? PairShow::Wait : gate.code[0] ? PairShow::Code : PairShow::None;
     if (show == PairShow::Code) memcpy(code, gate.code, sizeof(gate.code));
+    waitS = static_cast<uint8_t>(wait);
     xSemaphoreGive(mu);
     return show;
+}
+
+bool paired() {
+    if (!mu) return false;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const bool p = token[0] != 0;
+    xSemaphoreGive(mu);
+    return p;
+}
+
+void pairAgain() {
+    if (!mu) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    token[0] = 0;
+    gate.reset();   // pairShow picks the fresh code
+    xSemaphoreGive(mu);
 }
 
 uint32_t stackLeft() { return minStack; }

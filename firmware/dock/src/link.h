@@ -20,9 +20,9 @@ struct Inbox {
     char token[cta::kTokenLen + 1] = "";
 };
 
-// What the setup screen shows about pairing: nothing (paired), the code, or "restart to pair" (the 5 minutes are up,
-// or 5 wrong codes locked it).
-enum class PairShow : uint8_t { None, Code, Restart };
+// What the setup screen shows about pairing: nothing (paired), the code, or the cooldown after 5 wrong codes (then a
+// new code). An unpaired dock stays in pairing until it's paired: no time window.
+enum class PairShow : uint8_t { None, Code, Wait };
 
 // Once, before anything else here: the mutex and the token writes are checked against ("" = none: every write 401,
 // and POST /pair opens with a new code once Wi-Fi is up).
@@ -36,8 +36,12 @@ void setInfo(const cta::InfoMsg& info);
 void setConfig(const cta::ConfigMsg& c);
 // The loop drains writes; false if none.
 bool take(Inbox& out);
-// The pairing state now, and the code to show (filled for Code only).
-PairShow pairShow(char code[cta::kPairCodeLen + 1]);
+// The pairing state now, the code to show (filled for Code only), and the cooldown's seconds left (for Wait).
+PairShow pairShow(char code[cta::kPairCodeLen + 1], uint8_t& waitS);
+// Has a token.
+bool paired();
+// Settings' "Pair again": forgets the token in RAM and starts pairing over with a fresh code (the caller wipes NVS).
+void pairAgain();
 // The httpd task's least free stack seen after a request, in bytes (0 = no request yet).
 uint32_t stackLeft();
 
