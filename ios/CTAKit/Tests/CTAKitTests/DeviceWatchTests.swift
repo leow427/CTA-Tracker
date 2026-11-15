@@ -4,11 +4,12 @@ import Testing
 
 // What the app does after each `GET /info` poll of one device (ecosystem plan Review Focus 1, spec 5.9).
 struct DeviceWatchTests {
-    func info(_ type: DeviceKind = .handheld, uptime: Int = 100, picksVer: Int = 1, wake: Int = 1) throws -> InfoMessage {
+    func info(_ type: DeviceKind = .handheld, uptime: Int = 100, picksVer: Int = 1, wake: Int = 1,
+              docked: Bool = false) throws -> InfoMessage {
         let json = """
         {"type":"\(type.rawValue)","id":"a1b2","fw":"0.4.0","battery":80,"charging":false,
          "wifi":{"connected":true,"ssid":"Net"},"last_update":0,"uptime":\(uptime),
-         "picks_ver":\(picksVer),"wake":\(wake),"docked":false}
+         "picks_ver":\(picksVer),"wake":\(wake),"docked":\(docked)}
         """
         return try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
     }
@@ -74,6 +75,16 @@ struct DeviceWatchTests {
         _ = w.polled(try info(uptime: 106))
         #expect(w.polled(nil) == [] && w.polled(nil) == [])
         #expect(w.polled(nil) == [.wentOffline])
+    }
+
+    @Test func dockingIsAnEdge() throws {
+        var w = DeviceWatch()
+        _ = w.polled(try info())
+        #expect(w.polled(try info(uptime: 102, docked: true)) == [.docked])
+        #expect(w.polled(try info(uptime: 104, docked: true)) == [])   // still docked
+        #expect(w.polled(try info(uptime: 106)) == [])                 // undocking does nothing
+        var first = DeviceWatch()   // docked when first seen: the resend handles it
+        #expect(first.polled(try info(docked: true)) == [.cameOnline, .resendState])
     }
 
     @Test func neverOnlineNeverGoesOffline() {

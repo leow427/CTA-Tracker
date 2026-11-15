@@ -885,11 +885,18 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
 - Feedback: the button turns into a check (or ⚠) for 2 s, the tile shows a FOLLOWING (or NOT SENT) tag for 2 s, with
   a success or error haptic and a VoiceOver announcement. "Sent" means at least one online wearable answered 200.
 - `AppModel.pin`/`follow` post to every online wearable and set `pinned`/`followed` only on success. A pin of another
-  stop clears `followed`, as the firmware does. On `.resendState` (first seen, or rebooted) AppModel re-sends the
-  follow while its departure is less than `Config.departedGraceSec` past, else the pin. This runs even with the app in
-  the background (a Bluetooth reconnect can land there); nearby still waits for the foreground.
-- Known gap: the app can't see a pin cleared on the wearable (swipe, docking): `/info` carries no pin. A later reboot
-  of the wearable brings that pin back. Fix would be a `pin` field in `/info` (spec and firmware change).
+  stop clears `followed`, as the firmware does (`AppModel.follow(after:followed:)`). On `.resendState` (first seen,
+  back online, or rebooted) AppModel re-sends the follow while its departure is less than `Config.departedGraceSec`
+  past, else the pin (`AppModel.resend`, tested in `WristPinTests`). This runs even with the app in the background (a
+  Bluetooth reconnect can land there); nearby still waits for the foreground.
+- Review round 1: a wearable that's unpaired (reset, spec 5.4) or docked when `.resendState` comes gets nothing and
+  the app forgets its pin and follow; `DeviceWatch` gained a `.docked` action (the `docked` false→true edge), which
+  clears them too. Send targets (`isWearable`, `onlineWearables`) are only devices set up from this app, never a
+  wearable merely found over Bonjour (fixes Task 15's fallback to `online[id].type`).
+- Known gap: the app can't see a pin swiped off on the wearable: `/info` carries no pin, so any later
+  `.resendState` (reconnect or reboot) brings it back. Fix would be a `pin` field in `/info` (spec and firmware
+  change). Also, a reset wearable the app first sees again only after re-pairing looks like a plain reboot and gets
+  the old pin.
 - [ ] **Step 2: Verify:** pin Belmont Red → the wearable's Home card is Belmont with ★ (after Task 18); follow the
   next train → the wearable counts down to it; reboot the wearable → pin and follow come back.
 - [ ] **Step 3: Commit:** `feat(ios): send a stop to Trackie and follow a departure`.

@@ -59,6 +59,8 @@ import SwiftUI
         rebuild()
         devices.onAction = { [weak self] id, action in
             guard let self, isWearable(id) else { return }
+            // Docking clears the wearable's pin (spec 5.6), so the app forgets it too.
+            if action == .docked { (pinned, followed) = (nil, nil) }
             // A rebooted or newly seen wearable lost its pin and follow (kept in RAM, spec 5.6): give them back, even
             // from the background, since a Bluetooth reconnect can land there.
             if action == .resendState { resendPin(to: id) }
@@ -110,8 +112,9 @@ import SwiftUI
 
     // MARK: - Nearby on the wrist (ecosystem spec 5.5)
 
+    /// Only wearables set up from this app: a stranger's (or a reset one) found over Bonjour never gets our token.
     private func isWearable(_ id: String) -> Bool {
-        (devices.devices.first { $0.id == id }?.kind ?? devices.online[id]?.type) == .handheld
+        devices.devices.first { $0.id == id }?.kind == .handheld
     }
 
     var onlineWearables: [String] {
@@ -177,9 +180,13 @@ import SwiftUI
     /// the wearable.
     func pin(_ stop: ConfigStop) async -> Bool {
         guard await sendToWrist("/pin", stop) else { return false }
-        if followed?.stop != stop { followed = nil }
-        pinned = stop
+        (pinned, followed) = (stop, Self.follow(after: stop, followed: followed))
         return true
+    }
+
+    /// A pin of the followed stop keeps the follow; any other pin ends it, as on the wearable.
+    nonisolated static func follow(after pin: ConfigStop, followed: FollowMessage?) -> FollowMessage? {
+        followed?.stop == pin ? followed : nil
     }
 
     /// Follows one departure on the online wearables (it pins its stop too); true when one took it.
@@ -197,14 +204,23 @@ import SwiftUI
         return ok
     }
 
+    /// A wearable that's reset (unpaired) or docked dropped its pin on purpose (spec 5.4, 5.6): forget it, send nothing.
+    private func resendPin(to id: String) {
+        guard let info = devices.online[id], info.paired, !info.docked else { (pinned, followed) = (nil, nil); return }
+        switch Self.resend(followed: followed, followedAt: followedAt, pinned: pinned, now: .now) {
+        case .follow(let f): Task { try? await devices.post("/follow", f, to: id) }
+        case .pin(let p): Task { try? await devices.post("/pin", p, to: id) }
+        case nil: break
+        }
+    }
+
+    enum Resend { case follow(FollowMessage), pin(ConfigStop) }
+
     /// The follow while its departure could still be on the wrist (gone a minute after it's due, as the list drops
     /// it), else the pin.
-    private func resendPin(to id: String) {
-        if let f = followed, Date.now.timeIntervalSince(followedAt) < Config.departedGraceSec {
-            Task { try? await devices.post("/follow", f, to: id) }
-        } else if let p = pinned {
-            Task { try? await devices.post("/pin", p, to: id) }
-        }
+    nonisolated static func resend(followed: FollowMessage?, followedAt: Date, pinned: ConfigStop?, now: Date) -> Resend? {
+        if let followed, now.timeIntervalSince(followedAt) < Config.departedGraceSec { return .follow(followed) }
+        return pinned.map { .pin($0) }
     }
 
     // MARK: - Storage

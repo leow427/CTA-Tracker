@@ -1,6 +1,6 @@
 /// What the app should do after each `GET /info` poll of one device. Pure: the app does the requests.
 public struct DeviceWatch: Sendable {
-    public enum Action: Equatable, Sendable { case fetchConfig, sendNearby, resendState, wentOffline, cameOnline }
+    public enum Action: Equatable, Sendable { case fetchConfig, sendNearby, resendState, wentOffline, cameOnline, docked }
 
     /// Missed polls in a row before a device counts as gone (about 6 s at the 2 s poll; spec 5.9).
     static let missesToOffline = 3
@@ -28,6 +28,7 @@ public struct DeviceWatch: Sendable {
         if rebooted { actions.append(.resendState) }   // the resend covers nearby, so skip the wake check
         if info.picksVer != last.picksVer { actions.append(.fetchConfig) }
         if !rebooted && info.wake != last.wake { actions.append(.sendNearby) }
+        if info.docked && !last.docked { actions.append(.docked) }   // the wearable drops its pin (spec 5.6)
         return actions
     }
 }
