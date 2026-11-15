@@ -138,3 +138,32 @@ No late panel frames, no restarts, lowest free internal RAM 49 → 50 KB, no res
 3. **The copy didn't get cheaper** (18.2 → 18.1 ms): the word stores cost the same as `memcpy`. The time is in PSRAM itself (each 64-byte line is probably read before it's written), not in the loop.
 4. **The picker stays at 17 fps**: draw 22 + copy 18 is 40 ms, far from the 29.3 ms needed for 34.
 5. **Heat**: no phase is warmer beyond noise; core 0 is cooler in every phase with requests.
+
+## Round 4: band copies by DMA, TLS's big blocks in PSRAM, the map's land left black (2026-11-13 to 14)
+
+- **Change:** one commit on `c4c7c2d` (Leo asked for a smooth 30 fps, more if possible, without drawbacks). One review round by a fresh Opus reviewer at xhigh found no Blocker and three small Should fixes (a test that played a recorded `cells` call back, a counter for DMA fallbacks in `stats:` and the perf log, the second band buffer freed if the DMA can't start), fixed; rounds 2 and 3 skipped.
+  - `dma_copy.*`: each drawn band is copied into the PSRAM frame buffer by GDMA (memory to memory, one 64-byte burst a panel row) while the CPU draws the next band into a second 30 KB band buffer (`bands.h`, `BandCopier`). Once the last band has landed, the frame buffer's lines are dropped from the cache (the panel's refill reads it through the cache); every CPU write into a frame buffer is written back first. A copy that doesn't land in 20 ms is redone by the CPU (`E,dma_fallbacks,<n>`; 0 in every run).
+  - `net.cpp`: mbedTLS blocks of 4 KB and up go to PSRAM (the rule every other malloc here follows), which pays for the second band buffer: alone, it took the lowest free internal RAM in a TLS handshake down to 13 KB.
+  - `Canvas::cells` gets a class it leaves alone: the map's land, the same black the screen is cleared to, isn't drawn.
+  - Pixels unchanged: all 26 preview screens byte-identical to `c4c7c2d`; the preview now also checks every frame with a stand-in for the DMA that copies late (a mutant that never switches band buffers fails 70 frames).
+- **Runs:** pair 1 in order `fpsref-1` (`c4c7c2d`), `fpsdma-1`. Report: `reports/fps.html`, table: `reports/fps.md`. Pair 2 (`fpsdma-2` first, then `fpsref-2`) was stopped by Leo: `fpsdma-2` ran into phase 7 (no `done` line), `fpsref-2` never ran.
+
+| Phase | FPS dragging ref → dma | Frame ms | Copy ms | Tap ms (max) | Drag ms | Request ms | Min int KB | Temp °C |
+|---|---|---|---|---|---|---|---|---|
+| 2 Screen churn | – | 36 → **29** | 8.2 → **1.5** | 58 (92) → **44 (64)** | – | 313 → 282 | 48 → 50 | 40.3 → 43.1 |
+| 3 Map pan | 11.0 → **15.7** | 89 → **62** | 17.3 → **1.5** | 118 → **64** | 92 → **63** | 191 → 182 | 48 → 50 | 42.3 → 44.3 |
+| 4 Picker scroll | 17.1 → **34.1** | 56 → **28** | 17.7 → **1.9** | 58 → **29** | 58 → **29** | 182 → 184 | 48 → 50 | 43.0 → 45.0 |
+| 5 Network burst | – | 25 → 25 | 2.5 → 0.6 | 23 (38) → 28 (30) | – | 306 → 343 | 48 → 50 | 43.0 → 44.5 |
+| 6 Mixed | 14.1 → **25.1** | 63 → **38** | 16.0 → **1.7** | 72 (204) → **40 (67)** | 75 → **46** | 270 → 300 | 48 → 50 | 43.7 → 45.3 |
+
+**Result:** 46 better and 9 worse beyond noise. Leo looked at the panel (picker scroll, map pan, no tearing or stale strips: "looks good") and asked to merge before pair 2 finished. Not settled:
+- **Chip temperature** reads 1.2–3.7 °C higher in every phase, idle included, but `fpsdma-1` ran second on a board `fpsref-1` had warmed (it started 3.7 °C hotter at idle with core 1 less busy). But `fpsdma-2`, run first (on a board still warm from `fpsdma-1`), read 43.1–45.7 °C, about the same as `fpsdma-1`, so warming alone doesn't explain it yet: the DMA's PSRAM traffic may run the chip warmer. `fpsref-2` decides it.
+- **Every stop loaded after boot** took 28.9 s against 17.6 s (one sequence of first handshakes each); requests in the phases are within noise.
+- The network burst's draw (+2.1 ms) and tap (+5 ms) are worse, its worst tap better.
+
+**Findings**
+
+1. **The CPU's copy into PSRAM was costing twice:** its own 17 ms, and the drawing's cache, which the 768 KB stream flushed. With the DMA, drawing itself got 18–22% faster.
+2. **The picker now fits one panel frame (34 fps).** The map doesn't: its drawing is 41–45 ms with live data (basemap cells ~11 ms, track lines ~11, recording ~8), and 34 fps needs it under ~26.
+3. **The map still stalls** for one frame (about 146 ms) each time a pan nears the basemap's edge and the grid is made again (`drawBasemap`, ~80 ms inside a frame).
+4. Tried and dropped: `bb_invalidate_cache` (no change); drawing the cells a column at a time (slower on the board: each column's setup cost more than the strided runs it replaced).

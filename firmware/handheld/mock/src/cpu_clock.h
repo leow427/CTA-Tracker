@@ -21,6 +21,7 @@ constexpr uint32_t kFastMhz = 240, kSlowMhz = 80;
 void begin();     // before any task calls hold(); the clock stays as it is until the first hold or release
 void hold();      // full speed from now until the matching release()
 void release();
+uint32_t mhz();   // the clock now
 
 // Holds full speed for its scope.
 class Fast {

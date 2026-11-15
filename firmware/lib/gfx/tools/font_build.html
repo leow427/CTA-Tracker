@@ -1,23 +1,26 @@
 <!doctype html>
-<!-- Rasterizes Nunito glyphs exactly as the mockup's canvas draws them; tools/font_build.py runs it in headless
-     Chrome and turns the result into src/fonts.cpp. -->
+<!-- Rasterizes Manrope glyphs with a canvas; tools/font_build.py runs it in headless Chrome and turns the result
+     into src/fonts.cpp. Pinned to one Google Fonts file so a rebuild gives the same atlas. -->
 <meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=block" rel="stylesheet">
+<style>@font-face { font-family: Manrope; font-weight: 200 800; font-display: block; src: url(https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSvfedN4.woff2) format('woff2'); }</style>
 <body>
 <script>
-const FONT = 'Nunito, ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
-const ASCII = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '…·°’';
+const FONT = 'Manrope, sans-serif';
+// Manrope stops at 800, so the atlases the UI names 900 are drawn at 800 and the 800 ones at 700.
+const WMAP = { 900: 800, 800: 700 };
+const ASCII = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('') + '…·°’‘';
 const ALNUM = ' ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const SETS = [];
 for (const s of [11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 24, 34]) SETS.push([900, s, ASCII]);
 for (const s of [12, 13, 14, 15, 16, 17, 18]) SETS.push([800, s, ASCII]);
 for (const s of [84, 76, 68, 60, 52, 44]) SETS.push([900, s, ALNUM]);
-Promise.all([document.fonts.load('900 34px Nunito'), document.fonts.load('800 16px Nunito')]).then(() => {
+Promise.all([document.fonts.load('800 34px Manrope'), document.fonts.load('700 16px Manrope')]).then((loaded) => {
+  if (loaded.some((f) => !f.length)) return;  // Manrope didn't load: no output, so font_build.py fails, not a fallback atlas
   const cv = document.createElement('canvas'); cv.width = cv.height = 200;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   const out = [];
   for (const [w, size, chars] of SETS) {
-    ctx.font = `${w} ${size}px ${FONT}`;
+    ctx.font = `${WMAP[w]} ${size}px ${FONT}`;
     ctx.textBaseline = 'alphabetic'; const asc = ctx.measureText('H').actualBoundingBoxAscent;
     ctx.textBaseline = 'top'; const top = ctx.measureText('H').actualBoundingBoxAscent;
     ctx.textBaseline = 'middle'; const mid = ctx.measureText('H').actualBoundingBoxAscent;

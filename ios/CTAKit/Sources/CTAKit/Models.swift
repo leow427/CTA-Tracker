@@ -62,10 +62,12 @@ public struct Prediction: Hashable, Sendable {
     public let at: Date
     public let live: Bool       // false = timetable only
     public let delayed: Bool
+    public let vehicle: String?  // train run number (rn) or bus vehicle ID (vid), for Follow on Trackie
 
-    public init(stopID: String, route: String, dir: String, dest: String, at: Date, live: Bool, delayed: Bool) {
+    public init(stopID: String, route: String, dir: String, dest: String, at: Date, live: Bool, delayed: Bool,
+                vehicle: String? = nil) {
         self.stopID = stopID; self.route = route; self.dir = dir; self.dest = dest
-        self.at = at; self.live = live; self.delayed = delayed
+        self.at = at; self.live = live; self.delayed = delayed; self.vehicle = vehicle
     }
 }
 

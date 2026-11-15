@@ -6,6 +6,7 @@
 #include <unity.h>
 
 #include "../fixture.h"
+#include "../json_bound.h"
 #include "bus_picker.h"
 #include "cta_config.h"
 #include "dock_leds.h"
@@ -72,6 +73,17 @@ static void test_picks_rejects_bad_json() {
 }
 
 // ---------- the bus picker's lists ----------
+
+static void test_picker_lists_stay_bounded() {
+    const std::string r = readFixture("bus_routes.json"), s = readFixture("bus_stops.json");
+    cta::BusRoute routes[4];
+    cta::BusStop stops[4];
+    cta::json::resetPeakBytes();
+    TEST_ASSERT_EQUAL_INT(3, cta::parseBusRoutes(r.c_str(), r.size(), routes, 4));
+    assertParseBounded(r);
+    TEST_ASSERT_EQUAL_INT(2, cta::parseBusStops(s.c_str(), s.size(), stops, 4));
+    assertParseBounded(s);
+}
 
 static void test_bus_picker_lists() {
     const std::string r = readFixture("bus_routes.json"), d = readFixture("bus_directions.json"),
@@ -412,6 +424,7 @@ int main() {
     RUN_TEST(test_picks_round_trip);
     RUN_TEST(test_picks_rejects_bad_json);
     RUN_TEST(test_bus_picker_lists);
+    RUN_TEST(test_picker_lists_stay_bounded);
     RUN_TEST(test_led_chain_order_and_colors);
     RUN_TEST(test_led_brightness_cap);
     RUN_TEST(test_led_stale_and_night);

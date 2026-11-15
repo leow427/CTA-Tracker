@@ -17,10 +17,13 @@ inline uint32_t hashWords(const uint32_t* w) {
     return a ^ (b << 16 | b >> 16);
 }
 
-// Unrolled for the device's panel rows: 466 pixels, the screen's height.
+// Unrolled for the device's panel rows (466 pixels, the screen's height), and for strips of 48 screen rows (34 in the
+// last), which main.cpp's serial "hash" check still draws so its hashes compare with the Arduino build's.
 inline uint32_t hashRow(const uint16_t* p, int n) {
     const uint32_t* w = reinterpret_cast<const uint32_t*>(p);
     if (n == 466) return hashWords<233>(w);
+    if (n == 48) return hashWords<24>(w);
+    if (n == 34) return hashWords<17>(w);
     uint32_t h = 2166136261u;
     for (int i = 0; i < n / 2; ++i) h = (h ^ w[i]) * 16777619u;
     return h;

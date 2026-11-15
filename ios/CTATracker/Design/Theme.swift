@@ -40,9 +40,9 @@ enum Theme {
     /// A scheduled (timetable) arrival's still glyph: at least 4.49:1 on every train card (Pink's top shade is the lowest; a glyph needs 3:1), haloed in gray on white.
     static let scheduled = Color(rgb: 0x9AD0FF)
 
-    /// SF Pro Rounded (redesign spec 5): heavy for route numbers and minutes, bold for destinations.
+    /// SF Pro, the system font (redesign spec 5; F4 dropped Rounded, the name stays so call sites keep working): heavy for route numbers and minutes, bold for destinations.
     static func rounded(_ style: Font.TextStyle, _ weight: Font.Weight) -> Font {
-        .system(style, design: .rounded, weight: weight)
+        .system(style, weight: weight)
     }
 
     /// The card list rests with its top this far down the screen (redesign spec 2).

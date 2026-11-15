@@ -12,7 +12,7 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
 - **The iPhone app's pixel style.** Cards and tabs have stepped pixel corners, a thin rim, light from the top, and a hard edge under them, so they sit up like game tiles.
 - **Line colors.** Every card is in its line's CTA color: a darker shade of the line as the fill, a lighter shade for all its text (the app's `LineColors.card` and `cardText` math). Bus cards are white, as in the app (redesign revision 4, 2026-11-11): white down to a pale gray `0xEEF3F7`, gray text `0x5B6573`, and the text, icons and rim outlined in light blue `0x7FCBF2`. The Blue Line uses the deeper `0x2F7BFF` (swapped 2026-11-09, when the Blue Line read too light).
 - **Pixel minutes.** Arrival minutes use the app's 5×7 pixel digits, like a departure board, at whole scales only so they stay crisp.
-- **Type.** Heavy, rounded type for route names. SF Pro Rounded can't ship on a non-Apple device, so the mockup uses Nunito Black; convert the chosen font with `lv_font_conv` at the sizes used.
+- **Type.** Heavy type for route names in Manrope (SIL OFL 1.1), baked into glyph atlases at the sizes used by `firmware/lib/gfx/tools/font_build.py`. Manrope stops at weight 800, so the atlases the UI asks for as 900 are drawn at 800 and the 800 ones at 700. It replaced Nunito, which read as too rounded (todo F4, 2026-11-14). Minutes, the clock and "Due" stay in the pixel digits.
 - **Colors in small doses:** headlight yellow for the active control, mist for secondary text, cream for Trackie's speech bubble, amber only for Delayed.
 - **The arrival glyph,** as in the app: light green `0x7CF29A` for a live arrival (blinking on cards while the data is fresh, still on the detail tiles), and held still in light blue `0x9AD0FF` for a timetable one. On a white bus surface it has a one-pixel gray halo.
 
@@ -45,9 +45,26 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
 From the top:
 - the time and weather icon
 - Trackie with his speech bubble
-- one card for the most urgent stop, so "should I hurry?" needs no swipe
+- one card for the most urgent stop, so "should I hurry?" needs no swipe, or the pinned stop (below)
 
-Swipe up for Stops. Swipe left for the Map (a stretch goal).
+Swipe up for Stops. Swipe left for the Map (a stretch goal). A swipe left that starts on a pinned card unpins it
+instead (an "Unpinned" toast, and the card falls back to the most urgent stop); everywhere else on Home it still opens
+the Map.
+
+#### Pinned and followed (ecosystem spec 5.6, 5.7)
+
+- **Pinned:** the stop sent from the app's "Send to Trackie" takes the Home card, ahead of the most-urgent rule, with
+  a ★ before the card's title: the stop name on a train card, the route number on a bus card (its stop name is the
+  small bottom line, too small for the mark). Manrope has no ★, so it's pixel art in the card's text color (outlined
+  in light blue on a bus), like the alert sign.
+- **Followed:** the pinned card counts down to the one vehicle the app picked. Its minutes take the big digits, and
+  the line under the title (where "To 95th/Dan Ryan" goes) says "Red · 4 min · to 95th" (a bus: "22 · 4 min · to
+  Howard"). The destination comes from the card's heading (a bus's `dir` is "Southbound"), cut at a "/" as the spec
+  writes it. A pin with nothing due shows no time. At 0–1 min it's "Red · Due · to 95th" with "Due"
+  big; not on the card yet (further out than its 4 arrivals), "Red · to 95th" with "--". Then "Arrived", or "Lost the
+  train" ("Lost the bus"), with no time, for 60 s (`cta::kFollowEndedSecs`), and the card goes back to the plain pin.
+- The code: `followCard` and `star` in `firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `hasPin`, `pin`,
+  `hasFollow`, `follow`. Renders: `tools/preview.cpp` writes `pin_*` and `follow_*`.
 
 ### Stops: Trains | Buses
 
@@ -85,7 +102,7 @@ On the dock and home Wi-Fi, Trackie is Asleep. The screen is extra dim, with a c
 ### First run and pairing
 
 - **First run,** before the first nearby list: "Open Trackie on your iPhone".
-- **Pairing:** Trackie with the 6-digit passkey in pixel digits, to type into the iPhone.
+- **Pairing:** Trackie with the 6-digit pairing code in pixel digits, to type into the iPhone app (ecosystem spec 4.3).
 
 ### Map (stretch goal)
 

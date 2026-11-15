@@ -103,8 +103,12 @@ void printDiag() {
 }
 uint32_t cycles() { return ESP.getCycleCount(); }
 
-// Big JSON documents (bus patterns, picker lists) in PSRAM: internal RAM is for Wi-Fi and TLS.
-void* psAlloc(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+// cJSON's nodes (and the big model structs) in PSRAM, internal only if PSRAM runs out: internal RAM is for Wi-Fi
+// and TLS.
+void* psAlloc(size_t n) {
+    void* p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
 void psFree(void* p) { heap_caps_free(p); }
 void* psRealloc(void* p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
 const cta::JsonHeap kPsramHeap = {psAlloc, psFree, psRealloc};
@@ -421,8 +425,8 @@ void loop() {
     }
     if (ms - statT >= 30000) {
         statT = ms;
-        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts; internal free %u (min %u), psram free %u; %u CTA requests\n",
-                      frames, frames ? sumDraw / frames : 0, display::timeouts(),
+        Serial.printf("stats: %u frames, %u ms each, %u switch timeouts, %u DMA fallbacks; internal free %u (min %u), psram free %u; %u CTA requests\n",
+                      frames, frames ? sumDraw / frames : 0, display::timeouts(), static_cast<unsigned>(display::dmaFallbacks()),
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
                       ESP.getFreePsram(), net::requests());
         frames = sumDraw = 0;

@@ -6,6 +6,10 @@
 #include <stdint.h>
 
 #include "cta_types.h"
+#include "follow.h"
+// live::setPin and live::setFollow: the real ones are live.cpp's; mock_data.cpp has weak stubs for env:mock and the
+// laptop tools, where setPin stops the mock's pin.
+#include "live.h"
 
 namespace mock {
 
@@ -61,6 +65,17 @@ struct Model {
     bool weatherForced = false;// the debug gesture picked `weather`, so live weather leaves it alone
     int wmo = 0;
     float tempC = 0;
+    // The pinned stop takes the Home card, ahead of `glance`, with a ★; a follow counts down to one vehicle on it
+    // (ecosystem spec 5.6, 5.7). The mock sets them in Live; the live build copies live::Snapshot's hasPin, pin,
+    // hasFollow, follow (Task 8), building `pin` as fromLive builds the lists' cards.
+    bool hasPin = false;
+    Card pin{};            // a bus or train card by pin.rec.type
+    bool hasFollow = false;
+    cta::FollowView follow{};
+    // Night hours, minutes after midnight (the app's config.settings in the live build): Sleepy, and slow polling.
+    uint16_t nightStart = cta::kNightStartMin, nightEnd = cta::kNightEndMin;
+    // Whether local minute lm is in the night hours; a span past midnight (start after end) wraps.
+    bool night(int lm) const { return nightStart <= nightEnd ? lm >= nightStart && lm < nightEnd : lm >= nightStart || lm < nightEnd; }
 };
 
 // Sorts the cards (nearest stop first, soonest first within it), then sets the mood, Trackie's reason, and the

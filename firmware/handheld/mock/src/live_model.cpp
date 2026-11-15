@@ -1,3 +1,4 @@
+#if defined(HANDHELD_LIVE) || !defined(ESP_PLATFORM)   // the device's mock build has no network; laptop tools use it
 #include "live_model.h"
 
 #include <stdio.h>
@@ -51,6 +52,27 @@ void compass(const char* rtdir, char* out, size_t cap) {
     if (n > 5 && strcmp(out + n - 5, "bound") == 0) out[n - 5] = 0;
 }
 
+// A train card's looks: the station's other lines as pips, the heading, the compass.
+void trainLooks(Card& c, const live::Snapshot& s) {
+    for (int j = 0; j < s.nTrains && c.nPips < 3; ++j) {
+        const live::Rec& o = s.trains[j];
+        if (strcmp(o.rec.id, c.rec.id) != 0 || strcmp(o.rec.route, c.rec.route) == 0) continue;
+        bool seen = false;
+        for (int k = 0; k < c.nPips; ++k) seen = seen || strcmp(c.pips[k], o.rec.route) == 0;
+        if (!seen) c.pips[c.nPips++] = o.rec.route;   // points into s, which outlives this model update
+    }
+    snprintf(c.heading, sizeof(c.heading), "To %s", c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
+    c.compass = cta::trainCompass(c.rec.route, c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
+}
+
+// A bus card's looks: "West to Central" and the compass.
+void busLooks(Card& c) {
+    char dir[16];
+    compass(c.rec.dir, dir, sizeof(dir));
+    snprintf(c.heading, sizeof(c.heading), "%s to %s", dir, c.rec.count ? c.rec.arrivals[0].dest : "?");
+    c.compass = cta::busCompass(c.rec.dir);
+}
+
 }  // namespace
 
 void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t now, bool clockKnown) {
@@ -67,16 +89,7 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
         fill(c, r, s);
         if (!age(c, now)) continue;
         ++m.nTrains;
-        // The station's other lines, as pips.
-        for (int j = 0; j < s.nTrains && c.nPips < 3; ++j) {
-            const live::Rec& o = s.trains[j];
-            if (o.stop != r.stop || strcmp(o.rec.route, c.rec.route) == 0) continue;
-            bool seen = false;
-            for (int k = 0; k < c.nPips; ++k) seen = seen || strcmp(c.pips[k], o.rec.route) == 0;
-            if (!seen) c.pips[c.nPips++] = o.rec.route;   // points into s, which outlives this model update
-        }
-        snprintf(c.heading, sizeof(c.heading), "To %s", c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
-        c.compass = cta::trainCompass(c.rec.route, c.rec.count ? c.rec.arrivals[0].dest : c.rec.dir);
+        trainLooks(c, s);
     }
     m.nBuses = 0;
     for (int i = 0; i < s.nBuses && m.nBuses < kMaxCards; ++i) {
@@ -85,10 +98,7 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
         fill(c, r, s);
         if (!age(c, now)) continue;
         ++m.nBuses;
-        char dir[16];
-        compass(c.rec.dir, dir, sizeof(dir));
-        snprintf(c.heading, sizeof(c.heading), "%s to %s", dir, c.rec.count ? c.rec.arrivals[0].dest : "?");
-        c.compass = cta::busCompass(c.rec.dir);
+        busLooks(c);
     }
     // One card per route and direction, at the nearest listed stop that still has an arrival (spec 8.3): a farther
     // stop may serve a route a nearer one shows. After the countdown, so a route whose nearer card just ran out of
@@ -109,6 +119,24 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
         anyFresh = anyFresh || !cta::isStale(r, now);
     }
 
+    // The pinned stop's Home card, built as the lists' cards are, and the follow on it (ecosystem spec 5.6, 5.7). A
+    // pin with no arrivals left still shows. The follow's minutes count down with the card's (same record, same ts).
+    m.hasPin = s.hasPin;
+    if (s.hasPin) {
+        fill(m.pin, s.pin, s);
+        age(m.pin, now);
+        if (m.pin.rec.type == cta::Kind::Bus) busLooks(m.pin);
+        else trainLooks(m.pin, s);
+    }
+    m.hasFollow = s.hasFollow;
+    m.follow = s.follow;
+    const cta::StopRecord& pr = s.pin.rec;
+    if (m.hasFollow && m.follow.state == cta::FollowState::Waiting && m.follow.min > 0 && pr.ts && now > pr.ts &&
+        !cta::isStale(pr, now)) {
+        const int left = m.follow.min - static_cast<int>((now - pr.ts) / 60);
+        m.follow.min = static_cast<int16_t>(left > 0 ? left : 0);
+    }
+
     m.loaded = s.loaded || m.nTrains + m.nBuses > 0;
     m.offline = s.status[0] != 0 || (s.nTrains + s.nBuses > 0 && !anyFresh);
     snprintf(m.status, sizeof(m.status), "%s", s.status);
@@ -125,3 +153,4 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
 }
 
 }  // namespace mock
+#endif

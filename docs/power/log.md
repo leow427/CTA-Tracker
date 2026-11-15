@@ -276,3 +276,25 @@ Round 2 runs against the earlier reference, for the record only (`reports/r2.md`
   - No resets. Native tests pass.
 - **The same frames, timed on the board** (mock build, 2 runs each, within 1%): Home 9.2 → 7.8 ms a frame; Stops scrolling 25.7 → 19.9 ms (37.8 → 49.4 fps); Detail 12.0 → 11.0 ms. Setup ends 684 → 654 ms after boot; first train data 7.2–7.4 → 6.5–6.6 s after boot.
 - **Commit:** not yet (Leo reviews it first).
+
+## The wearable on native ESP-IDF, no Arduino (2026-11-14): passes
+
+- **Change:** the handheld moves from arduino-esp32 3.2.0 high_perf to native ESP-IDF 5.4.1 (Track W of
+  `docs/superpowers/plans/2026-11-14-esp-idf-port.md`): `esp_lcd_co5300`, our own CST9217 and AXP2101 drivers on
+  `i2c_master`, `esp_wifi`/`esp_http_client`/mDNS/NVS, and all of mbedTLS and mDNS in PSRAM. Same screens and timing.
+- **Runs:** interleaved A, B, A, B, 17:57-19:20, fixed test coordinates, no touches. A = `3598b0b` (arduino-final,
+  built from a scratch copy with only the serial `h` command added), B = the port.
+  `runs/2026-11-14-idf-port-{A,B}-{1,2}.csv`; charts in `reports/idf-port.html`.
+- **Result: passes.**
+  - Dim idle 41.3 → 41.7 mA (+1.1%, noise 1.5-2.9). Projected battery life 46.3 → 45.9 h, over the 44.7 h gate
+    (5% under Task 8's 47.1 h); this evening's A read 46.3 h.
+  - Scroll −4.1% (core 0 busy 42 → 18%: the panel transfers are DMA straight from the strip buffer), everything
+    −3.2%, churn +0.9%, awake still +2.3%.
+  - Network burst +5.8% (A's noise 6.2): new connections took 150-250 ms longer (alerts and weather medians
+    1.6 → 1.7-1.9 s), with the CPU held at 240 MHz through each. The likely cause, found after these runs, is Nagle:
+    esp-tls leaves it on and Arduino's client turned it off. The follow-up commit turns it off and sends the bus API's
+    session tickets too (16 KB outgoing record); not re-run on the power test yet. Train sessions resume (21 resumed
+    and 12 full in B-1, against 12 and 22 in A-1).
+  - User-visible numbers unchanged: fps while moving 70.4 / 43.3 / 60.8, tap→screen 17-21 ms.
+  - Lowest free internal RAM 66 → 114 KB.
+  - No resets.

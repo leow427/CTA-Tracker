@@ -30,7 +30,7 @@ Leo's verdict on the navy build: the rows and the stop page looked flat, and the
 
 - **Line cards.** Every route is a card in its own line color: the fill is a darker shade of the line (`LineColors.card`: scaled toward one shared depth, at least 15% darker), and all its text is a lighter shade (`LineColors.cardText`: at least 30% toward white, until 4.5:1 on the fill). Buses share the bus blue (per-route bus colors stay out of scope). Stop detail's departure tiles and its "At this stop" lines are cards the same way. The next departure is outlined in the light shade.
 - **Pixel plates.** Cards, tiles, chips, buttons, the search bar, and the panel's top edge have stepped pixel corners (`PixelShape`), a rim, light from the top, and a hard darker edge under them (`.plate`), so they sit up off the navy like game tiles.
-- **Pixel type.** Minutes use the pixel digits again, like a departure board; clock times step down to fit. Route names stay SF Rounded heavy. The detail's huge route name has a hard pixel drop shadow in the line's dark shade.
+- **Pixel type.** Minutes use the pixel digits again, like a departure board; clock times step down to fit. Route names are SF Pro heavy (SF Rounded until todo F4, 2026-11-14). The detail's huge route name has a hard pixel drop shadow in the line's dark shade.
 - **The pet.** Leo's train (a blue L car front with a face on its door), redrawn as a 32×32 sprite in `Glyphs`. Its face shows the mood from the devices' rules over the listed cards: happy (closed smiling eyes, heart), hyped (> < eyes, open mouth, excitement lines), worried (brows, wavy mouth, sweat drop), sad (T_T with tears), and sleepy (closed eyes, Zz). It sits at the top left, 3× on a cream pixel tile, bobbing one art pixel twice a second (still under Reduce Motion), with a yellow gear badge for Settings, and "says" the Near place in a cream pixel speech bubble.
 
 ### Revision 3: line-washed stop page, pixel stops, accurate buses (2026-11-10)
@@ -39,7 +39,7 @@ Leo's notes after using the app (Transit's stop page as the reference for the wa
 
 - **Stop page wash.** The navy page behind stop detail is replaced by one full-screen gradient in the line's dark card shade (`LineColors.card`): solid over the bottom 20% of the screen, fading to clear over the top 80%, so the map shows through above the tiles. Buses use the bus blue's card shade. The departure tiles and "At this stop" cards sit on it unchanged; the freshness chip, the alerts row, and the page's labels take the line's card shade and text color instead of navy and mist. The header gets a soft dark shadow where the wash is still thin, and the Mapbox logo moves up above it.
 - **No line names on trains.** The color names the line, so train cards and the stop page drop "Red", "Blue", and so on. A train card leads with its stop name, then "→ destination", with minutes on the right (as on the handheld). The stop page's header over the map is "→ destination" with the stop name under it. Buses keep their route number ("66") on cards and the stop page.
-- **Pixel stop icons.** The map shows every L station as a 16×16 pixel train glyph and the 5 listed bus stops nearest the map's center (plus the open one) as a 16×16 pixel bus glyph, drawn at a whole-number scale with no smoothing. A station on one line is its line's color. A station on several lines is a cream train with a row of line-color pixels under it, one per line, in `LineColors.trains` order. Bus icons use the bus blue. The icons are two Mapbox symbol layers (images registered once), not view annotations, so ~150 icons stay cheap: stations, which drop the most crowded icons when zoomed out (the open station last), and the listed bus stops, which always show.
+- **Pixel stop icons.** The map shows every L station as a 16×16 pixel tram in a tunnel arch and the 5 listed bus stops nearest the map's center (plus the open one) as a 16×16 pixel bus glyph, drawn at a whole-number scale with no smoothing. A station on one line is its line's color, arch included. A station on several lines is a cream tram whose arch is split into one run of pixels per line, left foot to right foot in `LineColors.trains` order. There is no strip, so every station icon is the same height. Bus icons use the bus blue. The icons are two Mapbox symbol layers (images registered once), not view annotations, so ~150 icons stay cheap: stations, which drop the most crowded icons when zoomed out (the open station last), and the listed bus stops, which always show.
 - **Tapping a stop icon** opens that stop's detail, the same page a card opens, on the listed card's line when the stop is in the list, else its first group. A tap doesn't stop the map following you.
 - **2D / 3D.** A round map button under recenter switches between the tilted 3D map (pitch 55°, 3D buildings) and a flat top-down 2D map (pitch 0, no 3D buildings). The choice is kept between launches. It animates like the other camera moves, and jumps under Reduce Motion.
 - **Search results** sit on a solid navy plate, so they read over the map.
@@ -75,7 +75,7 @@ Leo's notes after using a Release build on his iPhone 15 Pro: "incredibly slow" 
 | Main screen | No sheet. A full-screen map, glass controls on top, and one scrolling list of cards whose top starts partway down the screen and scrolls up over the map. |
 | Cards | Thick tiles filled with the line color, with a visible edge, a highlight, and a shadow on the map. They sink when pressed. |
 | Stop detail | A full-screen page over the map, opened from a card. A row of big departure tiles, a chip row, then the rest of the stop. |
-| Type | SF Pro Rounded. Heavy for route numbers and minutes. The pixel font is no longer used for minutes. |
+| Type | SF Pro, the system font (SF Pro Rounded until todo F4, 2026-11-14). Heavy for route numbers and minutes. The pixel font is no longer used for minutes. |
 | Pixel art | The pet, vehicle sprites on the map, and the small glyphs (live, alert, dock, handheld). |
 | Secrets | The Mapbox public token goes in the gitignored `Secrets.plist` as `MAPBOX_TOKEN`, next to the CTA keys. |
 
@@ -113,8 +113,8 @@ Replaces the look in app spec 4.3. Content and rules are unchanged.
   - a tight contact shadow plus a soft, wide shadow onto the map.
 - **Press:** the tile sinks 3 pt onto its edge on a spring, with a light haptic, then opens stop detail.
 - **Layout:**
-  - **Left:** the big route number ("66") or line name ("Blue"), rounded heavy, with the alert glyph beside it when an alert is active. Then "→ Navy Pier" and "Chicago & Damen · 2 min walk".
-  - **Right:** big minutes, rounded heavy, with the pixel live glyph. "min" underneath. Due, Sched, and clock times as in the app spec.
+  - **Left:** the big route number ("66") or line name ("Blue"), SF Pro heavy, with the alert glyph beside it when an alert is active. Then "→ Navy Pier" and "Chicago & Damen · 2 min walk".
+  - **Right:** big minutes, heavy, with the pixel live glyph. "min" underneath. Due, Sched, and clock times as in the app spec.
   - **Below:** later departures in one small line ("also 22, 29").
 - **Chips** sit on the tile in white at about 20% with white text: Delayed and the alert. The Delayed chip uses amber on any tile where that reads better.
 - **Text color:** white, or dark text on Yellow (and any color where white fails 4.5:1). The contrast test now also covers Ink.
@@ -146,7 +146,7 @@ Replaces app spec 4.6 where they differ. Haptics, accessibility, and Reduce Moti
   - System blue is still off (`.tint` stays neutral).
 - **Depth:** from light, glass, edges, and shadows, not glows or gradients on text. Tiles use the edge, highlight, and shadow in section 3.
 - **Glass:** the top controls, search capsule, and switch use Liquid Glass. Reduce Transparency swaps them for solid Paper or Ink.
-- **Type:** SF Pro Rounded throughout, following Dynamic Type. Route numbers and minutes are heavy. Destinations are bold, secondary lines are medium.
+- **Type:** SF Pro throughout (Rounded until todo F4, 2026-11-14), following Dynamic Type. Route numbers and minutes are heavy. Destinations are bold, secondary lines are medium.
 - **Pixel art:** whole-number scales, nearest-neighbor, never rotated or smoothed. The pet, vehicles, and glyphs only.
 - **Motion:** springs as before. The tile press, the tile-to-header zoom, and the background fade are the only new motion. Pixel sprites still step at 4 fps.
 

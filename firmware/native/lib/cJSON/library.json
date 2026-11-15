@@ -1,0 +1,12 @@
+{
+  "name": "cJSON",
+  "version": "1.7.18",
+  "description": "cJSON 1.7.18, unmodified from the upstream v1.7.18 tag (MIT, see LICENSE), for the native tests only; the boards use ESP-IDF's json component.",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "native",
+  "build": {
+    "srcDir": ".",
+    "includeDir": "."
+  }
+}

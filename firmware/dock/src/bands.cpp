@@ -55,8 +55,10 @@ void BandMemo::forget() {
 }
 
 void drawFrame(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx, ui::Recording* rec, BandMemo& memo, int which,
-               uint16_t* band, uint16_t* fb, bool cw, uint32_t (*us)(), FrameStats& st) {
+               uint16_t* band, uint16_t* fb, bool cw, uint32_t (*us)(), FrameStats& st, uint16_t* band2,
+               const BandCopier* copier) {
     st = FrameStats();
+    if (!band2) copier = nullptr;   // one band buffer: each band is copied before the next is drawn into it
     bool recorded = false;
     if (rec) {
         const uint32_t t0 = us();
@@ -65,34 +67,48 @@ void drawFrame(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx, ui::Recording
         recorded = rec->end() && rec->bands() == BandMemo::kBands;
         st.drawUs += us() - t0;
     }
+    uint16_t* bufs[2] = {band, band2};
+    int next = 0;   // the band buffer the next band is drawn into (with a copier, the other may still be copied from)
     for (int b = 0; b < BandMemo::kBands; ++b) {
         if (recorded && memo.drawingKnown[which][b] && memo.drawing[which][b] == rec->hash(b)) continue;   // fb shows it
         const int y0 = b * kBandRows;
-        ui::Canvas cv = bandCanvas(band, y0, kBandRows, cw);
+        uint16_t* buf = bufs[next];
+        ui::Canvas cv = bandCanvas(buf, y0, kBandRows, cw);
         const uint32_t d0 = us();
         if (recorded) rec->play(cv, b);
         else draw(cv, ctx);
         const uint32_t c0 = us();
         st.drawUs += c0 - d0;
         ++st.drawn;
-        if (recorded) {
-            // Drawn because its drawing changed, so its pixels almost surely did: copied without hashing them.
-            copyBand(band, fb, y0, kBandRows, cw);
-            ++st.copied;
+        // Drawn because its drawing changed, so its pixels almost surely did: copied without hashing them. Without a
+        // recording, only a band whose pixels changed is copied.
+        bool copy = true;
+        if (!recorded) {
+            const uint32_t h = pixelHash(buf, W * kBandRows);
+            copy = !memo.pixelsKnown[which][b] || memo.pixels[which][b] != h;
+            memo.pixels[which][b] = h;
+            memo.pixelsKnown[which][b] = true;
+            memo.drawingKnown[which][b] = false;
+        } else {
             memo.drawing[which][b] = rec->hash(b);
             memo.drawingKnown[which][b] = true;
             memo.pixelsKnown[which][b] = false;
-        } else {
-            const uint32_t h = pixelHash(band, W * kBandRows);
-            if (!memo.pixelsKnown[which][b] || memo.pixels[which][b] != h) {
-                copyBand(band, fb, y0, kBandRows, cw);
-                memo.pixels[which][b] = h;
-                memo.pixelsKnown[which][b] = true;
-                ++st.copied;
+        }
+        if (copy) {
+            if (copier) {
+                copier->start(buf, fb, y0, kBandRows, cw);
+                next ^= 1;
+            } else {
+                copyBand(buf, fb, y0, kBandRows, cw);
             }
-            memo.drawingKnown[which][b] = false;
+            ++st.copied;
         }
         st.copyUs += us() - c0;
+    }
+    if (copier && st.copied) {
+        const uint32_t f0 = us();
+        copier->finish(fb);
+        st.copyUs += us() - f0;
     }
 }
 

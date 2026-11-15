@@ -1,7 +1,7 @@
 {
   "name": "gfx",
   "version": "0.1.0",
-  "description": "The devices' shared drawing: a small RGB565 canvas, Nunito atlases, and the app's card theme and pieces.",
+  "description": "The devices' shared drawing: a small RGB565 canvas, Manrope atlases, and the app's card theme and pieces.",
   "frameworks": "*",
   "platforms": "*",
   "dependencies": {

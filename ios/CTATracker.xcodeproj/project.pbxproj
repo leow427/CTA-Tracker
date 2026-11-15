@@ -11,14 +11,43 @@
 		CA0000000000000000000013 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = CA0000000000000000000014 /* MapboxMaps */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		CA0000000000000000000041 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CA0000000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CA0000000000000000000006;
+			remoteInfo = CTATracker;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		CA0000000000000000000001 /* CTATracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CTATracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CA0000000000000000000040 /* CTATrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CTATrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CA000000000000000000004F /* Exceptions for "CTATracker" folder in "CTATracker" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CA0000000000000000000006 /* CTATracker */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CA0000000000000000000002 /* CTATracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CA000000000000000000004F /* Exceptions for "CTATracker" folder in "CTATracker" target */,
+			);
 			path = CTATracker;
+			sourceTree = "<group>";
+		};
+		CA0000000000000000000042 /* CTATrackerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CTATrackerTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +62,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CA0000000000000000000043 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				CA0000000000000000000002 /* CTATracker */,
+				CA0000000000000000000042 /* CTATrackerTests */,
 				CA0000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -48,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				CA0000000000000000000001 /* CTATracker.app */,
+				CA0000000000000000000040 /* CTATrackerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,6 +117,27 @@
 			productReference = CA0000000000000000000001 /* CTATracker.app */;
 			productType = "com.apple.product-type.application";
 		};
+		CA0000000000000000000044 /* CTATrackerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CA0000000000000000000047 /* Build configuration list for PBXNativeTarget "CTATrackerTests" */;
+			buildPhases = (
+				CA0000000000000000000045 /* Sources */,
+				CA0000000000000000000043 /* Frameworks */,
+				CA0000000000000000000046 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CA0000000000000000000048 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				CA0000000000000000000042 /* CTATrackerTests */,
+			);
+			name = CTATrackerTests;
+			productName = CTATrackerTests;
+			productReference = CA0000000000000000000040 /* CTATrackerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -91,6 +150,10 @@
 				TargetAttributes = {
 					CA0000000000000000000006 = {
 						CreatedOnToolsVersion = 27.2;
+					};
+					CA0000000000000000000044 = {
+						CreatedOnToolsVersion = 27.2;
+						TestTargetID = CA0000000000000000000006;
 					};
 				};
 			};
@@ -113,12 +176,20 @@
 			projectRoot = "";
 			targets = (
 				CA0000000000000000000006 /* CTATracker */,
+				CA0000000000000000000044 /* CTATrackerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		CA0000000000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CA0000000000000000000046 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +206,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CA0000000000000000000045 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CA0000000000000000000048 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CA0000000000000000000006 /* CTATracker */;
+			targetProxy = CA0000000000000000000041 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CA0000000000000000000030 /* Debug */ = {
@@ -184,7 +270,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CTATracker/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your Trackie dock and wearable on this Wi-Fi.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows the stops and arrivals near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -213,7 +302,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CTATracker/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your Trackie dock and wearable on this Wi-Fi.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows the stops and arrivals near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -234,6 +326,40 @@
 			};
 			name = Release;
 		};
+		CA0000000000000000000049 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5JXMXR2W9L;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.leow427.CTATrackerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CTATracker.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CTATracker";
+			};
+			name = Debug;
+		};
+		CA000000000000000000004A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5JXMXR2W9L;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.leow427.CTATrackerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CTATracker.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CTATracker";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -251,6 +377,15 @@
 			buildConfigurations = (
 				CA0000000000000000000030 /* Debug */,
 				CA0000000000000000000031 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CA0000000000000000000047 /* Build configuration list for PBXNativeTarget "CTATrackerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA0000000000000000000049 /* Debug */,
+				CA000000000000000000004A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

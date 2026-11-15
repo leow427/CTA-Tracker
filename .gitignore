@@ -4,6 +4,10 @@ ios/**/Secrets.xcconfig
 ios/**/Secrets.plist
 
 # Build output
+# ESP-IDF: generated per-env configs and downloaded components (sdkconfig.defaults is tracked)
+firmware/**/sdkconfig.*
+!firmware/**/sdkconfig.defaults
+firmware/**/managed_components/
 .pio/
 build/
 DerivedData/

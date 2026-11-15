@@ -31,6 +31,16 @@ public:
     int applyAlerts(const char* body, size_t len);                              // for routes()
     bool applyWeather(const char* body, size_t len);
 
+    // The pinned stop and the followed vehicle (ecosystem spec 5.6, 5.7). setPin(nullptr) clears both; a pin at
+    // another stop drops the old stop's data and ends the follow. setFollow also pins f->stop.
+    void setPin(const cta::PickedStop* p);
+    void setFollow(const cta::FollowMsg* f);
+    const cta::PickedStop* pin() const { return hasPin_ ? &pin_ : nullptr; }
+    // A response for a pinned station outside the list (-1 for a bus pin: its stop rides in applyBuses' poll).
+    int applyPin(const char* body, size_t len, uint32_t now);
+    // Runs the follow rules on the newest records at the pinned stop; ends the follow once it has expired.
+    void updateFollow(uint32_t now);
+
     // The routes seen in any record so far, for the alerts call.
     int routes(const char** out, int max) const;
     bool everyStopPolled() const;
@@ -46,14 +56,24 @@ private:
     };
     void addRoute(const char* route);
     bool isAlerted(const char* route) const;
+    // Every record at the pinned stop, from its own poll and the nearby list's, one per line and direction (the
+    // newer); written to staging_->atPin.
+    int pinRecords() const;
 
     struct Staging {   // a response parses here first, so a failed one leaves the last good data
         cta::StopRecord train[kCardsPerStation];
         cta::StopRecord bus[kMaxBusCards];
+        cta::StopRecord atPin[kCardsPerStation + kMaxBusCards];
     };
     cta::Nearby nearby_;
     bool located_ = false;
-    Station* stations_ = nullptr;
+    Station* stations_ = nullptr;   // the nearby stations, then the pinned stop's own poll
+    cta::PickedStop pin_;
+    bool hasPin_ = false;
+    cta::FollowMsg follow_;
+    cta::FollowMemo memo_;
+    cta::FollowView view_ = {};
+    bool hasFollow_ = false;
     Staging* staging_ = nullptr;
     cta::StopRecord* bus_ = nullptr;
     int nBus_ = 0;

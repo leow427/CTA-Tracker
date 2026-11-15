@@ -1,7 +1,10 @@
 #pragma once
 // The AXP2101 power chip (spec 3, 8.4, 8.5): USB power, battery, and charging. It turns on measurements only and
 // changes no power rail, except off().
+#include <math.h>
 #include <stdint.h>
+
+typedef struct i2c_master_bus_t* i2c_master_bus_handle_t;   // driver/i2c_master.h's, so laptop tools needn't have it
 
 namespace power {
 
@@ -17,8 +20,8 @@ struct State {
     float tempC = 0;        // the chip's own temperature
 };
 
-// Call after Wire.begin(). False if the chip doesn't answer.
-bool begin();
+// On the I2C bus it shares with touch. False if the chip doesn't answer.
+bool begin(i2c_master_bus_handle_t bus);
 State read();
 // Turns the whole board off (every rail, screen included), so a board left plugged in can't burn in. Only the task
 // that owns the I2C bus may call it (the touch task, or the loop when there's none). False if there's no chip to ask.

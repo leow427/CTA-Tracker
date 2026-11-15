@@ -9,6 +9,7 @@
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
 #include <lwip/tcpip.h>
+#include <mbedtls/platform.h>
 #include <mbedtls/ssl.h>
 #include <string.h>
 #include <sys/time.h>
@@ -160,6 +161,20 @@ bool resolve(const char* host, IPAddress& out) {
     }
     dnsWant = 0;
     return ok;
+}
+
+// mbedTLS's memory: this core's build puts all of it in internal RAM (about 45 KB with a connection open), where the
+// display's second band buffer (display.cpp) now lives too. Its big blocks (the 16 KB record buffer coming in, the
+// 4 KB one going out) go to PSRAM instead, by the rule every other malloc on this board follows
+// (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: 4 KB and up in PSRAM); the small ones stay internal. Either heap if the
+// other is out.
+constexpr size_t kTlsPsramFrom = 4096;
+void* tlsCalloc(size_t n, size_t size) {
+    if (size && n > SIZE_MAX / size) return nullptr;
+    const uint32_t first = n * size >= kTlsPsramFrom ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL;
+    const uint32_t second = first == MALLOC_CAP_SPIRAM ? MALLOC_CAP_INTERNAL : MALLOC_CAP_SPIRAM;
+    if (void* p = heap_caps_calloc(n, size, first | MALLOC_CAP_8BIT)) return p;
+    return heap_caps_calloc(n, size, second | MALLOC_CAP_8BIT);
 }
 
 // ---------- one HTTPS connection, kept open between requests to the same host ----------
@@ -901,6 +916,7 @@ void netTask(void*) {
 }  // namespace
 
 void start(const cta::PickedStop picks[cta::kDockStops]) {
+    mbedtls_platform_set_calloc_free(tlsCalloc, heap_caps_free);   // before any TLS: blocks are freed where they were made
     mu = xSemaphoreCreateMutex();
     dnsDone = xSemaphoreCreateBinary();
     published = new (ps_malloc(sizeof(dock::Data))) dock::Data();

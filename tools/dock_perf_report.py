@@ -65,11 +65,16 @@ def read_run(path):
                 meta[k] = v
             elif line.startswith("H,"):
                 cols = line[2:].split(",")
+            # Another task's serial print can land inside a perf line ("E,5[23956,req_5start,w"): a line that isn't
+            # whole is skipped.
             elif line.startswith("P,") and cols:
-                rows.append(dict(zip(cols, line[2:].split(","))))
+                vals = line[2:].split(",")
+                if len(vals) == len(cols) and vals[0].isdigit():
+                    rows.append(dict(zip(cols, vals)))
             elif line.startswith("E,"):
                 parts = line[2:].split(",")
-                events.append((int(parts[0]), parts[1:]))
+                if parts[0].isdigit() and len(parts) > 1:
+                    events.append((int(parts[0]), parts[1:]))
     starts, boot = {}, {}
     for ms, ev in events:
         if ev[0] == "phase":

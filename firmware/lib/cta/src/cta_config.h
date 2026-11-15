@@ -36,4 +36,9 @@ constexpr uint32_t kScreenDimSec = 15;
 constexpr int kMaxBusCards = 80;
 constexpr int kMaxTrainCards = 80;
 
+// Follow a train (ecosystem spec 5.7)
+constexpr uint32_t kFollowEndedSecs = 60;   // Arrived or Lost shows this long, then the card falls back to the pin
+constexpr int kFollowGraceMin = 2;          // a seen vehicle counts as arrived this long after its last minutes ran out
+constexpr int kFollowUnseenCapMin = 3;      // a vehicle never on the card is lost after this many minutes of fresh polls
+
 }  // namespace cta

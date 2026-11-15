@@ -17,6 +17,7 @@
 #include "dock_ui.h"
 #include "pins.h"
 #include "bands.h"
+#include "dma_copy.h"
 
 namespace display {
 
@@ -34,8 +35,11 @@ QueueHandle_t touches;
 bool gtOk = false;
 uint8_t exio = 0;
 // Bands of 32 portrait rows (25 a frame, bands.h) drawn in internal RAM: 30 KB, drawn several times faster than PSRAM.
+// Two of them when the DMA copies bands (dma_copy.h): one is drawn while the other is copied out.
 using dock::kBandRows;
 uint16_t* band = nullptr;
+uint16_t* band2 = nullptr;
+const dock::BandCopier* copier = nullptr;
 // Each frame is recorded once and played band by band (bands.h); the recording (about 450 KB) lives in PSRAM.
 ui::Recording* rec = nullptr;
 dock::BandMemo memo;   // what each frame buffer holds, band by band
@@ -227,6 +231,8 @@ bool createPanel(const Timing& t) {
     if (!fbs[0] || !fbs[1]) { Serial.println("display: no frame buffers"); return false; }
     memset(fbs[0], 0, kPanelW * kPanelH * 2);
     memset(fbs[1], 0, kPanelW * kPanelH * 2);
+    dmacopy::writeBack(fbs[0]);   // the CPU wrote them: out of the cache before any DMA copy (dma_copy.h)
+    dmacopy::writeBack(fbs[1]);
     back = 1;
     resetHashes();
     {
@@ -266,8 +272,18 @@ bool beginHere() {
     delay(50);
 
     if (!createPanel(kTimings[kBootTiming])) return false;
-    band = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    band = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     if (!band) { Serial.println("display: no RAM for the band"); return false; }
+    // Without them every band is copied by the CPU, as before (slower, same pixels).
+    band2 = static_cast<uint16_t*>(heap_caps_malloc(dock::W * kBandRows * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
+    if (band2 && dmacopy::begin()) {
+        copier = dmacopy::copier();
+    } else {
+        heap_caps_free(band2);   // unused without the DMA: its 30 KB back to the heap
+        band2 = nullptr;
+        Serial.println("display: no DMA band copies (CPU copies)");
+    }
+    Serial.printf("display: internal RAM free %u after the band buffers\n", static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     // Without it every band is drawn by calling the screens' code, as before (slower, same pixels).
     if (void* p = heap_caps_malloc(sizeof(ui::Recording), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) rec = new (p) ui::Recording();
     else Serial.println("display: no PSRAM for the frame recording");
@@ -316,6 +332,7 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
             draw(cv, ctx);
             dock::copyBand(band, fbs[front], y0, kBandRows, DISPLAY_ROTATE_CW);
         }
+        dmacopy::writeBack(fbs[front]);   // CPU writes: out of the cache before a DMA copy lands there (dma_copy.h)
         resetHashes();
         return false;   // no switch, so no wait for the panel
     }
@@ -327,7 +344,7 @@ bool render(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx) {
     // while the panel isn't reading it.
     dock::FrameStats st;
     dock::drawFrame(draw, ctx, diagMode == Diag::Pattern ? nullptr : rec, memo, back, band, fbs[back], DISPLAY_ROTATE_CW,
-                    usNow, st);
+                    usNow, st, band2, copier);
     const uint32_t w0 = micros();
     // Without bounce buffers the DMA reads the frame buffer from PSRAM itself, past the CPU's cache: draw_bitmap
     // writes the cache back for the rectangle it's given (the whole frame) before the switch.
@@ -352,6 +369,7 @@ void requestRecover() { if (bounceMode) recoverWanted = true; }
 void setAutoRecover(bool on) { autoRecover = on; }
 bool autoRecovering() { return autoRecover; }
 uint32_t recoveries() { return recoverCount; }
+uint32_t dmaFallbacks() { return dmacopy::fallbacks(); }
 
 void recover() {
     if (!panel) return;

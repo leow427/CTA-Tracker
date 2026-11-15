@@ -2,9 +2,10 @@
 
 #ifdef POWER_LOG
 
-#include <Arduino.h>
-#include <WiFi.h>
+#include <driver/temperature_sensor.h>
+#include <driver/usb_serial_jtag.h>
 #include <esp_heap_caps.h>
+#include <math.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
@@ -13,7 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "clock_ms.h"
 #include "cpu_clock.h"
+#include "live.h"
 
 namespace plog {
 
@@ -75,6 +78,20 @@ bool litNow = false, litFresh = false;
 uint64_t litSum = 0, litN = 0;
 float lit = -1;
 
+// The chip's own temperature sensor, as Arduino's temperatureRead() ran it: installed on first use for 10-50 C, left
+// enabled. NAN if it isn't there.
+temperature_sensor_handle_t tsens = nullptr;
+float chipTempC() {
+    if (!tsens) {
+        temperature_sensor_config_t cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
+        if (temperature_sensor_install(&cfg, &tsens) != ESP_OK) { tsens = nullptr; return NAN; }
+        if (temperature_sensor_enable(tsens) != ESP_OK) { temperature_sensor_uninstall(tsens); tsens = nullptr; return NAN; }
+    }
+    float c = NAN;
+    temperature_sensor_get_celsius(tsens, &c);
+    return c;
+}
+
 uint32_t nextSampleMs = 0;
 int64_t lastSampleUs = 0;
 uint32_t lastIdle[2] = {0, 0};
@@ -89,12 +106,12 @@ void header() {
 
 void begin() {
     ring = static_cast<char*>(heap_caps_malloc(kRing, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!ring) Serial.println("power log: no memory for the ring");
+    if (!ring) puts("power log: no memory for the ring");
     lastSampleUs = esp_timer_get_time();
     for (int c = 0; c < 2; ++c) lastIdle[c] = ulTaskGetIdleRunTimeCounterForCore(c);
     cpuclk::Stats clk;
     cpuclk::take(clk);   // the first sample's clock times start now too
-    temperatureRead();   // installs the sensor now, not mid-run
+    chipTempC();   // installs the sensor now, not mid-run
     event("boot,reset_reason=%d", static_cast<int>(esp_reset_reason()));
     header();
 }
@@ -103,7 +120,7 @@ bool due(uint32_t ms) { return static_cast<int32_t>(ms - nextSampleMs) >= 0; }
 
 void event(const char* fmt, ...) {
     char line[256];
-    int n = snprintf(line, sizeof(line), "E,%u,", static_cast<unsigned>(millis()));
+    int n = snprintf(line, sizeof(line), "E,%u,", static_cast<unsigned>(nowMs()));
     va_list ap;
     va_start(ap, fmt);
     n += vsnprintf(line + n, sizeof(line) - n - 1, fmt, ap);
@@ -144,11 +161,13 @@ void sample(uint32_t ms, const Inputs& in) {
     portEXIT_CRITICAL(&lock);
 
     // Wi-Fi.
-    const wifi_mode_t mode = WiFi.getMode();
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    esp_wifi_get_mode(&mode);   // fails, leaving NULL, before Wi-Fi starts
     int status = -1, rssi = 0, txq = 0, ps = -1;
     if (mode != WIFI_MODE_NULL) {
-        status = static_cast<int>(WiFi.status());
-        if (status == WL_CONNECTED) rssi = WiFi.RSSI();
+        status = live::wifiConnected() ? 3 : 6;   // Arduino's wl_status_t: WL_CONNECTED, WL_DISCONNECTED
+        wifi_ap_record_t ap;
+        if (status == 3 && esp_wifi_sta_get_ap_info(&ap) == ESP_OK) rssi = ap.rssi;
         int8_t q = 0;
         if (esp_wifi_get_max_tx_power(&q) == ESP_OK) txq = q;
         wifi_ps_type_t p;
@@ -168,8 +187,8 @@ void sample(uint32_t ms, const Inputs& in) {
         line, sizeof(line),
         "P,%u,%u,%u,%u,%.1f,%.1f,%d,%d,%u,%u,%.1f,%.1f,%d,%u,%u,%u,%s,%d,%d,%d,%d,%d,%u,%u,%u,%u,,,%u,%s,%s,%s,%s,%u,%u,%u,%d,%d,%u,"
         "%u,%u,%u,%u,%u,%u\n",
-        static_cast<unsigned>(ms), in.phase, in.usbMv, in.sysMv, in.pmuTempC, temperatureRead(), in.battery, in.battPct,
-        in.battMv, static_cast<unsigned>(getCpuFrequencyMhz()), busy[0], busy[1], in.dim, in.brightness,
+        static_cast<unsigned>(ms), in.phase, in.usbMv, in.sysMv, in.pmuTempC, chipTempC(), in.battery, in.battPct,
+        in.battMv, static_cast<unsigned>(cpuclk::mhz()), busy[0], busy[1], in.dim, in.brightness,
         static_cast<unsigned>(frames), static_cast<unsigned>(px), litS, static_cast<int>(mode), status, rssi, txq, ps,
         static_cast<unsigned>(rs), static_cast<unsigned>(rd), static_cast<unsigned>(ra / 1000), static_cast<unsigned>(rb),
         static_cast<unsigned>(touches), fps, slow, tap, age,
@@ -189,7 +208,7 @@ void sample(uint32_t ms, const Inputs& in) {
 }
 
 void flush() {
-    if (!ring || !Serial) return;   // nothing to send, or no USB host: the ring holds it
+    if (!ring || !usb_serial_jtag_is_connected()) return;   // nothing to send, or no USB host: the ring holds it
     const int64_t t0 = esp_timer_get_time();
     static char line[512];
     for (int k = 0; k < 16; ++k) {
@@ -201,8 +220,12 @@ void flush() {
         }
         portEXIT_CRITICAL(&ringLock);
         if (n == 0 || line[n - 1] != '\n') break;   // empty
-        if (Serial.availableForWrite() < static_cast<int>(n)) break;
-        Serial.write(reinterpret_cast<const uint8_t*>(line), n);
+        // All or nothing (the driver's ring buffer), never waiting, and under stdout's lock so it never lands inside
+        // another task's printf: a line that doesn't fit now stays for the next flush.
+        flockfile(stdout);
+        const bool sent = usb_serial_jtag_write_bytes(line, n, 0) == static_cast<int>(n);
+        funlockfile(stdout);
+        if (!sent) break;
         portENTER_CRITICAL(&ringLock);
         tail = (tail + n) % kRing;
         portEXIT_CRITICAL(&ringLock);

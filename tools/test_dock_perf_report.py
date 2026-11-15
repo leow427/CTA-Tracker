@@ -32,6 +32,16 @@ def make_run(change, draw_per_frame, temp, tap_ms):
 
 
 class ReportTest(unittest.TestCase):
+    def test_garbled_lines_are_skipped(self):
+        # Another task's serial print can land inside a perf line (seen 2026-11-13: "E,5[23956,req_5start,w"): such a
+        # line is skipped, the rest of the run read as usual.
+        path = make_run("a", 50, 40.0, 60)
+        with open(path, "a") as f:
+            f.write("E,5[23956,req_5start,w\nP,4[1000,1,0\n")
+        run = rep.read_run(path)
+        self.assertEqual(len(run["rows"]), 30)
+        self.assertEqual(rep.phase_metrics(run, 1)["tap"], 60)
+
     def test_phase_metrics(self):
         run = rep.read_run(make_run("a", 50, 40.0, 60))
         m = rep.phase_metrics(run, 1)

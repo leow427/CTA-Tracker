@@ -39,11 +39,21 @@ struct FrameStats {
     int drawn = 0, copied = 0;
 };
 
+// Copies drawn bands into the frame buffer while the CPU draws the next one (the dock's GDMA, dma_copy.h). start
+// returns at once, once the copy before it has landed (so the other band buffer is free again); finish returns once
+// every copy has landed and fb is ready for the panel.
+struct BandCopier {
+    void (*start)(const uint16_t* band, uint16_t* fb, int y0, int rows, bool cw);
+    void (*finish)(uint16_t* fb);
+};
+
 // Draws a frame into fb, buffer `which` of the two, through band (W × kBandRows pixels). With rec, the frame is
 // recorded once and only the bands whose drawing isn't what fb holds are played and copied; without it, or when the
 // frame can't be recorded, draw is called for every band and a band is copied only when its pixels changed. us times
-// it.
+// it. With copier and a second band buffer band2, bands are drawn into band and band2 in turn and copied by copier
+// while the next one is drawn; otherwise each is copied by copyBand before the next is drawn.
 void drawFrame(void (*draw)(ui::Canvas& cv, void* ctx), void* ctx, ui::Recording* rec, BandMemo& memo, int which,
-               uint16_t* band, uint16_t* fb, bool cw, uint32_t (*us)(), FrameStats& st);
+               uint16_t* band, uint16_t* fb, bool cw, uint32_t (*us)(), FrameStats& st, uint16_t* band2 = nullptr,
+               const BandCopier* copier = nullptr);
 
 }  // namespace dock

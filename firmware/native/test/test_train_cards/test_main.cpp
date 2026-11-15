@@ -41,6 +41,17 @@ static void test_belmont_live() {
     TEST_ASSERT_EQUAL_STRING("Loop", cards[2].arrivals[0].dest);
 }
 
+static void train_cards_keep_rn() {
+    const std::string json = readFixture("train_arrivals_belmont_live.json");
+    cta::StopRecord cards[8];
+    TEST_ASSERT_EQUAL(6, cta::parseTrainCards(json.c_str(), json.size(), 1000, "41320", cards, 8));
+    TEST_ASSERT_EQUAL_STRING("411", cards[0].arrivals[0].vehicle);   // Brown toward Loop
+    TEST_ASSERT_EQUAL_STRING("815", cards[1].arrivals[0].vehicle);   // Red toward Howard, 1 min
+    TEST_ASSERT_EQUAL_STRING("915", cards[1].arrivals[1].vehicle);
+    TEST_ASSERT_EQUAL_STRING("510", cards[2].arrivals[0].vehicle);   // Purple toward Loop
+    TEST_ASSERT_EQUAL_STRING("511", cards[2].arrivals[1].vehicle);   // a scheduled one keeps its rn too
+}
+
 static void test_max_keeps_the_soonest_cards() {
     const std::string json = readFixture("train_arrivals_belmont_live.json");
     cta::StopRecord cards[2];
@@ -139,6 +150,7 @@ static void test_dir_labels() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_belmont_live);
+    RUN_TEST(train_cards_keep_rn);
     RUN_TEST(test_max_keeps_the_soonest_cards);
     RUN_TEST(test_order_and_label_beat_response_order);
     RUN_TEST(test_lone_eta_and_no_etas);

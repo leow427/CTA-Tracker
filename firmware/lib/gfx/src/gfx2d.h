@@ -1,6 +1,6 @@
 #pragma once
 // A small 2D canvas over an RGB565 buffer: just the drawing the handheld's and the dock's HTML mockups use (pixel
-// plates, Nunito text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs, and the dock map's
+// plates, Manrope text, 5×7 pixel digits, pixel art, anti-aliased circles, strokes, and arcs, and the dock map's
 // block lines and dots). Plain C++ so the screens can be rendered on a laptop for previews (each device's
 // tools/preview.cpp) as well as on the device. Shared by the handheld and the dock (firmware/lib/gfx).
 //
@@ -83,7 +83,7 @@ public:
     void plate(int x, int y, int w, int h, const PlateStyle& s);
     int chip(const char* text, int x, int y, uint32_t bg, uint32_t fg);   // returns its width
 
-    // Nunito text. weight 800 or 900; sizes are the ones firmware/lib/gfx/tools/font_build.html renders.
+    // Manrope text. weight 800 or 900 (drawn at Manrope 700 and 800, its heaviest); sizes are the ones firmware/lib/gfx/tools/font_build.html renders.
     static const Font* font(int weight, int size);
     static float measure(const Font* f, const char* text);
     // Whether the font has a glyph for every character (the large title sizes carry letters and digits only).
@@ -122,11 +122,12 @@ public:
     void seg(float x0, float y0, float x1, float y1, int b, uint32_t rgb, float a = 1.f);
     void dot(float x, float y, int size, uint32_t rgb, float a = 1.f);
     // A grid of cells (the dock map's pixel Chicago, cta::basemapRaster): cell (i, j), grid[j * cols + i], is the
-    // cell × cell square at (x + i * cell, y + j * cell), in pal[grid value] (values past nPal are left alone).
-    // Opaque; alpha doesn't apply. Recorded as one call: the grid isn't copied, so it must stay as it is until the
-    // frame is played, and version must change whenever its cells do (it stands for them in the bands' hashes).
+    // cell × cell square at (x + i * cell, y + j * cell), in pal[grid value] (values past nPal, and skip, are left
+    // alone: the dock's land is the black the screen is already cleared to). Opaque; alpha doesn't apply. Recorded as
+    // one call: the grid isn't copied, so it must stay as it is until the frame is played, and version must change
+    // whenever its cells do (it stands for them in the bands' hashes).
     void cells(const uint8_t* grid, int cols, int rows, int x, int y, int cell, const uint32_t* pal, int nPal,
-               uint32_t version);
+               uint32_t version, int skip = -1);
 
     // Scaled blits of a native row-major RGB565 image centered on (cx, cy), with `key` pixels transparent and
     // global alpha a: bilinear, and nearest (rougher, much cheaper, for frames in motion). overBlack promises the

@@ -4,6 +4,7 @@ import Foundation
 public enum Config {
     public static let maxArrivals = 4           // per stop record
     public static let nameLen = 24              // bytes; names, dirs, and dests in a record
+    public static let dirLen = 39               // bytes; a picked stop's dir (PickedStop.dir[40] in picks.h)
     public static let idLen = 7                 // bytes; ids and routes (char[8] on the devices)
     public static let petNameLen = 16           // bytes (petName[17] on the devices)
     public static let hypedMaxMin = 3
@@ -11,7 +12,8 @@ public enum Config {
     public static let nightStartMin = 60        // 1:00
     public static let nightEndMin = 300         // 5:00
     public static let bleMaxPayload = 512
-    public static let nearbyPerTab = 10
+    public static let linkMaxBody = 1024        // bytes; HTTP body limit on the boards (kMaxBody in link_msg.h)
+    public static let nearbyPerTab = 5          // stations and bus stops each in a `nearby` (kNearbyPerTab)
     public static let hypedClosestStops = 3
 
     // App polling (base spec 6.6, app column)

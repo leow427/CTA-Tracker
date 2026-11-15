@@ -38,24 +38,37 @@ struct BLEMessageTests {
 
     @Test func fullConfig() throws {
         let s24 = String(repeating: "N", count: 24)
-        let stop = ConfigStop(type: .train, route: "1234567", dir: s24, id: "1234567", name: s24)
+        // 28 bytes: the longest dir in stops.json. Every real config fits one BLE write.
+        let stop = ConfigStop(type: .train, route: "1234567", dir: String(repeating: "D", count: 28), id: "1234567", name: s24)
         let m = ConfigMessage(stops: [stop, stop, stop], pet: PetConfig(name: s24, colors: [0xFFFFFF, 0xFFFFFF]),
                               settings: DeviceSettings(screen: 100, led: 100, nightStart: 1439, nightEnd: 1439))
         let data = try #require(BLEMessage.encode(m))
         #expect(data.count <= 512)
         #expect(String(decoding: data, as: UTF8.self).contains(#""night_start":1439"#))
+        // dirLen-sized dirs can pass 512 but still fit the boards' HTTP body limit (POST /config).
+        let maxDir = ConfigStop(type: .train, route: "1234567", dir: String(repeating: "D", count: 60), id: "1234567", name: s24)
+        let big = ConfigMessage(stops: [maxDir, maxDir, maxDir], pet: m.pet, settings: m.settings)
+        #expect(try JSONEncoder().encode(big).count <= Config.linkMaxBody)
     }
 
     @Test func configWithRealLongNamesFitsAfterTruncation() throws {
         let long = ConfigStop(type: .train, route: "Red", dir: "Service toward 95th/Dan Ryan",
                               id: "30255", name: "Harold Washington Library-State/Van Buren")
         #expect(long.name == "Harold Washington Librar")
-        #expect(long.dir == "Service toward 95th/Dan ")
+        #expect(long.dir == "Service toward 95th/Dan Ryan")   // 28 bytes fit dirLen 39 whole
         let pet = PetConfig(name: "A really long pet name here", colors: [0xFFFFFF, 0xFFFFFF])
         #expect(pet.name.utf8.count == 16)
         let m = ConfigMessage(stops: [long, long, long], pet: pet,
                               settings: DeviceSettings(screen: 100, led: 100, nightStart: 1439, nightEnd: 1439))
         #expect(try #require(BLEMessage.encode(m)).count <= 512)
+    }
+
+    @Test func longestGreenDirectionSurvivesWhole() {
+        // 28 bytes, the longest dir in stops.json; a cut one would never match the boards' card key.
+        let stop = ConfigStop(type: .train, route: "G", dir: "Ashland/63rd & Cottage Grove", id: "40020", name: "Harlem/Lake")
+        #expect(stop.dir == "Ashland/63rd & Cottage Grove")
+        let long = ConfigStop(type: .train, route: "G", dir: String(repeating: "D", count: 50), id: "40020", name: "Harlem/Lake")
+        #expect(long.dir.utf8.count == Config.dirLen)
     }
 
     @Test func configSubsetOmitsMissingKeys() throws {

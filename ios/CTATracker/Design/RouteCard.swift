@@ -42,11 +42,11 @@ struct RouteCard: View {
                     HStack(alignment: .top, spacing: Theme.Space.s) {
                         if kind == .bus {
                             Text(line.route)
-                                .font(.system(size: routeSize, weight: .heavy, design: .rounded)).tracking(-1)
+                                .font(.system(size: routeSize, weight: .heavy)).tracking(-1)
                                 .lineLimit(1).minimumScaleFactor(0.5)
                         } else {
                             Text(stopName)
-                                .font(.system(size: stationSize, weight: .heavy, design: .rounded))
+                                .font(.system(size: stationSize, weight: .heavy))
                                 .lineLimit(typeSize.isAccessibilitySize ? nil : 2).minimumScaleFactor(0.7)
                         }
                         if alert { GlyphIcon(image: Glyphs.alert, outline: outline).padding(.top, Theme.Space.m) }

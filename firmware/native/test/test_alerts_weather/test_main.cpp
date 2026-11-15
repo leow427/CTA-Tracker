@@ -9,9 +9,9 @@
 
 #include "alerts_weather.h"
 #include "cta_types.h"
-#include "json_util.h"
 #include "urls.h"
 #include "../fixture.h"
+#include "../json_bound.h"
 
 void setUp() {}
 void tearDown() {}
@@ -101,13 +101,14 @@ static void test_alerts_empty_and_errors() {
     TEST_ASSERT_EQUAL_INT(-1, cta::parseAlertRoutes(nullptr, 0, w, 1, a));
 }
 
-static void test_alerts_stay_filtered() {
-    unsigned& passes = cta::json::unfilteredPasses();
+static void test_alerts_stay_bounded() {
     bool a[2];
-    passes = 0;
-    mark(readFixture("alerts.json"), {"Red", "22"}, a);  // mixes a Service list and a lone Service
-    mark(readFixture("alerts_single.json"), {"Brn"}, a);  // a lone Alert
-    TEST_ASSERT_EQUAL_UINT(0, passes);
+    const std::string all = readFixture("alerts.json"), single = readFixture("alerts_single.json");
+    cta::json::resetPeakBytes();
+    mark(all, {"Red", "22"}, a);  // mixes a Service list and a lone Service
+    assertParseBounded(all);
+    mark(single, {"Brn"}, a);  // a lone Alert
+    assertParseBounded(single);
 }
 
 static void test_weather() {
@@ -160,8 +161,8 @@ static void test_geoip() {
     const std::string ok = readFixture("geoip.json"), bad = readFixture("geoip_error.json");
     double lat = 1, lon = 2;
     TEST_ASSERT_TRUE(cta::parseGeoIp(ok.c_str(), ok.size(), lat, lon));
-    TEST_ASSERT_TRUE(fabs(lat - 41.8781) < 1e-4);   // about 11 m, as ArduinoJson may store floats
-    TEST_ASSERT_TRUE(fabs(lon + 87.6298) < 1e-4);   // about 11 m, as ArduinoJson may store floats
+    TEST_ASSERT_TRUE(fabs(lat - 41.8781) < 1e-4);   // about 11 m, in case floats are stored as 32-bit
+    TEST_ASSERT_TRUE(fabs(lon + 87.6298) < 1e-4);   // about 11 m, in case floats are stored as 32-bit
     lat = 1;
     TEST_ASSERT_FALSE(cta::parseGeoIp(bad.c_str(), bad.size(), lat, lon));
     for (const char* b : {"{\"latitude\":91,\"longitude\":0}", "{\"latitude\":41}", "{\"latitude\":\"41\",\"longitude\":1}", "{"})
@@ -175,7 +176,7 @@ int main(int, char**) {
     RUN_TEST(test_alerts_mark_only_wanted_routes);
     RUN_TEST(test_alerts_skip_bad_services);
     RUN_TEST(test_alerts_empty_and_errors);
-    RUN_TEST(test_alerts_stay_filtered);
+    RUN_TEST(test_alerts_stay_bounded);
     RUN_TEST(test_weather);
     RUN_TEST(test_accessory);
     RUN_TEST(test_geoip);

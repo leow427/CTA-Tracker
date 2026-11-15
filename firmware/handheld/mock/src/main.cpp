@@ -11,20 +11,53 @@
 // scan, and every frame showed with a slanted seam while the list moved). Touch is sampled on its
 // own task every 8 ms, so gestures get real timings; the touch panel reads a half turn from the display, so a
 // touch at (tx, ty) is screen point (W-1-ty, tx).
-#include <Arduino.h>
-#include <Wire.h>
+#include <fcntl.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
-#include "Arduino_GFX_Library.h"
-#include "esp_task_wdt.h"
-#include "TouchDrvCSTXXX.hpp"
+#include <algorithm>
+#include <new>
+
+#include "clock_ms.h"
 #include "cpu_clock.h"
+#include "json_heap.h"
+#include "cst9217.h"
+#include "driver/gpio.h"
+#include "driver/i2c_master.h"
+#include "driver/spi_master.h"
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
+#include "esp_cpu.h"
+#include "esp_heap_caps.h"
+#include "esp_idf_version.h"
+#include "esp_lcd_co5300.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_rom_sys.h"
+#include "esp_system.h"
+#include "esp_task_wdt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "soc/gpio_reg.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "mock_data.h"
 #include "row_hash.h"
 #include "touch_filter.h"
 #include "ui.h"
 #ifdef HANDHELD_LIVE
+#include <esp_mac.h>
+
+#include "link.h"
 #include "live.h"
 #include "live_model.h"
+#include "pet_palette.h"
+#include "pet_sprites.h"
 #include "power.h"
 #include "cta_config.h"
 #endif
@@ -32,6 +65,9 @@
 #include "power_log.h"
 #include "stress.h"
 #endif
+
+using std::max;
+using std::min;
 
 namespace {
 
@@ -41,10 +77,12 @@ constexpr int kLcdTe = 13;   // the schematic's LCD_TE; Waveshare's own examples
 constexpr int kSda = 15, kScl = 14, kTpInt = 11, kTpRst = 40;
 constexpr int W = ui::W;
 constexpr uint8_t kFullBrightness = 220;
+uint8_t fullBrightness = kFullBrightness;   // the app's screen brightness (config.settings.screen) of kFullBrightness
 
-Arduino_DataBus* bus = new Arduino_ESP32QSPI(kLcdCs, kLcdSclk, kLcdD0, kLcdD1, kLcdD2, kLcdD3);
-Arduino_CO5300* gfx = new Arduino_CO5300(bus, kLcdRst, 0, W, W, 6, 0, 0, 0);
-TouchDrvCST92xx touch;
+esp_lcd_panel_io_handle_t lcdIo;
+esp_lcd_panel_handle_t panel;
+SemaphoreHandle_t lcdDone;   // given when a draw's last pixel has gone out (draw_bitmap only queues the transfer)
+i2c_master_bus_handle_t i2c;
 bool touchOk = false;
 
 uint16_t* scratch;
@@ -82,6 +120,81 @@ constexpr int kStripCols = 48;                                     // screen col
 constexpr int kStrips = (W + kStripCols - 1) / kStripCols;         // 10; the last is 34 columns
 constexpr int kMergeGap = 8;                                       // unchanged rows worth sending to save a window
 
+// ---------- the panel (esp_lcd_co5300 over QSPI) ----------
+
+// Arduino_GFX's Arduino_CO5300 init (GFX Library for Arduino 1.6.9, co5300_init_operations, then begin()'s
+// invertDisplay(false) and setRotation(0)), so the panel state is the same. The driver sends MADCTL 0x00 and
+// COLMOD 0x55 before these.
+const uint8_t k00[] = {0x00}, k80[] = {0x80}, k55[] = {0x55}, k20[] = {0x20}, kFF[] = {0xFF}, kD0[] = {0xD0};
+const co5300_lcd_init_cmd_t kLcdInit[] = {
+    {0x11, nullptr, 0, 120},   // sleep out
+    {0xFE, k00, 1, 0},         // command page 0
+    {0xC4, k80, 1, 0},         // SPI mode control
+    {0x3A, k55, 1, 0},         // 16 bits a pixel
+    {0x53, k20, 1, 0},         // brightness control on
+    {0x63, kFF, 1, 0},         // HBM brightness
+    {0x29, nullptr, 0, 0},     // display on
+    {0x51, kD0, 1, 0},         // brightness
+    {0x58, k00, 1, 10},        // high contrast off
+    {0x20, nullptr, 0, 0},     // inversion off
+    {0x36, k00, 1, 0},         // MADCTL: RGB, no flips
+    {0x35, k00, 1, 0},         // TE on, vertical blanking only: paces the sends (todo B1)
+};
+
+bool IRAM_ATTR colorDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void*) {
+    BaseType_t woke = pdFALSE;
+    xSemaphoreGiveFromISR(lcdDone, &woke);
+    return woke == pdTRUE;
+}
+
+// A window of big-endian RGB565 pixels, as Arduino_GFX's draw16bitBeRGBBitmap took them; returns once they're sent,
+// so the buffer is free again.
+void lcdDraw(int x, int y, int w, int h, const uint16_t* px) {
+    if (esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, px) == ESP_OK) xSemaphoreTake(lcdDone, portMAX_DELAY);
+}
+
+// The panel's brightness command (0x51), framed as the CO5300 driver frames commands on QSPI.
+void lcdBrightness(uint8_t v) { esp_lcd_panel_io_tx_param(lcdIo, 0x02 << 24 | 0x51 << 8, &v, 1); }
+
+constexpr int kStripBytes = W * 48 * 2;   // a strip buffer (kStripCols, below); the largest transfer
+
+bool lcdBegin() {
+    lcdDone = xSemaphoreCreateBinary();
+    spi_bus_config_t bus = {};
+    bus.data0_io_num = kLcdD0;
+    bus.data1_io_num = kLcdD1;
+    bus.sclk_io_num = kLcdSclk;
+    bus.data2_io_num = kLcdD2;
+    bus.data3_io_num = kLcdD3;
+    bus.data4_io_num = bus.data5_io_num = bus.data6_io_num = bus.data7_io_num = -1;
+    bus.max_transfer_sz = kStripBytes;
+    if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK) return false;
+    esp_lcd_panel_io_spi_config_t io = {};
+    io.cs_gpio_num = kLcdCs;
+    io.dc_gpio_num = -1;
+    io.spi_mode = 0;
+    io.pclk_hz = 80 * 1000 * 1000;   // as Arduino_GFX ran it
+    io.trans_queue_depth = 10;
+    io.on_color_trans_done = colorDone;
+    io.lcd_cmd_bits = 32;
+    io.lcd_param_bits = 8;
+    io.flags.quad_mode = 1;
+    if (esp_lcd_new_panel_io_spi(static_cast<esp_lcd_spi_bus_handle_t>(SPI2_HOST), &io, &lcdIo) != ESP_OK) return false;
+    co5300_vendor_config_t vendor = {};
+    vendor.init_cmds = kLcdInit;
+    vendor.init_cmds_size = sizeof(kLcdInit) / sizeof(kLcdInit[0]);
+    vendor.flags.use_qspi_interface = 1;
+    esp_lcd_panel_dev_config_t dev = {};
+    dev.reset_gpio_num = kLcdRst;
+    dev.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+    dev.bits_per_pixel = 16;
+    dev.vendor_config = &vendor;
+    if (esp_lcd_new_panel_co5300(lcdIo, &dev, &panel) != ESP_OK) return false;
+    if (esp_lcd_panel_reset(panel) != ESP_OK || esp_lcd_panel_init(panel) != ESP_OK) return false;
+    esp_lcd_panel_set_gap(panel, 6, 0);   // Arduino_CO5300's column offset
+    return true;
+}
+
 uint16_t* stripBuf[2];            // DMA-capable internal RAM; the bus sends straight from it
 SemaphoreHandle_t stripFree[2];
 uint32_t rowHash[W];              // per panel row (= screen column): what the panel shows
@@ -97,7 +210,7 @@ volatile uint32_t lateJobs = 0;   // sends that missed their scan (would tear); 
 // is timed against the next one: its first strips are ready when the scan passes them.
 constexpr uint32_t kLeadUs = 2500;
 
-void IRAM_ATTR onTe() {
+void IRAM_ATTR onTe(void*) {
     const uint32_t t = static_cast<uint32_t>(esp_timer_get_time());
     if ((REG_READ(GPIO_IN_REG) >> kLcdTe) & 1) {   // a register read: the ISR stays in IRAM
         teRise = t;
@@ -109,9 +222,9 @@ void IRAM_ATTR onTe() {
 }
 
 void waitUntil(uint32_t t) {
-    for (int32_t d; (d = static_cast<int32_t>(t - micros())) > 0;) {
+    for (int32_t d; (d = static_cast<int32_t>(t - nowUs())) > 0;) {
         if (d > 2000) vTaskDelay(pdMS_TO_TICKS(d / 1000 - 1));   // sleep, leaving the core to other tasks
-        else delayMicroseconds(d);
+        else esp_rom_delay_us(d);
     }
 }
 
@@ -120,13 +233,13 @@ void waitUntil(uint32_t t) {
 // that scan shows the frame half new (counted in lateJobs).
 void paceSend(int y0, int y1, uint32_t& anchor) {
     constexpr int kMargin = 16;   // panel rows of slack either side of the scan
-    const uint32_t period = tePeriod, fall = teFall, now = micros();
+    const uint32_t period = tePeriod, fall = teFall, now = nowUs();
     if (!period || now - fall > 4 * period) { anchor = 0; return; }   // no TE: send at once, as before
     const uint32_t high = teHigh < period / 4 ? teHigh : 0;
     const float line = static_cast<float>(period - high) / W;        // microseconds per panel row
     if (!anchor) anchor = now - fall >= period - kLeadUs ? fall + period : fall;
     waitUntil(anchor + static_cast<int32_t>((y1 + kMargin) * line));
-    const int32_t over = static_cast<int32_t>(micros() - anchor - period) - static_cast<int32_t>((y0 - kMargin) * line);
+    const int32_t over = static_cast<int32_t>(nowUs() - anchor - period) - static_cast<int32_t>((y0 - kMargin) * line);
     if (over > 0) lateJobs = lateJobs + 1;
 }
 
@@ -150,9 +263,9 @@ void sendTask(void*) {
         xQueueReceive(jobs, &j, portMAX_DELAY);
         if (j.px) {
             paceSend(j.y, j.y + j.h, anchor);
-            const uint32_t t = micros();
-            gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
-            sendUs += micros() - t;
+            const uint32_t t = nowUs();
+            lcdDraw(j.x, j.y, j.w, j.h, j.px);
+            sendUs += nowUs() - t;
             sentPx += j.w * j.h;
 #ifdef POWER_LOG
             plog::sent(j.w * j.h);
@@ -160,7 +273,7 @@ void sendTask(void*) {
         } else {
             if (wantBrightness != brightnessNow) {
                 brightnessNow = wantBrightness;
-                gfx->setBrightness(brightnessNow);
+                lcdBrightness(brightnessNow);
             }
 #ifdef POWER_LOG
             plog::frameDone(static_cast<uint16_t>(j.x));   // an end-of-frame job carries the frame's number in x
@@ -178,7 +291,7 @@ uint16_t frameSeq = 0;
 
 // The end of a frame: the brightness to apply once it's all on the panel.
 void queueEnd() {
-    wantBrightness = static_cast<uint8_t>(kFullBrightness * ui::brightness(app, model));
+    wantBrightness = static_cast<uint8_t>(fullBrightness * ui::brightness(app, model));
 #ifdef POWER_LOG
     plog::frameQueued(frameSeq);
     const Job end{nullptr, static_cast<int16_t>(frameSeq), 0, 0, 0, -1};
@@ -199,7 +312,7 @@ uint32_t drawFrame(uint32_t ms) {
     for (int s = 0; s < kStrips; ++s) {
         const int k = s & 1, x0 = s * kStripCols, x1 = min(W, x0 + kStripCols);
         xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
-        const uint32_t t = micros();
+        const uint32_t t = nowUs();
         uint16_t* buf = stripBuf[k];
         ui::Canvas cv = ui::Canvas::panelWindow(buf, W, x0, x1, 0, W);
         ui::draw(cv, app, model, ms, scratch);
@@ -226,7 +339,7 @@ uint32_t drawFrame(uint32_t ms) {
             runEnd = x;
         }
         flush();
-        busy += micros() - t;
+        busy += nowUs() - t;
         if (pending.px) { pending.release = static_cast<int8_t>(k); xQueueSend(jobs, &pending, portMAX_DELAY); }
         else xSemaphoreGive(stripFree[k]);   // nothing changed in this strip
     }
@@ -252,12 +365,12 @@ uint32_t drawMarks(uint32_t ms, const ui::Mark* mk, int n) {
         if (x0 >= x1 || y0 >= y1) continue;
         const int k = i & 1, rows = y1 - y0;
         xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
-        const uint32_t t = micros();
+        const uint32_t t = nowUs();
         ui::Canvas cv = ui::Canvas::panelWindow(stripBuf[k], W, x0, x1, y0, rows);
         ui::draw(cv, app, model, ms, scratch);
         // These panel rows' hashes no longer describe the panel: flip them so the next whole frame sends the rows.
         for (int x = x0; x < x1; ++x) rowHash[x] = ~rowHash[x];
-        busy += micros() - t;
+        busy += nowUs() - t;
         const Job j{stripBuf[k], static_cast<int16_t>(W - y0 - rows), static_cast<int16_t>(x0), static_cast<int16_t>(rows),
                     static_cast<int16_t>(x1 - x0), static_cast<int8_t>(k)};
         xQueueSend(jobs, &j, portMAX_DELAY);
@@ -278,6 +391,10 @@ QueueHandle_t touchEvents;   // touchf::Event
 portMUX_TYPE pwLock = portMUX_INITIALIZER_UNLOCKED;
 power::State pwShared;
 volatile bool offReq = false;   // serial "O": this task turns the board off
+// The hidden reset (ecosystem spec 5.4): two fingers held 10 s anywhere. The CST9217 reports at most two points
+// (more read as none), so the dock's three fingers can't be seen here. Seen in this task, done by the loop.
+constexpr uint32_t kResetHoldMs = 10000;
+volatile bool resetReq = false;
 #endif
 
 void touchTask(void*) {
@@ -293,7 +410,7 @@ void touchTask(void*) {
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(8));
 #ifdef HANDHELD_LIVE
-        if (offReq && !power::off()) { offReq = false; Serial.println("power: no power chip, so no off"); }
+        if (offReq && !power::off()) { offReq = false; puts("power: no power chip, so no off"); }
         if (++tick % 125 == 0) {
             const power::State p = power::read();
             portENTER_CRITICAL(&pwLock);
@@ -302,9 +419,22 @@ void touchTask(void*) {
         }
 #endif
         int16_t x[2], y[2];
-        const uint8_t n = touch.getPoint(x, y, 2);
+        const uint8_t n = cst9217::read(x, y, 2);
+#ifdef HANDHELD_LIVE
+        // The reset hold: a read of one finger restarts it, as does no point for longer than the gaps between the
+        // controller's reports (touchf::Filter's 40 ms).
+        static uint32_t twoSince = 0, twoSeen = 0;
+        const uint32_t now = nowMs();
+        if (n >= 2) {
+            if (!twoSince) twoSince = now | 1;
+            twoSeen = now;
+        } else if (n == 1 || now - twoSeen > 40) {
+            twoSince = 0;
+        }
+        if (twoSince && now - twoSince >= kResetHoldMs) resetReq = true;
+#endif
         touchf::Event ev[2];
-        const int k = filter.feed(millis(), n, static_cast<int16_t>(W - 1 - y[0]), x[0], ev);
+        const int k = filter.feed(nowMs(), n, static_cast<int16_t>(W - 1 - y[0]), x[0], ev);
         for (int i = 0; i < k; ++i) {
             const touchf::Kind kind = ev[i].kind;
             if (kind == touchf::Kind::Down && !pressed) { pressed = true; cpuclk::hold(); }
@@ -316,19 +446,104 @@ void touchTask(void*) {
 
 bool touchLog = false;   // serial "t": print every touch sample and what each release did
 
+#ifdef HANDHELD_LIVE
+// ---------- the link (ecosystem spec 4–5): what the app set, kept in NVS ("trackie") ----------
+
+// Pet and settings: what GET /config serves. In PSRAM, as the model: internal RAM is for Wi-Fi and TLS.
+cta::ConfigMsg& linkCfg = *new (heap_caps_malloc(sizeof(cta::ConfigMsg), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) cta::ConfigMsg();
+cta::InfoMsg info = {};   // what GET /info serves
+uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
+lan::Inbox* inbox;        // the loop's copy of the link's writes (PSRAM: it holds a 1 KB body)
+
+void applyPet() {
+    memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
+    if (linkCfg.hasPet) pet::applyColors(petPalette, linkCfg.pet.colors);
+    // shortcut: Trackie keeps the default colors until the dock's Task 6 adds ui::petPalette565 to card_theme; then:
+    // ui::petPalette565 = petPalette;
+}
+
+void applySettings() {
+    fullBrightness = static_cast<uint8_t>(kFullBrightness * linkCfg.settings.screen / 100);
+    model.nightStart = linkCfg.settings.nightStart;   // Sleepy and slow polling
+    model.nightEnd = linkCfg.settings.nightEnd;
+}
+
+// Saves a value under key unless flash already holds it (a blob, as Preferences' putBytes stored it).
+void saveBytes(const char* key, const void* v, size_t n) {
+    nvs_handle_t h;
+    if (nvs_open("trackie", NVS_READWRITE, &h) != ESP_OK) { printf("store: saving %s failed\n", key); return; }
+    uint8_t old[64];   // a PetConfig or DeviceSettings
+    size_t len = sizeof(old);
+    if (n > sizeof(old) || nvs_get_blob(h, key, old, &len) != ESP_OK || len != n || memcmp(old, v, n) != 0)
+        if (nvs_set_blob(h, key, v, n) != ESP_OK || nvs_commit(h) != ESP_OK) printf("store: saving %s failed\n", key);
+    nvs_close(h);
+}
+
+// Forgets the saved networks and the token, then boots fresh (POST /reset, serial "R", the two-finger hold).
+// While secrets.h has WIFI_SSID the board rejoins it after the reboot (the build-time fallback, spec 5.1).
+void resetLink(const char* why) {
+    printf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    nvs_handle_t h;
+    if (nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_key(h, "wifi");
+        nvs_erase_key(h, "token");
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    fflush(stdout);
+    fsync(fileno(stdout));
+    esp_restart();
+}
+
+// Serial "T <32 lowercase hex>": the household token until BLE setup exists, saved and used at once. Never echoed.
+void setTokenFromSerial(const char* t) {
+    bool ok = strlen(t) == cta::kTokenLen;
+    for (const char* p = t; ok && *p; ++p) ok = (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f');
+    if (!ok) { puts("link: a token is 32 lowercase hex characters; not set"); return; }
+    nvs_handle_t h;
+    const bool opened = nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK;
+    if (!opened || nvs_set_str(h, "token", t) != ESP_OK || nvs_commit(h) != ESP_OK) puts("store: saving the token failed");
+    if (opened) nvs_close(h);
+    lan::setToken(t);
+    puts("link: token set");
+}
+
+// The app's writes the link answered already: applied and saved here (flash from this task, not httpd's).
+void drainLink() {
+    if (!inbox || !lan::take(*inbox)) return;
+    if (inbox->nearby)
+        puts(live::setNearby(inbox->nearbyJson, inbox->nearbyLen) ? "nearby: ok" : "nearby: rejected");
+    if (inbox->config && inbox->cfg.hasPet) {
+        linkCfg.pet = inbox->cfg.pet;
+        linkCfg.hasPet = true;
+        saveBytes("pet", &linkCfg.pet, sizeof(linkCfg.pet));
+        applyPet();
+    }
+    if (inbox->config && inbox->cfg.hasSettings) {
+        linkCfg.settings = inbox->cfg.settings;
+        linkCfg.hasSettings = true;
+        saveBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings));
+        applySettings();
+    }
+    if (inbox->config) lan::setConfig(linkCfg);
+    if (inbox->openBle) puts("link: POST /ble (BLE setup comes with Task 9)");
+    if (inbox->reset) resetLink("POST /reset");
+}
+#endif
+
 void handleTouch() {
     touchf::Event e;
     while (xQueueReceive(touchEvents, &e, 0) == pdTRUE) {
 #ifdef POWER_LOG
         plog::touch();
 #endif
-        if (touchLog) Serial.printf("T %c %d %d %u\n", "dmucy"[static_cast<int>(e.kind)], e.x, e.y, static_cast<unsigned>(e.ms));
+        if (touchLog) printf("T %c %d %d %u\n", "dmucy"[static_cast<int>(e.kind)], e.x, e.y, static_cast<unsigned>(e.ms));
         switch (e.kind) {
             case touchf::Kind::Down: ui::pointerDown(app, model, e.x, e.y, e.ms); break;
             case touchf::Kind::Move: ui::pointerMove(app, model, e.x, e.y, e.ms); break;
             case touchf::Kind::Up:
                 ui::pointerUp(app, model, e.x, e.y, e.ms);
-                if (touchLog && app.gesture[0]) Serial.printf("G %s\n", app.gesture);
+                if (touchLog && app.gesture[0]) printf("G %s\n", app.gesture);
                 app.gesture[0] = 0;
                 break;
             case touchf::Kind::Cancel: app.drag.down = false; break;
@@ -362,63 +577,127 @@ bool profileReq = false, statsReq = false;
 // drawn whole into PSRAM the old way. Nothing is sent.
 void profile(uint32_t ms) {
     for (int k = 0; k < 2; ++k) xSemaphoreTake(stripFree[k], portMAX_DELAY);
-    static uint16_t* whole = static_cast<uint16_t*>(ps_malloc(W * W * 2));
+    static uint16_t* whole = static_cast<uint16_t*>(heap_caps_malloc(W * W * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     constexpr int kReps = 3;
     uint32_t strip[kStrips] = {}, hash = 0, full = 0;
     for (uint32_t& c : ui::gfxCycles) c = 0;
     for (int r = 0; r < kReps; ++r) {
-        ui::gfxClock = []() -> uint32_t { return ESP.getCycleCount(); };   // the strips only
+        ui::gfxClock = []() -> uint32_t { return esp_cpu_get_cycle_count(); };   // the strips only
         for (int s = 0; s < kStrips; ++s) {
             const int x0 = s * kStripCols, x1 = min(W, x0 + kStripCols);
-            uint32_t t = micros();
+            uint32_t t = nowUs();
             ui::Canvas cv = ui::Canvas::panelWindow(stripBuf[0], W, x0, x1, 0, W);
             ui::draw(cv, app, model, ms, scratch);
-            strip[s] += micros() - t;
-            t = micros();
+            strip[s] += nowUs() - t;
+            t = nowUs();
             volatile uint32_t sink = 0;
             for (int x = x0; x < x1; ++x) sink = sink + hashRow(stripBuf[0] + (x - x0) * W, W);
-            hash += micros() - t;
+            hash += nowUs() - t;
         }
         ui::gfxClock = nullptr;
         if (whole) {
-            const uint32_t t = micros();
+            const uint32_t t = nowUs();
             ui::Canvas cv(whole, W, W);
             ui::draw(cv, app, model, ms, scratch);
-            full += micros() - t;
+            full += nowUs() - t;
         }
     }
     uint32_t total = 0;
-    Serial.print("profile, us per frame: strips");
-    for (int s = 0; s < kStrips; ++s) { Serial.printf(" %u", strip[s] / kReps); total += strip[s]; }
-    Serial.printf(" = %u; hash %u; whole frame in PSRAM %u\n", total / kReps, hash / kReps, full / kReps);
-    Serial.print("profile, us per frame by primitive:");
+    printf("profile, us per frame: strips");
+    for (int s = 0; s < kStrips; ++s) { printf(" %u", static_cast<unsigned>(strip[s] / kReps)); total += strip[s]; }
+    printf(" = %u; hash %u; whole frame in PSRAM %u\n", static_cast<unsigned>(total / kReps),
+           static_cast<unsigned>(hash / kReps), static_cast<unsigned>(full / kReps));
+    printf("profile, us per frame by primitive:");
     for (int p = 0; p < static_cast<int>(ui::Prim::Count); ++p)
-        if (ui::gfxCycles[p] / kReps / 240 >= 50) Serial.printf(" %s %u", ui::kPrimNames[p], ui::gfxCycles[p] / kReps / 240);
-    Serial.println();
+        if (ui::gfxCycles[p] / kReps / 240 >= 50)
+            printf(" %s %u", ui::kPrimNames[p], static_cast<unsigned>(ui::gfxCycles[p] / kReps / 240));
+    printf("\n");
     sendAll = true;   // the strips were drawn over; resend everything next frame
     for (int k = 0; k < 2; ++k) xSemaphoreGive(stripFree[k]);
 }
 
+// "h": a hash of each of four fixed frames (tools/preview.cpp's shots of the same names, at its fixed clock), drawn
+// through the strips as every frame is. Two builds that print the same hashes draw the same pixels. Nothing is sent.
+void frameHashes() {
+    for (int k = 0; k < 2; ++k) xSemaphoreTake(stripFree[k], portMAX_DELAY);
+    static void* mem = heap_caps_malloc(sizeof(mock::Model), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    struct Shot { const char* name; mock::Scenario sc; ui::Screen screen; bool dim; int detail; uint32_t after; };
+    static const Shot kShots[] = {
+        {"home_live", mock::Scenario::Live, ui::Screen::Home, false, -1, 40},
+        {"trains", mock::Scenario::Live, ui::Screen::Stops, false, -1, 0},
+        {"detail_train", mock::Scenario::Sad, ui::Screen::Detail, false, 0, 0},
+        {"home_dim", mock::Scenario::Live, ui::Screen::Home, true, -1, 0},
+    };
+    constexpr uint32_t kStart = 1794019260;   // preview.cpp's: 2026-11-06 20:41 Chicago
+    for (const Shot& s : kShots) {
+        if (!mem) break;
+        mock::Model& m = *new (mem) mock::Model();
+        m.scenario = s.sc;
+        mock::update(m, kStart + s.after, kStart);
+        static ui::App a;
+        a = ui::App();
+        ui::init(a, 1000);
+        a.view.screen = s.screen;
+        a.dim = s.dim;
+        if (s.detail >= 0) {
+            const mock::Card& c = m.trains[s.detail];
+            a.view.station = c.station;
+            snprintf(a.view.route, sizeof(a.view.route), "%s", c.rec.route);
+            snprintf(a.view.dir, sizeof(a.view.dir), "%s", c.rec.dir);
+        }
+        uint32_t h = 2166136261u;
+        for (int pass = 0; pass < 2; ++pass)   // twice: Home learns its hit areas on the first pass
+            for (int st = 0; st < kStrips; ++st) {
+                constexpr int kStripRows = 48;   // the frames as the Arduino build drew them, so the hashes still compare
+                const int y0 = st * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
+                ui::Canvas cv = ui::Canvas::panelBand(stripBuf[0], W, y0, rows);
+                ui::draw(cv, a, m, 1000, scratch);
+                for (int x = 0; pass && x < W; ++x) h = (h ^ hashRow(stripBuf[0] + x * rows, rows)) * 16777619u;
+            }
+        printf("hash %s %08x\n", s.name, static_cast<unsigned>(h));
+    }
+    sendAll = true;   // the strips were drawn over; resend everything next frame
+    for (int k = 0; k < 2; ++k) xSemaphoreGive(stripFree[k]);
+}
+
+// One whole line, or nothing if the host isn't taking data (a print waits at most 5 ms). Under stdout's lock, so it
+// never lands inside another task's printf (which the driver sends a character at a time).
+void writeLine(const char* s, size_t n) {
+    flockfile(stdout);
+    usb_serial_jtag_write_bytes(s, n, pdMS_TO_TICKS(5));
+    funlockfile(stdout);
+}
+
 // In screen coordinates: "d x y" (down), "m x y" (move), "u x y" (up), "c" (debug cycle), "a" (auto-scroll 6 s),
-// "p" (profile), "s" (frame stats now), "t" (touch log on/off: every sample, and what each release did). Live build:
-// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app over BLE; "O", the
-// board off (against burn-in on a board left plugged in).
+// "p" (profile), "h" (frame hashes), "s" (frame stats now), "t" (touch log on/off: every sample, and what each
+// release did). Live build:
+// "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app; "O", the
+// board off (against burn-in on a board left plugged in); "R", the link reset (ecosystem spec 5.4); "T <32 hex>",
+// the household token until BLE setup exists (never echoed).
 void pollSerial(uint32_t ms) {
     static char line[640];
     static int n = 0;
-    while (Serial.available()) {
-        const char ch = static_cast<char>(Serial.read());
+    char ch;
+    while (usb_serial_jtag_read_bytes(&ch, 1, 0) == 1) {
         if (ch != '\n' && n < static_cast<int>(sizeof(line)) - 1) { line[n++] = ch; continue; }
         const int len = n;
         line[n] = 0; n = 0;
 #ifdef HANDHELD_LIVE
         if (line[0] == 'N' && line[1] == ' ') {
-            Serial.println(live::setNearby(line + 2, len - 2) ? "nearby: ok" : "nearby: rejected");
+            puts(live::setNearby(line + 2, len - 2) ? "nearby: ok" : "nearby: rejected");
             continue;
         }
         if (line[0] == 'O') {   // the board off, by whichever task owns the I2C bus
             if (touchOk) offReq = true;
-            else if (!power::off()) Serial.println("power: no power chip, so no off");
+            else if (!power::off()) puts("power: no power chip, so no off");
+            continue;
+        }
+        if (line[0] == 'R' && len <= 2) resetLink("serial");   // "R" alone (a CR may trail it)
+        if (line[0] == 'T' && line[1] == ' ') {
+            char* t = line + 2;
+            t[strcspn(t, "\r ")] = 0;
+            setTokenFromSerial(t);
+            memset(line, 0, sizeof(line));   // the token leaves no copy in the line buffer
             continue;
         }
 #else
@@ -433,47 +712,67 @@ void pollSerial(uint32_t ms) {
         else if (line[0] == 'a') autoScrollUntil = ms + 6000;   // scroll the list by itself, for timing
         else if (line[0] == 'p') profileReq = true;
         else if (line[0] == 's') statsReq = true;
+        else if (line[0] == 'h') { frameHashes(); continue; }
 #ifdef POWER_LOG
         else if (line[0] == 'S') { stress::start(ms); continue; }   // the power analysis stress test
         else if (line[0] == 'X') { stress::stop(ms); continue; }
 #endif
-        else if (line[0] == 't') { touchLog = !touchLog; Serial.printf("touch log %s\n", touchLog ? "on" : "off"); }   // print the frame stats now and start a new window
+        else if (line[0] == 't') { touchLog = !touchLog; printf("touch log %s\n", touchLog ? "on" : "off"); }   // print the frame stats now and start a new window
         app.lastInput = ms;
     }
 }
 
+// cJSON's nodes (json_heap.h) in PSRAM, internal only if PSRAM runs out: internal RAM is for Wi-Fi and TLS.
+void* jsonAlloc(size_t n) {
+    void* p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+void jsonFree(void* p) { heap_caps_free(p); }
+const cta::JsonHeap kJsonHeap = {jsonAlloc, jsonFree, nullptr};
+
 }  // namespace
 
 void setup() {
+    cta::setJsonHeap(&kJsonHeap);   // before anything is parsed
+    // USB serial through its driver, so a print never waits long on a host that isn't reading: plugged into a
+    // computer with nothing reading the port, a print blocks at most 50 ms once, then output is dropped until the
+    // host reads again (usb_serial_jtag_vfs.c). Whole lines (writeLine, the power log) wait at most 5 ms.
 #ifdef POWER_LOG
-    Serial.setTxBufferSize(4096);   // the power log writes whole lines only, so a line must fit
+    usb_serial_jtag_driver_config_t usb = {4096, 1024};   // tx: the power log writes whole lines only, so a line must fit
 #else
-    Serial.setTxBufferSize(1024);   // a burst of lines (the frame stats are three writes) fits while the host reads
+    usb_serial_jtag_driver_config_t usb = {1024, 1024};   // tx: a burst of lines fits while the host reads
 #endif
-    // Barely wait on USB serial. Plugged into a computer with nothing reading the port, the host stops taking data,
-    // and with the 100 ms default a print blocks its task (on core 3.3 up to 2 s, 20 tries: the frame loop's stats
-    // line froze the screen for seconds on the first frame after a pause, and every 10 s while scrolling). After 5 ms
-    // without progress the core calls the port disconnected and drops output nobody reads until the host reads
-    // again. Not 0: core 3.2 then waits forever (its retry count starts at the timeout and wraps), which froze the
-    // loop from boot until the port was opened.
-    Serial.setTxTimeoutMs(5);
-    Serial.setRxBufferSize(1024);   // a `nearby` line is about 250 bytes; the default 256 drops a tail mid-frame
-    Serial.begin(115200);
+    // rx 1024: a `nearby` line is about 250 bytes; 256 would drop a tail mid-frame
+    usb_serial_jtag_driver_install(&usb);
+    usb_serial_jtag_vfs_use_driver();
+    setvbuf(stdout, nullptr, _IOLBF, 0);
     cpuclk::begin();   // before the network task, which holds full speed through each request
     fullSpeed(true);   // awake from boot
-    Wire.begin(kSda, kScl);
-    if (!gfx->begin(80000000)) Serial.println("display: begin failed");
-    gfx->fillScreen(0);
-    bus->beginWrite();
-    bus->writeC8D8(0x35, 0x00);   // TE on, vertical blanking only (Arduino_CO5300's init leaves it off)
-    bus->endWrite();
-    pinMode(kLcdTe, INPUT);
-    attachInterrupt(kLcdTe, onTe, CHANGE);
+    i2c_master_bus_config_t i2cCfg = {};
+    i2cCfg.i2c_port = I2C_NUM_0;
+    i2cCfg.sda_io_num = static_cast<gpio_num_t>(kSda);
+    i2cCfg.scl_io_num = static_cast<gpio_num_t>(kScl);
+    i2cCfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    i2cCfg.glitch_ignore_cnt = 7;
+    i2cCfg.flags.enable_internal_pullup = true;   // as Wire.begin did
+    if (i2c_new_master_bus(&i2cCfg, &i2c) != ESP_OK) puts("i2c: bus failed");
     for (int k = 0; k < 2; ++k) {
         stripBuf[k] = static_cast<uint16_t*>(heap_caps_malloc(W * kStripCols * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
         stripFree[k] = xSemaphoreCreateBinary();
         xSemaphoreGive(stripFree[k]);
     }
+    if (!lcdBegin()) puts("display: begin failed");
+    if (stripBuf[0]) {   // black, as Arduino_GFX's fillScreen(0)
+        memset(stripBuf[0], 0, kStripBytes);
+        for (int x = 0; x < W; x += kStripCols) lcdDraw(x, 0, min(kStripCols, W - x), W, stripBuf[0]);
+    }
+    gpio_config_t te = {};   // the panel's TE line (onTe)
+    te.pin_bit_mask = 1ULL << kLcdTe;
+    te.mode = GPIO_MODE_INPUT;
+    te.intr_type = GPIO_INTR_ANYEDGE;
+    if (gpio_config(&te) != ESP_OK || gpio_install_isr_service(ESP_INTR_FLAG_IRAM) != ESP_OK ||
+        gpio_isr_handler_add(static_cast<gpio_num_t>(kLcdTe), onTe, nullptr) != ESP_OK)
+        puts("display: no TE, frames go out unpaced");
 #ifdef HANDHELD_LIVE
     // PSRAM in the live build: Wi-Fi and a TLS connection need about 100 KB of internal RAM, and these 69 KB don't
     // draw measurably faster inside it (see the README's speed notes).
@@ -481,19 +780,19 @@ void setup() {
 #else
     scratch = static_cast<uint16_t*>(heap_caps_malloc(ui::kScratchPixels * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 #endif
-    if (!stripBuf[0] || !stripBuf[1] || !scratch) Serial.println("memory: allocation failed");
+    if (!stripBuf[0] || !stripBuf[1] || !scratch) puts("memory: allocation failed");
     // 32 rendered cards (2.2 MB of PSRAM): both tabs' cards, at rest and moving, fit at once, so switching tabs
     // or opening a card doesn't re-render the other tab's cards (16 didn't fit 12 trains and 5 buses).
     constexpr int kCards = 32;
-    if (void* cache = ps_malloc(ui::cardCacheBytes(kCards))) ui::setCardCache(cache, kCards);
-    touch.setPins(kTpRst, kTpInt);
-    touchOk = touch.begin(Wire, CST92XX_SLAVE_ADDRESS, kSda, kScl);
-    Serial.printf("reset reason %d (1 power-on, 3 software, 4 panic, 6 task watchdog, 9 brownout)\n",
-                  static_cast<int>(esp_reset_reason()));
-    Serial.printf("touch: %s, cpu %u MHz, internal free %u, psram free %u\n", touchOk ? "ok" : "failed",
-                  getCpuFrequencyMhz(), heap_caps_get_free_size(MALLOC_CAP_INTERNAL), ESP.getFreePsram());
-    Serial.printf("sdk: arduino %s, esp-idf %s, code runs from %s, data cache line %d B\n", ESP_ARDUINO_VERSION_STR,
-                  esp_get_idf_version(),
+    if (void* cache = heap_caps_malloc(ui::cardCacheBytes(kCards), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT))
+        ui::setCardCache(cache, kCards);
+    touchOk = i2c && cst9217::begin(i2c, kTpRst, kTpInt);
+    printf("reset reason %d (1 power-on, 3 software, 4 panic, 6 task watchdog, 9 brownout)\n",
+           static_cast<int>(esp_reset_reason()));
+    printf("touch: %s, cpu %u MHz, internal free %u, psram free %u\n", touchOk ? "ok" : "failed",
+           static_cast<unsigned>(cpuclk::mhz()), static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+           static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+    printf("sdk: esp-idf %s, code runs from %s, data cache line %d B\n", esp_get_idf_version(),
 #ifdef CONFIG_SPIRAM_XIP_FROM_PSRAM
                   "PSRAM (XIP)",
 #else
@@ -501,13 +800,39 @@ void setup() {
 #endif
                   CONFIG_ESP32S3_DATA_CACHE_LINE_SIZE);
     startUnix = buildUnix();
-    startMs = millis();
+    startMs = nowMs();
 #ifdef HANDHELD_LIVE
-    snap = static_cast<live::Snapshot*>(ps_malloc(sizeof(live::Snapshot)));
+    snap = static_cast<live::Snapshot*>(heap_caps_malloc(sizeof(live::Snapshot), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     live::clear(*snap);
-    Serial.printf("power: %s\n", power::begin() ? "AXP2101 ok" : "AXP2101 not found");
+    printf("power: %s\n", i2c && power::begin(i2c) ? "AXP2101 ok" : "AXP2101 not found");
     pw = pwShared = power::read();   // before the touch task starts; after that only it reads the bus
     mock::fromLive(model, *snap, pw, startUnix, false);
+    {   // the link: the token, and what the app set last (pet, settings)
+        char tok[cta::kTokenLen + 1] = "";
+        linkCfg.settings = {100, 100, static_cast<uint16_t>(cta::kNightStartMin), static_cast<uint16_t>(cta::kNightEndMin)};
+        nvs_handle_t h;
+        if (nvs_open("trackie", NVS_READONLY, &h) == ESP_OK) {   // Preferences' entries: a string and two blobs
+            size_t n = sizeof(tok);
+            if (nvs_get_str(h, "token", tok, &n) != ESP_OK) tok[0] = 0;
+            n = sizeof(linkCfg.pet);
+            linkCfg.hasPet = nvs_get_blob(h, "pet", &linkCfg.pet, &n) == ESP_OK && n == sizeof(linkCfg.pet);
+            n = sizeof(linkCfg.settings);
+            cta::DeviceSettings st;
+            linkCfg.hasSettings = nvs_get_blob(h, "settings", &st, &n) == ESP_OK && n == sizeof(st);
+            if (linkCfg.hasSettings) linkCfg.settings = st;
+            nvs_close(h);
+        }
+        linkCfg.pet.name[cta::kPetNameLen] = 0;
+        inbox = new (heap_caps_malloc(sizeof(lan::Inbox), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) lan::Inbox();
+        lan::begin(tok);   // before live::start: the network task starts the link once Wi-Fi is up
+        applyPet();
+        applySettings();
+        lan::setConfig(linkCfg);
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
+        snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
+    }
     live::start();
 #ifdef POWER_LOG
     plog::begin();
@@ -515,7 +840,7 @@ void setup() {
 #else
     mock::update(model, startUnix, startUnix);
 #endif
-    ui::init(app, millis());
+    ui::init(app, nowMs());
     jobs = xQueueCreate(32, sizeof(Job));
     touchEvents = xQueueCreate(64, sizeof(touchf::Event));
     // Core 0 sends (the bus driver busy-waits) and samples touch; core 1 (this loop) draws. The sender can keep
@@ -532,10 +857,10 @@ void loop() {
     static uint32_t lastData = 0, lastFrame = 0, frames = 0, statT = 0, sumDraw = 0, sumFrame = 0;
     // In motion, each frame starts just before a scan does, so frames show at a steady one or two scans each (a frame
     // drawn mid-scan can miss its scan, and the next can't, which judders); before the clock is read, so motion matches.
-    if (inMotion && tePeriod && micros() - teFall < 4 * tePeriod) waitUntil(teFall + tePeriod - kLeadUs);
+    if (inMotion && tePeriod && nowUs() - teFall < 4 * tePeriod) waitUntil(teFall + tePeriod - kLeadUs);
     if (uxQueueMessagesWaiting(touchEvents)) fullSpeed(true);   // a touch: full speed before anything answers it
     handleTouch();
-    const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
+    const uint32_t ms = nowMs();   // after the touch events, so none is stamped later than this frame
     pollSerial(ms);
     if (ms - lastData >= 1000 || lastData == 0) {
         // New data changes what the next frame shows, so it's taken in at full speed, as the frame is drawn (except
@@ -552,17 +877,26 @@ void loop() {
         live::read(*snap, snapVersion);
         mock::fromLive(model, *snap, pw, now, ntp != 0);
         const int lm = mock::localMinutes(now);
-        bool night = lm >= cta::kNightStartMin && lm < cta::kNightEndMin;
+        bool night = model.night(lm);   // the app's night hours
 #ifdef POWER_LOG
         if (stress::running()) night = false;   // stress-v2: daytime polling during a run, whatever the hour
 #endif
         live::setSlow(model.docked || night);
+        // Docking clears the pin (spec 5.6). GET /info's view of the wearable, once a second.
+        static bool wasDocked = false;
+        if (model.docked && !wasDocked) live::setPin(nullptr);
+        wasDocked = model.docked;
+        info.battery = static_cast<int8_t>(pw.battery ? pw.percent : -1);
+        info.charging = pw.charging;
+        info.lastUpdate = model.fetchedAt;
+        info.docked = model.docked;
+        lan::setInfo(info);
         // The battery log (spec 8.5): every 15 min, and once at boot.
         static uint32_t lastLog = 0;
         if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {
             lastLog = ms;
-            Serial.printf("power: usb %d, battery %s %d%% %u mV%s; docked %d\n", pw.usb, pw.battery ? "yes" : "no",
-                          pw.percent, pw.battMv, pw.charging ? ", charging" : "", model.docked);
+            printf("power: usb %d, battery %s %d%% %u mV%s; docked %d\n", pw.usb, pw.battery ? "yes" : "no", pw.percent,
+                   pw.battMv, pw.charging ? ", charging" : "", model.docked);
         }
 #else
         mock::update(model, startUnix + (ms - startMs) / 1000, startUnix);
@@ -585,8 +919,14 @@ void loop() {
     ui::tick(app, model, ms);
 #ifdef HANDHELD_LIVE
     static bool wasDim = false;   // a tap on the dim screen is a wake (spec 8.2)
-    if (wasDim && !app.dim) live::wake();
+    if (wasDim && !app.dim) {
+        live::wake();
+        ++info.wake;   // the app sees it in GET /info and sends a fresh nearby list (ecosystem spec 5.5)
+        lan::setInfo(info);
+    }
     wasDim = app.dim;
+    drainLink();
+    if (resetReq) resetLink("two-finger hold");
 #endif
     // Frames: every frame while something moves; otherwise only when Trackie bobs or the live mark blinks (every
     // 500 ms), and a few frames a second while dim (spec 8: the animation drops when dimmed). A tap that wakes the
@@ -648,7 +988,7 @@ void loop() {
     }
     lastHalf = ms / 500;
     lastFrame = ms;
-    const uint32_t t0 = micros();
+    const uint32_t t0 = nowUs();
     // The list at rest whose last frame had the same key: only its live marks change.
     static uint32_t restShown = 0;
     ui::Mark marks[8];
@@ -662,7 +1002,7 @@ void loop() {
     if (rest && rest == restShown && !sendAll && !whole) sumDraw += drawMarks(ms, marks, nMarks);
     else sumDraw += drawFrame(ms);
     restShown = rest;
-    sumFrame += micros() - t0;
+    sumFrame += nowUs() - t0;
     aodDrawn = aod;
     if (aod) aodShown = ui::aodKey(app, model, ms);
     shownDim = app.dim;
@@ -685,15 +1025,33 @@ void loop() {
                       mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 #ifdef HANDHELD_LIVE
-        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u%s%s", snap->wifiUp,
-                      static_cast<unsigned>(snap->requests), snap->status[0] ? ", " : "", snap->status);
+        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u, httpd stack left %u%s%s", snap->wifiUp,
+                      static_cast<unsigned>(snap->requests), static_cast<unsigned>(lan::stackLeft()),
+                      snap->status[0] ? ", " : "", snap->status);
+        if (snap->hasPin) k += snprintf(line + k, sizeof(line) - k, ", pinned %s %s", snap->pin.rec.id, snap->pin.rec.route);
+        static const char* const kFollowStates[] = {"waiting", "due", "arrived", "lost"};   // cta::FollowState
+        if (snap->hasFollow)   // the follow's countdown (spec 5.7), for checking on the board
+            k += snprintf(line + k, sizeof(line) - k, ", follow %s %d min",
+                          kFollowStates[static_cast<int>(snap->follow.state)], snap->follow.min);
 #endif
-        snprintf(line + k, sizeof(line) - k, "\r\n");
-        Serial.print(line);
+        k += snprintf(line + k, sizeof(line) - k, "\r\n");
+        writeLine(line, std::min<size_t>(k, sizeof(line) - 1));
         frames = sumDraw = sumFrame = 0;
         sentPx = 0;
         sendUs = 0;
         lateJobs = 0;
         statT = ms;
     }
+}
+
+extern "C" void app_main() {
+    // Arduino's start-up did this: a full or outdated NVS partition is erased and started over; any other error is
+    // left alone, since erasing would lose the token and the saved lists.
+    esp_err_t e = nvs_flash_init();
+    if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    setup();
+    for (;;) loop();   // on core 1, with an 8 KB stack (sdkconfig.defaults), as Arduino's loop task
 }

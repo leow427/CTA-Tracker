@@ -31,32 +31,20 @@ ApproachRow emptyRow() {
 }
 
 // pdist and coordinates arrive as numbers (decimals) or numeric strings.
-bool number(JsonVariantConst v, double& out) {
-    if (v.is<double>() || v.is<long>()) { out = v.as<double>(); return true; }
-    const char* s = v.as<const char*>();
+bool number(const cJSON* v, double& out) {
+    if (cJSON_IsNumber(v)) { out = v->valuedouble; return true; }
+    const char* s = json::str(v);
     if (s == nullptr || *s == '\0') return false;
     char* end = nullptr;
     out = strtod(s, &end);
     return *end == '\0' && isfinite(out);
 }
 
-// Parses getpatterns keeping each pattern's pid and its points' typ, stpid, pdist, lat and lon. ptr may be a list or
-// one pattern, and a pattern's pt a list or one point.
-bool parsePatterns(const char* json, size_t len, JsonDocument& doc) {
-    JsonDocument asList, asObject;
-    auto fill = [](JsonObject pattern) {
-        pattern["pid"] = true;
-        JsonObject pt = pattern["pt"][0].to<JsonObject>();
-        for (const char* k : {"typ", "stpid", "pdist", "lat", "lon"}) pt[k] = true;
-    };
-    fill(asList["bustime-response"]["ptr"][0].to<JsonObject>());
-    fill(asObject["bustime-response"]["ptr"].to<JsonObject>());
-    if (!json::parseShapes(json, len, doc, {&asList, &asObject}, [](JsonDocument& d) {
-            JsonVariantConst p = d["bustime-response"]["ptr"];
-            return p.is<JsonArrayConst>() || p.is<JsonObjectConst>();
-        }))
-        return false;
-    return doc["bustime-response"].is<JsonObjectConst>();
+// The bustime-response object of a getpatterns reply (ptr may be a list or one pattern, and a pattern's pt a list
+// or one point), or nullptr if it's malformed.
+const cJSON* patternsBody(const json::Doc& doc) {
+    const cJSON* body = json::at(doc.root, "bustime-response");
+    return cJSON_IsObject(body) ? body : nullptr;
 }
 
 }  // namespace
@@ -152,33 +140,34 @@ size_t trainDirections(const char* route, const char** out, size_t max) {
 }
 
 // No patterns in the reply: 0 or −1 by its errors (json::noListResult).
-static bool noPatterns(JsonDocument& doc, int& result) {
-    JsonVariantConst p = doc["bustime-response"]["ptr"];
-    if (p.is<JsonArrayConst>() || p.is<JsonObjectConst>()) return false;
-    result = json::noListResult(doc["bustime-response"]["error"]);
+static bool noPatterns(const cJSON* body, int& result) {
+    const cJSON* p = json::at(body, "ptr");
+    if (cJSON_IsArray(p) || cJSON_IsObject(p)) return false;
+    result = json::noListResult(json::at(body, "error"));
     return true;
 }
 
 int buildBusRows(const char* json, size_t len, const char* stopId, ApproachRow* out, size_t max) {
     if (stopId == nullptr) return -1;
-    JsonDocument doc(json::bigAllocator());
-    if (!parsePatterns(json, len, doc)) return -1;
+    json::Doc doc(json::parse(json, len));
+    const cJSON* body = patternsBody(doc);
+    if (body == nullptr) return -1;
     int none;
-    if (noPatterns(doc, none)) return none;
+    if (noPatterns(body, none)) return none;
     size_t n = 0;
-    json::forEachItem(doc["bustime-response"]["ptr"], [&](JsonObjectConst p) {
+    json::forEachItem(json::at(body, "ptr"), [&](const cJSON* p) {
         int32_t pid;
-        if (n >= max || !json::toInt32(p["pid"], pid)) return;
+        if (n >= max || !json::toInt32(json::at(p, "pid"), pid)) return;
         // A ring of the last 8 stops seen, stopping at the picked one.
         struct Seen { const char* id; double d, lat, lon; } ring[8] = {};
         size_t seen = 0;
         bool found = false;
-        json::forEachItem(p["pt"], [&](JsonObjectConst pt) {
-            if (found || strcmp(pt["typ"] | "", "S") != 0) return;
-            const char* id = pt["stpid"];
+        json::forEachItem(json::at(p, "pt"), [&](const cJSON* pt) {
+            if (found || strcmp(json::strOr(json::at(pt, "typ"), ""), "S") != 0) return;
+            const char* id = json::str(json::at(pt, "stpid"));
             Seen s{id, 0, 0, 0};
-            if (id == nullptr || !number(pt["pdist"], s.d)) return;
-            if (!number(pt["lat"], s.lat) || !number(pt["lon"], s.lon)) s.lat = s.lon = 0;
+            if (id == nullptr || !number(json::at(pt, "pdist"), s.d)) return;
+            if (!number(json::at(pt, "lat"), s.lat) || !number(json::at(pt, "lon"), s.lon)) s.lat = s.lon = 0;
             ring[seen % 8] = s;
             ++seen;
             if (strcmp(id, stopId) == 0) found = true;
@@ -202,24 +191,25 @@ int buildBusRows(const char* json, size_t len, const char* stopId, ApproachRow* 
 }
 
 int busPatternPath(const char* json, size_t len, int32_t pid, LatLon* out, size_t max) {
-    JsonDocument doc(json::bigAllocator());
-    if (!parsePatterns(json, len, doc)) return -1;
+    json::Doc doc(json::parse(json, len));
+    const cJSON* body = patternsBody(doc);
+    if (body == nullptr) return -1;
     int none;
-    if (noPatterns(doc, none)) return none;
+    if (noPatterns(body, none)) return none;
     int written = 0;
-    json::forEachItem(doc["bustime-response"]["ptr"], [&](JsonObjectConst p) {
+    json::forEachItem(json::at(body, "ptr"), [&](const cJSON* p) {
         int32_t id;
-        if (written || !json::toInt32(p["pid"], id) || id != pid || max == 0) return;
+        if (written || !json::toInt32(json::at(p, "pid"), id) || id != pid || max == 0) return;
         size_t total = 0;
-        json::forEachItem(p["pt"], [&](JsonObjectConst pt) {
+        json::forEachItem(json::at(p, "pt"), [&](const cJSON* pt) {
             double la, lo;
-            if (number(pt["lat"], la) && number(pt["lon"], lo)) ++total;
+            if (number(json::at(pt, "lat"), la) && number(json::at(pt, "lon"), lo)) ++total;
         });
         // Keep point i when it starts a new step of total/max (evenly spaced), and always the last.
         size_t i = 0, n = 0;
-        json::forEachItem(p["pt"], [&](JsonObjectConst pt) {
+        json::forEachItem(json::at(p, "pt"), [&](const cJSON* pt) {
             double la, lo;
-            if (!number(pt["lat"], la) || !number(pt["lon"], lo)) return;
+            if (!number(json::at(pt, "lat"), la) || !number(json::at(pt, "lon"), lo)) return;
             const bool keep = total <= max || i == total - 1 ||
                               (max > 1 && i * (max - 1) / (total - 1) != (i == 0 ? SIZE_MAX : (i - 1) * (max - 1) / (total - 1)));
             if (keep && n < max) out[n++] = LatLon{static_cast<float>(la), static_cast<float>(lo)};

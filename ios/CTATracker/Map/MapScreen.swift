@@ -211,7 +211,7 @@ struct DetailHeroView: View {
 
     var body: some View {
         let name = Text(hero.line.route)
-            .font(.system(size: 96, weight: .heavy, design: .rounded)).tracking(-2)
+            .font(.system(size: 96, weight: .heavy)).tracking(-2)
         HStack(alignment: .top) {
             // A bus's number, with a hard pixel drop shadow in the card's dark shade, like a game title. Trains show
             // none: the wash's color names the line (revision 3).
