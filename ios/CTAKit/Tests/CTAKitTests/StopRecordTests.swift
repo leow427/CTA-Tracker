@@ -81,4 +81,29 @@ struct StopRecordTests {
         #expect(StopRecord.decode(Data(#"{"id":"#.utf8)) == nil)
         #expect(StopRecord.decode(Data(#"{"type":"train","route":"Red","dir":"","name":"","arrivals":[],"alert":false,"ts":1}"#.utf8)) == nil)
     }
+
+    // `veh` (wearable BLE link plan, K1): the run number or vehicle ID, for Follow on relayed records.
+    @Test func arrivalVehOmittedWhenNil() throws {
+        let data = try JSONEncoder().encode(Arrival(min: 3, dest: "Howard", live: true, delayed: false))
+        #expect(!String(decoding: data, as: UTF8.self).contains("veh"))
+    }
+
+    @Test func arrivalVehEncodesAndDecodes() throws {
+        let data = try JSONEncoder().encode(Arrival(min: 3, dest: "Howard", live: true, delayed: false, veh: "812"))
+        let obj = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(obj["veh"] as? String == "812")
+        let json = #"{"id":"1","type":"bus","route":"22","dir":"","name":"","arrivals":[{"min":1,"dest":"","live":true,"delayed":false,"veh":"123456789"},{"min":2,"dest":"","live":true,"delayed":false}],"alert":false,"ts":1}"#
+        let r = try #require(StopRecord.decode(Data(json.utf8)))
+        #expect(r.arrivals.map(\.veh) == ["1234567", nil])
+    }
+
+    @Test func makeTakesVehFromPrediction() {
+        func p(_ at: TimeInterval, _ v: String?) -> Prediction {
+            Prediction(stopID: "1", route: "22", dir: "", dest: "", at: Date(timeIntervalSince1970: at), live: true,
+                       delayed: false, vehicle: v)
+        }
+        let r = StopRecord.make(id: "1", kind: .bus, name: "", from: [p(60, "123456789"), p(120, nil)],
+                                alert: false, fetched: Date(timeIntervalSince1970: 0))
+        #expect(r.arrivals.map(\.veh) == ["1234567", nil])
+    }
 }

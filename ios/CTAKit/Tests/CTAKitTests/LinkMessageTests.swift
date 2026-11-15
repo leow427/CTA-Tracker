@@ -74,4 +74,83 @@ struct LinkMessageTests {
         let obj = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(obj == ["token": token])
     }
+
+    // The wearable BLE link (plan 2026-11-14-wearable-ble-link, K1). Fixed JSON so the firmware's test_link can match.
+
+    func sameJSON(_ data: Data, _ text: String) throws -> Bool {
+        let a = try JSONSerialization.jsonObject(with: data) as? NSDictionary
+        let b = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? NSDictionary
+        return a != nil && a == b
+    }
+
+    @Test func infoDecodesDockWithoutNewFields() throws {
+        let json = #"""
+        {"type":"dock","id":"c3d4","fw":"0.4.0","battery":null,"charging":false,
+         "wifi":{"connected":true,"ssid":"Net"},"last_update":0,"uptime":42,"picks_ver":3,"wake":0,"docked":false}
+        """#
+        let info = try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
+        #expect(info.wifi.rssi == 0 && !info.paired && !info.relaying && info.settings == nil)
+    }
+
+    @Test func infoDecodesWearableWithRSSI() throws {
+        let json = #"""
+        {"type":"handheld","id":"a1b2","fw":"0.5.0","battery":64,"charging":true,
+         "wifi":{"connected":true,"ssid":"Net","rssi":-61},"last_update":1763000000,"uptime":42,
+         "picks_ver":0,"wake":7,"docked":false,"paired":true,
+         "settings":{"screen":80,"led":50,"night_start":60,"night_end":300},"relaying":true}
+        """#
+        let info = try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
+        #expect(info.battery == 64 && info.charging)
+        #expect(info.wifi == WifiState(connected: true, ssid: "Net", rssi: -61))
+        #expect(info.paired && info.relaying)
+        #expect(info.settings == DeviceSettings(screen: 80, led: 50, nightStart: 60, nightEnd: 300))
+    }
+
+    @Test func relayTickEncodes() throws {
+        let full = try #require(BLEMessage.encode(RelayTick(now: 1_763_000_000, wmo: 3, temp: 21.5)))
+        #expect(try sameJSON(full, #"{"now":1763000000,"wmo":3,"temp":21.5}"#))
+        let bare = try #require(BLEMessage.encode(RelayTick(now: 1_763_000_000, wmo: nil, temp: nil)))
+        #expect(String(decoding: bare, as: UTF8.self) == #"{"now":1763000000}"#)
+    }
+
+    var relayRecord: StopRecord {
+        StopRecord(id: "40380", type: .train, route: "Blue", dir: "O'Hare", name: "Clark/Lake",
+                   arrivals: [Arrival(min: 2, dest: "O'Hare", live: true, delayed: false, veh: "123"),
+                              Arrival(min: 9, dest: "O'Hare", live: false, delayed: true)],
+                   alert: false, ts: 1_763_000_000)
+    }
+
+    @Test func relayStopEncodes() throws {
+        let data = try #require(BLEMessage.encode(RelayStop(id: "40380", type: .train, records: [relayRecord]),
+                                                  limit: BLEFrames.maxMessage))
+        #expect(try sameJSON(data, #"""
+        {"id":"40380","type":"train","records":[{"id":"40380","type":"train","route":"Blue","dir":"O'Hare",
+         "name":"Clark/Lake","arrivals":[{"min":2,"dest":"O'Hare","live":true,"delayed":false,"veh":"123"},
+         {"min":9,"dest":"O'Hare","live":false,"delayed":true}],"alert":false,"ts":1763000000}]}
+        """#))
+    }
+
+    @Test func relayStopRoundTrip() throws {
+        let records = (0..<6).map { i -> StopRecord in var r = relayRecord; r.dir = "Dir \(i)"; return r }
+        let data = try #require(BLEMessage.encode(RelayStop(id: "40380", type: .train, records: records),
+                                                  limit: BLEFrames.maxMessage))
+        let obj = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let list = try #require(obj["records"] as? [Any])
+        let back = try list.map { try #require(StopRecord.decode(JSONSerialization.data(withJSONObject: $0))) }
+        #expect(back == records)
+    }
+
+    @Test func relayStopCapsAt16AndCutsID() {
+        let m = RelayStop(id: "123456789", type: .bus, records: Array(repeating: relayRecord, count: 20))
+        #expect(m.records.count == Config.maxRelayRecords && m.id == "1234567")
+    }
+
+    @Test func relayStopTooBigDoesNotEncode() {
+        var r = relayRecord
+        r.name = String(repeating: "\u{01}", count: 24)   // 6 bytes each once escaped
+        r.dir = r.name
+        r.arrivals = Array(repeating: Arrival(min: 1, dest: r.name, live: true, delayed: false, veh: "1234567"), count: 4)
+        #expect(BLEMessage.encode(RelayStop(id: "1", type: .train, records: Array(repeating: r, count: 16)),
+                                  limit: BLEFrames.maxMessage) == nil)
+    }
 }

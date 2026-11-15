@@ -514,17 +514,20 @@ public struct RelayStop: Encodable, Sendable { let id: String; let type: StopRec
 // InfoMessage gains `paired: Bool`, `relaying: Bool` (default false when absent), `settings: DeviceSettings?`,
 // and WifiState gains `rssi: Int` (default 0 when absent), so the dock's /info still decodes.
 // BLEID gains `link = "4a1eedc7-ebeb-42b2-9ce5-e1cc4f05e398"`.
+// Built (K1): BLEMessage.encode(_:limit:) takes a limit (default 512; BLEFrames.maxMessage for /stop). RelayStop's
+// init cuts `id` to Config.idLen and keeps the first Config.maxRelayRecords (16). Config gains relayTickSec,
+// relayHoldSec, infoHeartbeatSec, maxRelayRecords. A first chunk whose sequence isn't 0 is dropped.
 ```
 
-- [ ] **Step 1:** Write the tests first:
+- [x] **Step 1:** Write the tests first:
   - `BLEFrameTests`: the same vectors as `test_ble_frame`, including the wrap at 64 and the overflow.
   - `relayStopRoundTrip`: decodes with `StopRecord.decode`.
   - `arrivalVehOmittedWhenNil`.
   - `infoDecodesDockWithoutNewFields`.
   - `infoDecodesWearableWithRSSI`.
   - `wifiMessageNeverShowsPassword` (exists; keep it).
-- [ ] **Step 2:** Implement. Run the CTAKit tests (`swift test` in `ios/CTAKit`) in full.
-- [ ] **Step 3:** Commit: `feat(ctakit): BLE frames, relay messages, vehicle on records, Wi-Fi signal in info`.
+- [x] **Step 2:** Implement. Run the CTAKit tests (`swift test` in `ios/CTAKit`) in full.
+- [x] **Step 3:** Commit: `feat(ctakit): BLE frames, relay messages, vehicle on records, Wi-Fi signal in info`.
 
 ### Task W6a: Wearable Bluetooth link (Track W; the old W6, replaced)
 

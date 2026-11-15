@@ -5,6 +5,7 @@ public struct Arrival: Codable, Hashable, Sendable {
     public var dest: String
     public var live: Bool
     public var delayed: Bool
+    public var veh: String? = nil   // run number or vehicle ID, for Follow; left out of the JSON when nil
 }
 
 /// The device-shaped stop record (base spec 6.2): relay snapshots and mood rules use it.
@@ -35,7 +36,8 @@ public struct StopRecord: Codable, Hashable, Sendable {
             name: name.truncatedUTF8(Config.nameLen),
             arrivals: soonest.map {
                 Arrival(min: ArrivalFormat.minutes(until: $0.at, now: fetched),
-                        dest: $0.dest.truncatedUTF8(Config.nameLen), live: $0.live, delayed: $0.delayed)
+                        dest: $0.dest.truncatedUTF8(Config.nameLen), live: $0.live, delayed: $0.delayed,
+                        veh: $0.vehicle?.truncatedUTF8(Config.idLen))
             },
             alert: alert,
             ts: Int(fetched.timeIntervalSince1970))
@@ -54,6 +56,7 @@ public struct StopRecord: Codable, Hashable, Sendable {
         r.arrivals = r.arrivals.prefix(Config.maxArrivals).map {
             var a = $0
             a.dest = a.dest.truncatedUTF8(Config.nameLen)
+            a.veh = a.veh?.truncatedUTF8(Config.idLen)
             return a
         }
         return r

@@ -16,6 +16,12 @@ public enum Config {
     public static let nearbyPerTab = 5          // stations and bus stops each in a `nearby` (kNearbyPerTab)
     public static let hypedClosestStops = 3
 
+    // The wearable's Bluetooth link (wearable BLE link plan; cta_config.h, link_msg.h)
+    public static let relayTickSec: TimeInterval = 30       // kRelayTickSec: the phone's /relay period
+    public static let relayHoldSec: TimeInterval = 90       // kRelayHoldSec: "relaying" lasts this long after a tick
+    public static let infoHeartbeatSec: TimeInterval = 30   // kInfoHeartbeatSec: the wearable's status notify
+    public static let maxRelayRecords = 16                  // kMaxRelayRecords: records in one /stop
+
     // App polling (base spec 6.6, app column)
     public static let listPollSec: TimeInterval = 30
     public static let livePollSec: TimeInterval = 30
@@ -42,6 +48,7 @@ public enum BLEID {
     public static let request = "3c4dd75c-a019-4171-b7f1-b8dd87eda07c"
     public static let nearby = "e8b866e4-18bf-4ab4-bd7c-07b52cb2a057"
     public static let snapshot = "7d05cd5a-5784-431f-b051-deb65bc0c3ee"
+    public static let link = "4a1eedc7-ebeb-42b2-9ce5-e1cc4f05e398"   // framed envelopes, phone → wearable
 }
 
 /// CTA line colors (base spec 6.5). Mirrors firmware/lib/cta/src/line_colors.*.

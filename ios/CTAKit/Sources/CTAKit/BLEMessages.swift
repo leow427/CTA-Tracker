@@ -2,11 +2,11 @@ import Foundation
 
 /// The JSON messages the app writes over BLE (base spec 10). Each must fit one 512-byte write.
 public enum BLEMessage {
-    /// Compact JSON, or nil if it's over 512 bytes.
-    public static func encode<T: Encodable>(_ message: T) -> Data? {
+    /// Compact JSON, or nil if it's over `limit` bytes (one 512-byte write; `BLEFrames.maxMessage` for a framed one).
+    public static func encode<T: Encodable>(_ message: T, limit: Int = Config.bleMaxPayload) -> Data? {
         let e = JSONEncoder()
         e.outputFormatting = .withoutEscapingSlashes
-        guard let data = try? e.encode(message), data.count <= Config.bleMaxPayload else { return nil }
+        guard let data = try? e.encode(message), data.count <= limit else { return nil }
         return data
     }
 }

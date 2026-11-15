@@ -8,7 +8,14 @@ public enum DeviceKind: String, Codable, Sendable { case dock, handheld }
 public struct WifiState: Codable, Equatable, Sendable {
     public let connected: Bool
     public let ssid: String
-    public init(connected: Bool, ssid: String) { self.connected = connected; self.ssid = ssid }
+    public let rssi: Int   // dBm; 0 when not joined, or absent (the dock)
+    public init(connected: Bool, ssid: String, rssi: Int = 0) { self.connected = connected; self.ssid = ssid; self.rssi = rssi }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        connected = try c.decode(Bool.self, forKey: .connected)
+        ssid = try c.decode(String.self, forKey: .ssid)
+        rssi = try c.decodeIfPresent(Int.self, forKey: .rssi) ?? 0
+    }
 }
 
 /// `GET /info`. `uptime` (seconds since boot) lets the app spot a reboot.
@@ -24,9 +31,50 @@ public struct InfoMessage: Decodable, Equatable, Sendable {
     public let picksVer: Int       // dock: goes up on every pick
     public let wake: Int           // wearable: goes up on every wake
     public let docked: Bool        // wearable
+    public let paired: Bool        // has a token; false (or absent) raises the app's "found" card
+    public let relaying: Bool      // wearable: a Bluetooth /relay tick in the last 90 s; false when absent
+    public let settings: DeviceSettings?   // wearable, the config.settings shape; nil when absent
     enum CodingKeys: String, CodingKey {
-        case type, id, fw, battery, charging, wifi, uptime, wake, docked
+        case type, id, fw, battery, charging, wifi, uptime, wake, docked, paired, relaying, settings
         case lastUpdate = "last_update", picksVer = "picks_ver"
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(DeviceKind.self, forKey: .type)
+        id = try c.decode(String.self, forKey: .id)
+        fw = try c.decode(String.self, forKey: .fw)
+        battery = try c.decodeIfPresent(Int.self, forKey: .battery)
+        charging = try c.decode(Bool.self, forKey: .charging)
+        wifi = try c.decode(WifiState.self, forKey: .wifi)
+        lastUpdate = try c.decode(Int.self, forKey: .lastUpdate)
+        uptime = try c.decode(Int.self, forKey: .uptime)
+        picksVer = try c.decode(Int.self, forKey: .picksVer)
+        wake = try c.decode(Int.self, forKey: .wake)
+        docked = try c.decode(Bool.self, forKey: .docked)
+        paired = try c.decodeIfPresent(Bool.self, forKey: .paired) ?? false
+        relaying = try c.decodeIfPresent(Bool.self, forKey: .relaying) ?? false
+        settings = try c.decodeIfPresent(DeviceSettings.self, forKey: .settings)
+    }
+}
+
+/// `POST /relay`, every 30 s while the phone relays: its clock, and the weather when it has it.
+public struct RelayTick: Encodable, Sendable {
+    public let now: Int        // unix seconds
+    public let wmo: Int?       // weather code; left out when nil
+    public let temp: Double?   // °C; left out when nil
+    public init(now: Int, wmo: Int?, temp: Double?) { self.now = now; self.wmo = wmo; self.temp = temp }
+}
+
+/// `POST /stop`: every record for one stop, built with `StopRecord.make`. Encode with
+/// `BLEMessage.encode(_:limit: BLEFrames.maxMessage)`; over HTTP it must fit `Config.linkMaxBody`.
+public struct RelayStop: Encodable, Sendable {
+    public let id: String
+    public let type: StopRecord.RecordType
+    public let records: [StopRecord]
+    public init(id: String, type: StopRecord.RecordType, records: [StopRecord]) {
+        self.id = id.truncatedUTF8(Config.idLen)
+        self.type = type
+        self.records = Array(records.prefix(Config.maxRelayRecords))
     }
 }
 
