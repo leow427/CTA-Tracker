@@ -73,6 +73,9 @@ import SwiftUI
                     MainActor.assumeIsolated {
                         self?.active = active
                         self?.devices.setActive(active)
+                        // A wearable that came online while the app was away got nothing (actions wait for the
+                        // foreground): send now, or the relay never starts until its next wake.
+                        if active { self?.onlineWearables.forEach { self?.sendNearby(to: $0, unlessHas: true) } }
                     }
                 }
             }
