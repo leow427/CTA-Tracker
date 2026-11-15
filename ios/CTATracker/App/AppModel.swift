@@ -72,6 +72,8 @@ import SwiftUI
         devices.onAdded = { [weak self] id in
             guard let self, isWearable(id) else { return }
             (pinned, followed) = (nil, nil)
+            // Its first `.cameOnline` came before `add`, when it wasn't ours yet, so its stops go now.
+            if active { sendNearby(to: id, unlessHas: false) }
         }
         location.onFix = { [weak self] in
             guard let self, following else { return }
@@ -209,21 +211,25 @@ import SwiftUI
         return ok
     }
 
-    /// A wearable that's reset (unpaired) or docked dropped its pin on purpose (spec 5.4, 5.6): forget it, send nothing.
+    /// Nothing to send means nothing for the app to keep either (it was reset or docked, or there was no pin).
     private func resendPin(to id: String) {
-        guard let info = devices.online[id], info.paired, !info.docked else { (pinned, followed) = (nil, nil); return }
-        switch Self.resend(followed: followed, followedAt: followedAt, pinned: pinned, now: .now) {
+        let info = devices.online[id]
+        switch Self.resend(followed: followed, followedAt: followedAt, pinned: pinned,
+                           paired: info?.paired ?? false, docked: info?.docked ?? false, now: .now) {
         case .follow(let f): Task { try? await devices.post("/follow", f, to: id) }
         case .pin(let p): Task { try? await devices.post("/pin", p, to: id) }
-        case nil: break
+        case nil: (pinned, followed) = (nil, nil)
         }
     }
 
     enum Resend { case follow(FollowMessage), pin(ConfigStop) }
 
     /// The follow while its departure could still be on the wrist (gone a minute after it's due, as the list drops
-    /// it), else the pin.
-    nonisolated static func resend(followed: FollowMessage?, followedAt: Date, pinned: ConfigStop?, now: Date) -> Resend? {
+    /// it), else the pin. Nothing for a wearable that's reset (unpaired) or docked: it dropped its pin on purpose
+    /// (spec 5.4, 5.6).
+    nonisolated static func resend(followed: FollowMessage?, followedAt: Date, pinned: ConfigStop?,
+                                   paired: Bool, docked: Bool, now: Date) -> Resend? {
+        guard paired, !docked else { return nil }
         if let followed, now.timeIntervalSince(followedAt) < Config.departedGraceSec { return .follow(followed) }
         return pinned.map { .pin($0) }
     }

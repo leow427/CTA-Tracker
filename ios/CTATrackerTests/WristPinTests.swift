@@ -10,21 +10,31 @@ struct WristPinTests {
     var follow: FollowMessage { FollowMessage(stop: belmont, vehicle: "812", dest: "95th/Dan Ryan") }
 
     @Test func followWithinTheGraceIsResent() {
-        let r = AppModel.resend(followed: follow, followedAt: due, pinned: belmont,
+        let r = AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: true, docked: false,
                                 now: due.addingTimeInterval(Config.departedGraceSec - 1))
         guard case .follow(let f) = r else { Issue.record("\(String(describing: r))"); return }
         #expect(f.vehicle == "812" && f.stop == belmont)
     }
 
     @Test func followPastTheGraceFallsBackToThePin() {
-        let r = AppModel.resend(followed: follow, followedAt: due, pinned: belmont,
+        let r = AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: true, docked: false,
                                 now: due.addingTimeInterval(Config.departedGraceSec))
         guard case .pin(let p) = r else { Issue.record("\(String(describing: r))"); return }
         #expect(p == belmont)
     }
 
     @Test func nothingPinnedSendsNothing() {
-        #expect(AppModel.resend(followed: nil, followedAt: .distantPast, pinned: nil, now: due) == nil)
+        #expect(AppModel.resend(followed: nil, followedAt: .distantPast, pinned: nil, paired: true, docked: false, now: due) == nil)
+    }
+
+    @Test func aResetWearableGetsNothing() {
+        #expect(AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: false, docked: false,
+                                now: due) == nil)
+    }
+
+    @Test func aDockedWearableGetsNothing() {
+        #expect(AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: true, docked: true,
+                                now: due) == nil)
     }
 
     @Test func pinOfAnotherStopEndsTheFollow() {
