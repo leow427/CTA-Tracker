@@ -36,7 +36,7 @@ Once a second the firmware prints one CSV line starting with `P,` over USB seria
 
 Notes:
 
-- **CPU busy %** is 100% minus the share of the second each core's idle task ran (`ulTaskGetIdleRunTimeCounterForCore`, against `esp_timer`). FreeRTOS run-time stats are on in Arduino core 3.3.11. The counter is 32-bit µs and wraps every 71 min, so deltas use unsigned math.
+- **CPU busy %** is 100% minus the share of the second each core's idle task ran (`ulTaskGetIdleRunTimeCounterForCore`, against `esp_timer`). FreeRTOS run-time stats are on in the wearable's `sdkconfig.defaults` (ESP-IDF). The counter is 32-bit µs and wraps every 71 min, so deltas use unsigned math.
 - **Time at each clock:** the clock can change several times a second (80 MHz on the dim screen, 240 MHz while drawing, touching, or in a request; `cpu_clock.h`), so the clock module adds up the ms spent at each clock and the busy core-ms at each (both cores together), and the model costs each at its own clock. A once-a-second clock snapshot alone would misreport it.
 - **Lit fraction** is measured on one frame a second, from every 16th pixel of each strip as it is sent to the panel (about 1 pixel in 16 of the screen). Each pixel counts red, green, and blue in proportion to their levels (each scaled to about 0–62), and the sum is divided by its maximum, so all black is 0 and all white is 1. Black AMOLED pixels draw almost nothing, so this tracks what the panel draws better than a pixel count would. A second with no new frame carries the last frame's value, since the screen still shows it.
 - **Never logged:** Wi-Fi names, passwords, API keys, location, stop IDs. The logs are committed to the public repo.

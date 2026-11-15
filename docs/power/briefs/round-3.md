@@ -1,5 +1,7 @@
 # Round 3 worker brief: handheld power AND performance
 
+> History: written for the Arduino build; the firmware is ESP-IDF only since 2026-11-14.
+
 You are the round 3 (final) worker in the CTA Tracker handheld power analysis. Same job as round 2: make the firmware **use less power and feel faster** without changing what it does. Leo: "It's crucial the actual functionality is not changed," and "really prioritize performance too, which includes responsiveness and load times. Obviously along with efficiency."
 
 Read first, in this order:

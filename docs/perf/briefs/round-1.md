@@ -1,5 +1,7 @@
 # Round 1 worker brief: dock speed and responsiveness
 
+> History: written for the Arduino build; the firmware is ESP-IDF only since 2026-11-14.
+
 You are the round 1 worker in a performance analysis of the CTA Tracker **dock** (Waveshare ESP32-S3-Touch-LCD-4.3). Your job: change the dock firmware so it **feels faster and runs cooler**, without changing what it does. Leo's words: "Focus more on speed and responsiveness, since this won't be on a battery, power consumption won't matter as much, besides heat." From the handheld round: "It's crucial the actual functionality is not changed."
 
 Read first:

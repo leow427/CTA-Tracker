@@ -12,8 +12,11 @@ the app finds it by Bonjour, and `POST /pair` with that code hands over the hous
 `GET /info` every 2 s while it's open. Message parsing lives in the shared C++ library and CTAKit, both tested on the
 laptop; board code only wires handlers to it.
 
-**Tech Stack:** arduino-esp32 3.2.0 high_perf on both boards (pioarduino), `esp_http_server` and `ESPmDNS` from the
-core, ArduinoJson 7, Unity native tests; SwiftUI iOS 17, Network.framework (`NWBrowser`), Swift Testing in CTAKit.
+**Tech Stack:** native ESP-IDF 5.4.1 on both boards (PlatformIO `framework = espidf`, pioarduino 54.03.20),
+`esp_http_server` and `espressif/mdns`, IDF's cJSON, Unity native tests; SwiftUI iOS 17, Network.framework
+(`NWBrowser`), Swift Testing in CTAKit. **No Arduino whatsoever (Leo, 2026-11-14):** no Arduino core or library, no
+`framework = arduino`, no Arduino build or fallback (`docs/Agent-Workflow.md`, Rules). Task steps below that name
+Arduino APIs (`MDNS.begin`, ArduinoJson) were written for the Arduino build; build them with the ESP-IDF equivalents.
 
 **Spec:** `docs/superpowers/specs/2026-11-14-ecosystem-design.md` (approved 2026-11-14). Base spec
 `2026-11-03-cta-tracker-design.md`, app spec `2026-11-04-ios-app-design.md`.
@@ -272,7 +275,7 @@ void palette_changes_slots_2_3_only()  { /* applyColors → [2]==rgb565(c0), [3]
 
 - [x] **Step 2: Run** `cd firmware/native && ~/.platformio/penv/bin/pio test -e native -f test_link`.
   Expected: FAIL (undefined references).
-- [x] **Step 3: Implement** the declarations above. Parsers use ArduinoJson with the same "fill a temporary, copy
+- [x] **Step 3: Implement** the declarations above. Parsers use ArduinoJson (cJSON since the ESP-IDF port) with the same "fill a temporary, copy
   on success" pattern as `parseNearby`; `parseConfig` reuses `decodePicks` for `stops`.
 - [x] **Step 4: Run** the same command plus the whole suite (`pio test -e native`). Expected: all PASS.
 - [x] **Step 5: Write `tools/link_send.py`**: `link_send.py <host> info|config|pet|nearby|pin|follow|unpin|unfollow|ble|reset

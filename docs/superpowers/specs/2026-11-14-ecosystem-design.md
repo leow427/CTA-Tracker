@@ -259,8 +259,10 @@ design is kept in section 12.
   (`tools/dock_perf_run.py`) must show no worse frames than `docs/perf/summary.md`.
 - **The wearable's battery:** the server and the app's 2 s polls keep its radio busier while the app is open. Check
   with the power tools (`docs/power/`) that the dim, app-closed case is unchanged.
-- **Toolchain:** both boards on arduino-esp32 3.2.0 high_perf (the README's Toolchain section). No BLE library is
-  added (the spike's NimBLE-Arduino 2.5.2 result is in `docs/ecosystem/day1-link.md`).
+- **Toolchain:** both boards on native ESP-IDF 5.4.1 (PlatformIO `framework = espidf`, pioarduino 54.03.20), with
+  IDF's cJSON; no Arduino core or library, and no Arduino build or fallback (Leo, 2026-11-14; port plan
+  `docs/superpowers/plans/2026-11-14-esp-idf-port.md`). Bluetooth, when it returns, is NimBLE through IDF. The day-1
+  spike's result (on the old Arduino build) is in `docs/ecosystem/day1-link.md`.
 - **Security:** the public repo rules of base spec §12 hold. The token and Wi-Fi passwords are never logged, never
   committed, and the app keeps the token in the Keychain.
 - **Docs:** base spec §8.3, §9.5, and §10 get updated to point here when this is built.
@@ -356,7 +358,7 @@ within `docs/handheld-ui.md`, and the setup screens' look within app spec §4.6.
 
 Dropped for the showcase on 2026-11-14, kept as the design for a later version. In Leo's words: "Bluetooth would be
 cool later, but for a real version I'd likely use a more powerful device." The day-1 spike showed it works
-(NimBLE-Arduino 2.5.2 on arduino-esp32 3.2.0, passkey pairing and an encrypted write from the iPhone on both boards)
+(on the Arduino build of the time: NimBLE-Arduino 2.5.2 on arduino-esp32 3.2.0, passkey pairing and an encrypted write from the iPhone on both boards)
 but costs about 50 KB of internal RAM, more than either board has to spare during TLS
 (`docs/ecosystem/day1-link.md`).
 

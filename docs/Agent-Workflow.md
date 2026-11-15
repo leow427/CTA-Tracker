@@ -34,6 +34,7 @@ Tasks that change only docs or notes (like the day-1 toolchain spike's write-up)
 - **The spec is the contract.** If the task and the spec disagree, or a better way would change what the spec says (behavior, values, messages, scope), stop and ask Leo. Never edit the spec yourself; propose the change in your report.
 - **Tests:** never delete, skip, or weaken a test. Tests stay offline and deterministic: CTA and weather data come from `fixtures/`, time is passed in (`now`), and nothing in a test touches the network, Wi-Fi, or BLE.
 - **Hardware:** steps that need the boards, the iPhone, or real API keys are Leo's. Prepare them, say exactly what to run and what passing looks like, and wait.
+- **ESP-IDF only, no Arduino (Leo, 2026-11-14).** Both boards are native ESP-IDF 5.4.1 (PlatformIO `framework = espidf`, pioarduino platform 54.03.20). No Arduino core, no `framework = arduino` or `arduino, espidf`, and no Arduino-named library: `Arduino.h`, `WiFi`, `HTTPClient`, `Wire`, `Preferences`, `ESPmDNS`, ArduinoJson, GFX Library for Arduino, SensorLib, XPowersLib's Arduino path and the like. Use ESP-IDF APIs and components only: `esp_wifi`, `esp_http_client`, `esp_http_server`, NVS, `i2c_master`, `esp_lcd`, `espressif/mdns`, NimBLE through IDF, cJSON. There is no Arduino build or fallback; the `arduino-final` tag is history and the A side of before/after comparisons.
 - **Dependencies:** none beyond what the spec and `docs/notes/toolchain.md` name. Use the pinned versions.
 - **Secrets:** API keys and Wi-Fi passwords never go in git, logs, serial output, or test fixtures. Recorded CTA responses have the key stripped from any URL they contain.
 - **Privacy:** the phone's location stays on the phone and the handheld; it's never logged or sent anywhere except Open-Meteo and the handheld.
@@ -50,7 +51,8 @@ Never edit a file or touch git state. Never trim a review to save usage.
   3. The spec's exact values and copy.
   4. Every part of the task.
   5. Tests, including mutation tests in a scratch copy: break the code and confirm a test fails.
-  6. Build registration: new sources are picked up (`library.json`, `platformio.ini`, the Xcode project), and the affected `pio test` / `pio run` / Xcode build succeeds.
-  7. No stray files, private paths, credentials, or attribution lines.
+  6. No Arduino: nothing in the diff includes an Arduino header or library, or sets `framework = arduino` (see Rules). Any such use is a Blocker.
+  7. Build registration: new sources are picked up (`library.json`, `platformio.ini`, the Xcode project), and the affected `pio test` / `pio run` / Xcode build succeeds.
+  8. No stray files, private paths, credentials, or attribution lines.
 - **Run** only the affected tests. Kill processes by PID, never with a broad `pkill -f`.
 - **Report** only Blocker and Should fix findings, ranked, each with file:line, what's wrong, a failure scenario, and a fix. No nits. If nothing needs fixing, say so.

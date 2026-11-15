@@ -289,7 +289,9 @@ nearest the dock, 3 at a time, flipping between the two sets every 30 s or so (L
 
 **Why sixteenth:** an idea from the ecosystem build; not committed for the showcase unless Leo says so.
 
-### F17. After the showcase: ESP-IDF build, then Bluetooth setup again
+### F17. After the showcase: ESP-IDF build, then Bluetooth setup again (superseded)
+
+**Superseded (2026-11-14):** done before the showcase as pure ESP-IDF, with no Arduino at all (Leo: "NO Arduino whatsoever. Only ESP-IDF."); no hybrid `arduino, espidf` step. Plan: `docs/superpowers/plans/2026-11-14-esp-idf-port.md`. Bluetooth setup is being brought back now. The text below is the original item, kept as history.
 
 Both boards build with `framework = arduino` on Espressif's prebuilt high_perf SDK libraries, whose memory settings
 are fixed. That is why Bluetooth (~50 KB of internal RAM, measured in `docs/ecosystem/day1-link.md`) didn't fit and

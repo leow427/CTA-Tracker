@@ -1,5 +1,7 @@
 # Round 2 worker brief: handheld power AND performance
 
+> History: written for the Arduino build; the firmware is ESP-IDF only since 2026-11-14.
+
 You are the round 2 worker in a multi-day power analysis of the CTA Tracker **handheld** (Waveshare ESP32-S3-Touch-AMOLED-1.75). Your job: change the firmware so it **uses less power and feels faster**, without changing what it does. Leo's words: "It's crucial the actual functionality is not changed," and this round "really prioritize performance too, which includes responsiveness and load times. Obviously along with efficiency."
 
 Read first:

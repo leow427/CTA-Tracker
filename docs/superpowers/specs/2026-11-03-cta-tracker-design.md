@@ -325,7 +325,7 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 
 > **Not built for the showcase (2026-11-14).** The ecosystem spec (`2026-11-14-ecosystem-design.md`) replaces this: devices pair over the local network with a 6-digit code on screen (its section 4.3), Wi-Fi comes from `secrets.h`, and Bluetooth is future work (its section 12).
 
-One custom GATT service, implemented with NimBLE-Arduino 2.x on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `CTA-Pet-xxxx`, where `xxxx` is the end of the MAC address.
+One custom GATT service, implemented with ESP-IDF's NimBLE on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `CTA-Pet-xxxx`, where `xxxx` is the end of the MAC address.
 
 **Pairing:** the device shows a 6-digit passkey on screen and the user types it into iOS's pairing prompt (NimBLE's display-passkey flow). This encrypts and authenticates the link, which `wifi` requires because passwords cross it. Bonds are stored, so pairing happens once.
 
@@ -347,20 +347,21 @@ The UUIDs are defined once in `firmware/lib/cta/ble_ids.h` and mirrored in the a
 
 **Firmware**
 
-- Arduino framework on Arduino-ESP32 core 3.x, built with **pioarduino** (the community fork of PlatformIO's ESP32 platform; official PlatformIO only ships core 2.x). Both boards are pinned to the same core version.
-- BLE: NimBLE-Arduino 2.x.
-- UI: LVGL 9 on both boards if the dock's display stack supports it. Otherwise the dock stays on LVGL 8.4 (what Waveshare's 4.3" Arduino demos use) and the sprite script outputs both image formats.
-- Display drivers start from Waveshare's demos: ESP32_Display_Panel + ESP32_IO_Expander for the dock, and the 1.75" repo's examples (including XPowersLib for the AXP2101) for the handheld.
-- JSON parsing: ArduinoJson with filters, so only the needed fields of CTA's responses are kept in memory.
+- **ESP-IDF only, no Arduino whatsoever (Leo, 2026-11-14).** Both boards are native ESP-IDF 5.4.1, built by PlatformIO with `framework = espidf` on the pinned **pioarduino** platform 54.03.20 (the community fork of PlatformIO's ESP32 platform). No Arduino core, no Arduino-named library, no `framework = arduino` or `arduino, espidf`, and no Arduino build or fallback. The `arduino-final` tag is history only. Port plan: `docs/superpowers/plans/2026-11-14-esp-idf-port.md`.
+- Wi-Fi, HTTP and storage: `esp_wifi`, `esp_http_client`, `esp_http_server`, `espressif/mdns`, NVS.
+- BLE: NimBLE through ESP-IDF.
+- UI: our own drawing code on both boards.
+- Display, touch and power chip: `esp_lcd` panel drivers (the dock's RGB panel, the handheld's CO5300 through `espressif/esp_lcd_co5300`), and small touch and AXP2101 drivers of our own on `i2c_master`.
+- JSON parsing: ESP-IDF's cJSON, with the parsers' peak memory bounded by tests, so large CTA responses stay bounded in memory.
 - HTTPS uses the ESP32's built-in CA certificate bundle. TLS verification is never disabled.
 
-**Day-1 toolchain test** (Nov 3–4). Before any feature work, prove these on the pinned setup:
+**Day-1 toolchain test** (Nov 3–4, done on the Arduino build of the time). Before any feature work, prove these on the pinned setup:
 
 1. Waveshare's display demo builds and runs on each board under pioarduino.
 2. An iPhone pairs with each board using the on-screen passkey and writes a characteristic.
 3. An HTTPS request to CTA runs while BLE is connected, without crashing or running out of memory.
 
-If pioarduino fails, fall back to `arduino-cli` with the same core version. The shared library's laptop tests then move to a plain CMake + Unity setup.
+There is no Arduino fallback: a board that misses a gate is fixed on ESP-IDF.
 
 **iPhone app:** Xcode, SwiftUI, Swift Testing. App and widget extension share an App Group. Leo's paid developer account allows TestFlight.
 
@@ -415,9 +416,9 @@ fixtures/cta/         recorded CTA responses used by both test suites
 |---|---|---|
 | CTA API keys | Approval may take days and blocks real data | Apply Nov 3. Develop parsing against CTA's documented sample responses until then. |
 | Daily request limits | Dock + handheld + app polling may exceed a key's daily limit | Limits read from the key emails on arrival. Poll intervals are constants (6.6). Night-hours slowdown. |
-| pioarduino | Small community team; may break with a board's libraries | Day-1 test; `arduino-cli` fallback (section 11). |
+| pioarduino | Small community team; may break with a board's libraries | Pinned platform 54.03.20 with `framework = espidf`; no Arduino fallback (section 11). |
 | LVGL version | Dock demos use 8.4, handheld examples use 9 | Try 9 on both in the day-1 test; otherwise the sprite script outputs both formats. |
-| NimBLE-Arduino vs. core 3.3+ | Core 3.3+ bundles its own NimBLE for the built-in BLE library; whether the two conflict is unverified | Pin one core version in the day-1 test and confirm pairing there. |
+| BLE internal RAM | NimBLE costs internal RAM the TLS handshake also needs | NimBLE through ESP-IDF with its host memory in PSRAM and trimmed pools (port plan). |
 | iOS background relay | Force-quit stops the relay; "Always" location permission is needed in the background | Demo runs with the app open. Stretch: GPS backup and hotspot fallback. |
 | Branching train lines | "6 stops before" is ambiguous after a branch merge or on the Loop | Use the most common trip pattern from GTFS (5). |
 | Battery life | Dim always-on may not last a day | Measured in the discharge test; dim level and frame rate are constants. |
