@@ -91,5 +91,19 @@ CONFIG_MDNS_MAX_SERVICES=2
 CONFIG_MDNS_TASK_CREATE_FROM_SPIRAM=y
 CONFIG_MDNS_MEMORY_ALLOC_SPIRAM=y
 
-# BLE: off until D4 measures it
-CONFIG_BT_ENABLED=n
+# BLE setup (NimBLE, IDF's own): the host's memory in PSRAM, one connection, a peripheral only
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_MAX_BONDS=4
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+CONFIG_BT_NIMBLE_SM_SC=y
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
+# The controller's code from flash (here XIP from PSRAM, which flash writes don't stall) instead of about 20 KB of
+# IRAM, which comes out of the heap whether BLE runs or not; a peripheral needs no central or scan code
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
+CONFIG_BT_CTRL_BLE_MASTER=n
+CONFIG_BT_CTRL_BLE_SCAN=n

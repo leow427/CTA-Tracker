@@ -153,3 +153,29 @@ code on its screen and accepts `POST /pair` over the LAN; Wi-Fi comes from `secr
 internal RAM, which neither board can spare during TLS, and the showcase runs on one network anyway. In Leo's words:
 "Bluetooth would be cool later, but for a real version I'd likely use a more powerful device." BLE setup and the
 no-Wi-Fi relay are future work (spec section 11), not deleted design.
+
+## ESP-IDF
+
+### Dock (ESP-IDF port, D4, 2026-11-14)
+
+The dock build has NimBLE (IDF's own) compiled in, using `firmware/dock/src/ble_setup.*`:
+- it advertises `CTA-Dock-xxxx` with the service UUID and serves `info` (the GET /info JSON);
+- serial `b` turns it on and off.
+
+The setup: one connection, peripheral only, `BT_CTRL_BLE_MAX_ACT=2`, and the host's memory in PSRAM. The controller
+runs from flash (`CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY`, central and scan code out). Here that means PSRAM through XIP,
+which flash writes don't stall. Left in IRAM, the controller took 20 KB of heap whether BLE ran or not, and the low
+point with BLE advertising was 20.2 KB. Every row below is normal polling: train TLS every 30 s, the other hosts on
+their schedule.
+
+| State | Internal free | Lowest over the window |
+|---|---|---|
+| Boot, "dock: up" (BLE compiled in, off) | 131.1 KB (134.5 KB without BLE compiled in) | – |
+| BLE off, 10 min | 79.2 KB | 72.4 KB |
+| BLE on and advertising, no connection, 10 min | 48.7 KB | **41.8 KB** |
+| Off again, then on/off ×3 | 79.2 KB each time (no leak) | – |
+
+- **Pass, narrowly:** 41.8 KB against the 40 KB floor, with BLE advertising beside TLS. Turning BLE on costs about
+  30 KB of internal RAM (controller, host task stack).
+- **Not measured yet:** BLE with a phone connected (LightBlue). A connection adds the controller's link buffers. If it
+  drops under 40 KB, D4's ladder starts at its step 1: smaller msys/ACL counts, `BLE_MAX_ACT=1`.

@@ -230,6 +230,9 @@ CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_SM_SC=y
 CONFIG_BT_CTRL_BLE_MAX_ACT=2
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
+CONFIG_BT_CTRL_BLE_MASTER=n
+CONFIG_BT_CTRL_BLE_SCAN=n
 ```
 
 Notes on these lines:
@@ -240,6 +243,9 @@ Notes on these lines:
 - **The tick rate:** IDF defaults to 100 Hz; Arduino ran 1000. Without `CONFIG_FREERTOS_HZ=1000`,
   `pdMS_TO_TICKS(8)` in the touch task becomes 0 ticks.
 - **BLE's place in the file:** D1/W1 ship with `CONFIG_BT_ENABLED=n`. D4/W5 turn it on.
+- **The controller from flash** (`BT_CTRL_RUN_IN_FLASH_ONLY`) gives back about 20 KB of IRAM that BLE otherwise holds
+  even while off. On the dock it took the advertising low point from 20.2 to 41.8 KB. It is safe only with
+  `CONFIG_SPIRAM_XIP_FROM_PSRAM` (both boards have it), because then flash writes never stop the cache.
 
 Per board:
 
@@ -517,18 +523,22 @@ Run on the board, with Wi-Fi from `secrets.h` and the token set with serial `T <
 init, advertise `CTA-Dock-xxxx` with the service from `ble_ids.h`, an `info` read, deinit), `main.cpp` (serial `b`
 toggles BLE, as the spike did).
 
-- [ ] **Step 1:** Boot with BLE off and record internal free at boot and the minimum over 10 minutes of normal
+- [x] **Step 1:** Boot with BLE off and record internal free at boot and the minimum over 10 minutes of normal
   polling (TLS every 30 s or faster).
 - [ ] **Step 2:** `b` on, with an iPhone connected in LightBlue, for 10 minutes; record the minimum. Then `b` off,
   then on and off again; free memory must return to within 2 KB each time (no leak).
-- [ ] **Step 3:** Pass means a minimum **≥ 40 KB with BLE on**. If it fails, work down this ladder, re-measuring each
+  Done without a phone: advertising for 10 min, low point 41.8 KB; 4 on/off cycles return to 79.2 KB each time. The
+  LightBlue connection is Leo's step.
+- [ ] **Step 3:** Pass means a minimum **≥ 40 KB with BLE on**. Before the ladder,
+  `CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY` took the controller's code out of IRAM: 20.2 → 41.8 KB advertising. It passes
+  unconnected; the connected number decides. If it fails, work down this ladder, re-measuring each
   time, and record every step:
   1. `CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT` down to 12 and the ACL buffer counts down; `BLE_MAX_ACT=1`.
   2. Wi-Fi static RX 8 → 6 and dynamic TX buffers (`CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y`, which go to PSRAM).
   3. `LWIP_MAX_SOCKETS` 16 → 10.
   4. **Fallback 1:** BLE only while unconfigured, with the net task pausing CTA polling while BLE runs.
   5. **Fallback 2:** Appendix A.
-- [ ] **Step 4:** Write the table (boot, BLE off, BLE on, after off) into `docs/ecosystem/day1-link.md` under a new
+- [x] **Step 4:** Write the table (boot, BLE off, BLE on, after off) into `docs/ecosystem/day1-link.md` under a new
   "ESP-IDF" heading. No network names.
 
 ### Task D5: Dock BLE setup (ecosystem Task 7, BLE version)

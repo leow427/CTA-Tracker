@@ -36,6 +36,7 @@
 
 #include <new>
 
+#include "ble_setup.h"
 #include "card_theme.h"
 #include "cta_config.h"
 #include "display.h"
@@ -69,6 +70,7 @@ bool wifiOffDiag = false, forceFrame = false;
 cta::ConfigMsg linkCfg;   // stops = picks; pet and settings once saved or sent
 cta::InfoMsg info = {};
 uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
+char bleName[16];   // "CTA-Dock-XXXX"
 constexpr uint32_t kResetHoldMs = 10000;   // three fingers held this long anywhere: the hidden reset
 #ifdef PERF_LOG
 // The perf log's view of the loop: a picker list asked for (and when), and boot milestones (ms since boot, 0 = not yet).
@@ -125,8 +127,8 @@ void printDiag() {
                   d == display::Diag::Freeze ? "freeze" : d == display::Diag::Pattern ? "pattern" : d == display::Diag::Single ? "single buffer" : "normal",
                   wifiOffDiag ? "off" : "on", display::timing(), display::timingName(display::timing()), display::recoveries());
 }
-// UART0 (the CH343 port) through its driver, so serial commands are read without waiting. As on Arduino, output
-// (uprintf, serial_out.h) waits for the UART; the perf build adds a 4 KB TX buffer, which perf::flush fills with whole
+// UART0 (the CH343 port) through its driver, so serial commands are read without waiting. Output (uprintf,
+// serial_out.h) waits for the UART; the perf build adds a 4 KB TX buffer, which perf::flush fills with whole
 // lines (perf_log.cpp).
 constexpr uart_port_t kUart = UART_NUM_0;
 void flushSerial() {
@@ -282,6 +284,12 @@ void pollSerial() {
             diagStep = c == '.' ? 0 : static_cast<char>(c);
             forceFrame = true;
             uprintf("diag: step %c\n", c);
+        } else if (c == 'b') {   // BLE on or off (the ESP-IDF port's D4 measurement; D5 runs it on its own)
+            if (ble_setup::running()) ble_setup::stop();
+            else ble_setup::start(bleName);
+            uprintf("ble: %s; internal free %u (min %u), largest block %u\n", ble_setup::running() ? "on" : "off",
+                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                   heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
         } else if (c == 'w') {
             net::checkWifi();
         } else if (c == 'l') {
@@ -356,6 +364,7 @@ void setup() {
     info.dock = true;
     info.battery = -1;
     snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
+    snprintf(bleName, sizeof(bleName), "CTA-Dock-%02X%02X", mac[4], mac[5]);
     snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
     publishLink();
     net::start(picks);

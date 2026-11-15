@@ -30,9 +30,8 @@ struct Input {
 };
 QueueHandle_t mailbox;
 
-// Our own RMT channel rather than the Adafruit NeoPixel library's: arduino-esp32 3.2.0 (pinned for the panel, see
-// platformio.ini) builds the library's channel config on the stack without setting flags.allow_pd, and the ESP32-S3
-// refuses the channel whenever that leftover bit is set, so the LEDs failed at random boots. A zeroed config can't.
+// Our own RMT channel with a zeroed config: a channel config built on the stack with a leftover flags.allow_pd bit
+// is refused by the ESP32-S3, which made the LEDs fail at random boots under the old NeoPixel library.
 rmt_channel_handle_t chan = nullptr;
 rmt_encoder_handle_t encoder = nullptr;
 
