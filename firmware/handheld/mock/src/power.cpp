@@ -4,6 +4,8 @@
 // kept; the software is provided "as is", without warranty of any kind.
 #include "power.h"
 
+#include "driver/i2c_master.h"
+
 namespace power {
 
 namespace {

@@ -15,6 +15,7 @@
 #include <freertos/task.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
+#include <lwip/sockets.h>
 #include <lwip/tcpip.h>
 #include <nvs.h>
 #include <stdio.h>
@@ -220,10 +221,6 @@ struct Conn {
     esp_http_client_handle_t h;
     bool open;          // a kept-alive connection the next request may reuse
     bool resumable;     // a handshake has finished, so the next one offers its session
-    // Offered sessions failed twice in a row, fast: the host's sessions can't be used, so none is kept. The bus API's
-    // tickets (about 4 KB) don't fit the 4 KB record going out, which fails the handshake before it is sent.
-    uint8_t resumeFails;
-    bool noResume;
     uint32_t lastUsed;
 };
 constexpr int kConns = 5;   // trains, buses, alerts, weather, and one spare
@@ -278,6 +275,22 @@ void dropConn(Conn& c) {
     c.open = c.resumable = false;
 }
 
+// The certificate bundle, attached by esp-tls between the TCP connect and the handshake. It also turns Nagle off on
+// that connection, as Arduino's NetworkClientSecure did (esp-tls never does): with it on, each handshake flight waited
+// out a delayed ACK, about 250-375 ms per new connection. esp-tls gives no handle on the socket here, so this finds the
+// open sockets to port 443; only the network task makes TLS connections.
+esp_err_t attachBundle(void* conf) {
+    for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
+        sockaddr_storage peer;
+        socklen_t n = sizeof(peer);
+        if (getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &n) != 0 || peer.ss_family != AF_INET) continue;
+        if (ntohs(reinterpret_cast<sockaddr_in*>(&peer)->sin_port) != 443) continue;
+        const int one = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    }
+    return esp_crt_bundle_attach(conf);
+}
+
 // The handle for url's host, made on first use. nullptr if out of memory.
 Conn* connFor(const char* url, const char* host) {
     Conn* c = nullptr;
@@ -290,20 +303,18 @@ Conn* connFor(const char* url, const char* host) {
         }
         dropConn(*c);
         snprintf(c->host, sizeof(c->host), "%s", host);
-        c->resumeFails = 0;
-        c->noResume = false;
     }
     if (!c->h) {
         esp_http_client_config_t cfg = {};
         cfg.url = url;
-        cfg.crt_bundle_attach = esp_crt_bundle_attach;   // TLS is always verified (spec 11)
+        cfg.crt_bundle_attach = attachBundle;   // TLS is always verified (spec 11)
         cfg.timeout_ms = kTimeoutMs;
         cfg.event_handler = onHttpEvent;
         cfg.disable_auto_redirect = true;   // as HTTPClient: a redirect is just a status
         // Over CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL (allocations up to it stay internal), so both buffers are in PSRAM.
         cfg.buffer_size = CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL + 1;
         cfg.buffer_size_tx = CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL + 1;   // the alerts URL is up to 768 bytes
-        cfg.save_client_session = !c->noResume;
+        cfg.save_client_session = true;
         c->h = esp_http_client_init(&cfg);
         c->open = c->resumable = false;
     }
@@ -341,7 +352,7 @@ int fetch(const char* url, bool wantBody, bool keep, cpuclk::Lazy& fast, char ki
         // shortcut: full speed from the TCP connect, not the handshake (esp_http_client does both in open()); that
         // costs one round trip at 240 MHz. Split them only if the power A/B shows it.
         fast.on();
-        esp_http_client_set_url(c->h, url);
+        if (esp_http_client_set_url(c->h, url) != ESP_OK) return -8;   // else the last URL would go again
         respClose = false;
         const uint32_t t0 = nowMs();
         if (esp_http_client_open(c->h, 0) != ESP_OK) {
@@ -353,7 +364,6 @@ int fetch(const char* url, bool wantBody, bool keep, cpuclk::Lazy& fast, char ki
             // only time out again, so it isn't tried twice.
             if (offered && quick && !fullRetried) {
                 fullRetried = true;
-                if (++c->resumeFails >= 2) c->noResume = true;
                 dropConn(*c);
                 if (!connFor(url, host)) return -8;
                 continue;
@@ -367,8 +377,7 @@ int fetch(const char* url, bool wantBody, bool keep, cpuclk::Lazy& fast, char ki
 #else
             (void)kind;
 #endif
-            if (c->resumable) c->resumeFails = 0;   // an offered session went through
-            c->resumable = !c->noResume;
+            c->resumable = true;
         }
         c->open = true;
         int code = esp_http_client_fetch_headers(c->h) < 0 ? -11 : esp_http_client_get_status_code(c->h);

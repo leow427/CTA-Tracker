@@ -556,8 +556,11 @@ The original Task 7 from `21a0fd7` (the plan before Appendix A), on IDF.
 - **mDNS:** pinned to 1.8.2, the version arduino-esp32 3.2.0 shipped. Looking up `cta-pet-xxxx.local` from the Mac
   waits 5 s for an AAAA answer on either build (no IPv6); `link_send.py` by IP is instant.
 - **TLS:** `esp_http_client` with `save_client_session` resumes the train API (70 ms reopen against about 1.8 s in
-  full). One handle per host. The bus API's ~4 KB ticket overflows the 4 KB outgoing record
-  (`MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL`), so after two fast failures a host stops keeping sessions. The client's buffers
+  full). One handle per host. The bus API's ~4 KB ticket overflows a 4 KB outgoing record
+  (`MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL`), so `SSL_OUT_CONTENT_LEN` is 16384, as Arduino had. esp-tls never sets
+  `TCP_NODELAY` (Arduino's client did): the `crt_bundle_attach` hook sets it, or each new connection waits out
+  delayed ACKs (+250-375 ms). `IP_EVENT_STA_LOST_IP` clears the up flag, and the join loop's drop path disconnects
+  and rejoins. The client's buffers
   must be over `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` (the limit is inclusive) to land in PSRAM.
 - **AXP2101:** folded into `power.cpp` (its only user) instead of a separate `axp2101.*`.
 - **Pixels:** serial `h` hashes four fixed frames through the strip path; identical on both builds.

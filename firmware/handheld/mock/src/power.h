@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 
-#include "driver/i2c_master.h"
+typedef struct i2c_master_bus_t* i2c_master_bus_handle_t;   // driver/i2c_master.h's, so laptop tools needn't have it
 
 namespace power {
 

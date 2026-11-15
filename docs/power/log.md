@@ -290,8 +290,10 @@ Round 2 runs against the earlier reference, for the record only (`reports/r2.md`
     (5% under Task 8's 47.1 h); this evening's A read 46.3 h.
   - Scroll −4.1% (core 0 busy 42 → 18%: the panel transfers are DMA straight from the strip buffer), everything
     −3.2%, churn +0.9%, awake still +2.3%.
-  - Network burst +5.8% (A's noise 6.2): full handshakes take 150-250 ms longer with mbedTLS in PSRAM (alerts and
-    weather medians 1.6 → 1.7-1.9 s), with the CPU held at 240 MHz through each. Train sessions resume (21 resumed
+  - Network burst +5.8% (A's noise 6.2): new connections took 150-250 ms longer (alerts and weather medians
+    1.6 → 1.7-1.9 s), with the CPU held at 240 MHz through each. The likely cause, found after these runs, is Nagle:
+    esp-tls leaves it on and Arduino's client turned it off. The follow-up commit turns it off and sends the bus API's
+    session tickets too (16 KB outgoing record); not re-run on the power test yet. Train sessions resume (21 resumed
     and 12 full in B-1, against 12 and 22 in A-1).
   - User-visible numbers unchanged: fps while moving 70.4 / 43.3 / 60.8, tap→screen 17-21 ms.
   - Lowest free internal RAM 66 → 114 KB.

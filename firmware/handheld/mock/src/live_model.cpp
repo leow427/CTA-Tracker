@@ -1,4 +1,4 @@
-#ifdef HANDHELD_LIVE   // the mock build has no network
+#if defined(HANDHELD_LIVE) || !defined(ESP_PLATFORM)   // the device's mock build has no network; laptop tools use it
 #include "live_model.h"
 
 #include <stdio.h>
