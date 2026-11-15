@@ -163,6 +163,8 @@ Apple builds the structure; pixel art carries the character.
 ## 6. Devices, setup, and settings
 
 > **Changed for the showcase (2026-11-14).** No Bluetooth: the app finds devices by Bonjour, and setup is Pair (type the code shown on the device, sent with `POST /pair`) → Pet → done, with no Wi-Fi step and no bond to forget in iOS Settings. The first-launch Bluetooth line and prompt (section 3) go too. See the ecosystem spec (`2026-11-14-ecosystem-design.md`), sections 4.3 and 5.1; Bluetooth is future work there (section 12).
+>
+> **Changed again 2026-11-14 (Leo): the wearable sets up over Bluetooth again; the dock over the network.** The wearable's setup is this section's flow: the found card from a Bluetooth scan, Pair with the passkey on Trackie in iOS's prompt (then the app writes the token over the bond), Wi-Fi optional with up to 5 networks ("Skip", home first), Pet, Ready, and Forget finishes in iOS Settings → Bluetooth. When Bluetooth isn't available or the pairing fails, the wearable falls back to the dock's flow: type the code shown on Trackie, sent with `POST /pair`, no Wi-Fi step. The dock keeps the network flow above. The Bluetooth permission and first-launch line come back. Ecosystem spec 4.3 and 5.1; plan `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`, Task AB2.
 
 ### 6.1 "Found" card
 

@@ -10,7 +10,10 @@
 Trackie's look and settings, and **relays the arrivals themselves**, so the wearable works with no Wi-Fi at all.
 The wearable reports battery, charging, Wi-Fi state and signal, and its settings. Wi-Fi is optional, set up from the
 app over the bonded link (home network or the phone's hotspot). When Bluetooth isn't connected and the wearable
-answers on the LAN, the app falls back to today's HTTP link. The dock doesn't change: it stays Wi-Fi only.
+answers on the LAN, the app falls back to today's HTTP link. **The wearable's whole Wi-Fi path stays a working
+fallback** (Leo, 2026-11-14: "still implement Wi-Fi on the wearable, just in case Bluetooth doesn't work out"): the
+HTTP link, its own CTA polling, and its own pairing over the network with a code on its screen (Task W6d, the dock's
+`POST /pair`). The dock doesn't change: it stays Wi-Fi only.
 
 **Architecture:** One GATT service on the wearable with two characteristics: `link` (phone → wearable, encrypted
 write) and `info` (wearable → phone, encrypted read and notify). A `link` message is an HTTP-shaped envelope,
@@ -23,7 +26,9 @@ writes it over the bonded link during setup. While the phone relays, the wearabl
 PSRAM, controller from flash) and cJSON; Unity native tests. SwiftUI iOS 17, CoreBluetooth (central, the
 `bluetooth-central` background mode, state restoration), Swift Testing in CTAKit.
 
-**Spec:** `docs/superpowers/specs/2026-11-14-ecosystem-design.md`, changed by Task X1 below (Leo approves the diff
+**Status:** approved by Leo, 2026-11-14, with the decisions below and one change (the Wi-Fi fallback, decision 4).
+
+**Spec:** `docs/superpowers/specs/2026-11-14-ecosystem-design.md`, changed by Task X1 below (Leo sees the diff
 before any build task starts). Base spec `2026-11-03-cta-tracker-design.md` §8.3, §9.5, §10; app spec
 `2026-11-04-ios-app-design.md` §6.
 
@@ -35,34 +40,36 @@ minimal `ble_setup.*`, NimBLE in `sdkconfig.defaults`, serial `b`; **not on main
 
 ---
 
-## Open questions for Leo
+## Decisions (Leo, 2026-11-14)
 
-Only the real decisions. Everything else is in "Assumed defaults" below.
+The plan's three open questions, settled as recommended, plus Leo's one change.
 
-1. **Docked without Wi-Fi.** Base spec 8.4 says docked = USB power **and** a battery **and** on home Wi-Fi (slot 0).
-   With Bluetooth only, the wearable never counts as docked, so Trackie never sleeps on the dock (showcase step 8).
-   **Recommendation:** docked = USB power and a battery, plus slot 0 joined *only if any Wi-Fi network is saved*. A
-   wearable with no Wi-Fi docks on power alone. It's a one-line change in `main.cpp` and a spec 8.4 edit.
-2. **Bring showcase step 7 ("No Wi-Fi") back.** The relay makes it possible: forget Wi-Fi on the wearable, and its
-   cards keep updating from the phone. **Recommendation:** yes, as step 7, but only if Task W6c's gates pass by 11/20
-   18:00. Show it with serial `W` (Wi-Fi off until reboot), or with F3's switch if F3 lands. If the gates miss,
-   step 7 stays cut and Bluetooth still carries steps 4–6.
-3. **Pairing again in the demo.** iOS can't remove a bond from an app. A reset wearable that forgets its bond gets
-   refused by an iPhone that still holds it (the spike's status 0x206).
-   **Recommendation:** on reset the wearable also makes a new random static address (kept in NVS), so the iPhone sees
-   a new device and shows the passkey prompt again. Stale `CTA-Pet-xxxx` entries pile up in iOS Settings, which is
-   cosmetic. This is unverified (Task W6a Step 6). If it fails, the demo script adds "Forget CTA-Pet-xxxx in iOS
-   Settings → Bluetooth" before pairing.
+1. **Docked without Wi-Fi.** Docked = the AXP2101 reports USB power **and** a battery, plus slot 0 joined *only if
+   any Wi-Fi network is saved*. A wearable with no Wi-Fi docks on power alone, so Trackie sleeps on the dock
+   (showcase step 8) over Bluetooth only. One line in `main.cpp` (Task W6b) and a base spec 8.4 edit (Task X1).
+2. **Showcase step 7 ("No Wi-Fi") comes back** if Task W6c's gates pass by **11/20 18:00**. It's shown with serial
+   `W` (Wi-Fi off until reboot), or with F3's switch if F3 lands. If the gates miss, step 7 stays cut and Bluetooth
+   still carries steps 4–6.
+3. **Pairing again in the demo.** On reset the wearable makes a new random static address (kept in NVS), so the
+   iPhone that still holds the old bond sees a new device and shows the passkey prompt again. Stale `CTA-Pet-xxxx`
+   entries in iOS Settings are cosmetic. Unverified until Task W6a Step 6; if it fails, the demo script adds "Forget
+   CTA-Pet-xxxx in iOS Settings → Bluetooth" before pairing (Task X2).
+4. **Wi-Fi stays a real fallback on the wearable (Leo's change).** The wearable keeps its full Wi-Fi path working on
+   its own: the HTTP link, its own CTA polling, and **its own Wi-Fi pairing**: `POST /pair` with a 6-digit code on
+   its screen, through the shared `cta::PairGate` (`firmware/lib/cta/src/pair.*`, on main since `9735f8e`) that the
+   dock uses (Task W6d). The code is offered while the wearable is unpaired and has Wi-Fi. The app's setup uses it
+   when Bluetooth isn't available or fails (Task AB2). So the 11/19 cut line is a switch, not a build: the HTTP-only
+   path is built and tested before the Bluetooth tasks land.
 
 ---
 
-## Assumed defaults (assumed; Leo can change)
+## Defaults (accepted by Leo, 2026-11-14)
 
-1. **Polling while relaying.** *Assumed; Leo can change.* With Wi-Fi joined and no phone connected, the wearable
+1. **Polling while relaying.** With Wi-Fi joined and no phone connected, the wearable
    polls CTA itself, as today. While the phone is connected over Bluetooth and relaying (a `/relay` tick in the last
    90 s), the wearable polls nothing: no CTA, alerts or weather. It resumes the moment the ticks stop or the link
    drops. For each stop, the record with the newest `ts` wins.
-2. **One GATT service.** *Assumed; Leo can change.*
+2. **One GATT service.**
    - A write characteristic `link` for phone → wearable messages, carrying the HTTP link's JSON (`link_msg`
      parsers, cJSON).
    - A notify characteristic `info` for wearable → phone status: battery %, charging, Wi-Fi joined and RSSI,
@@ -70,13 +77,13 @@ Only the real decisions. Everything else is in "Assumed defaults" below.
    - Chunking for messages bigger than the MTU.
    - Passkey pairing and bonding replace the HTTP bearer token on Bluetooth. The token stays on the LAN, and the app
      writes it over Bluetooth during setup.
-3. **Wi-Fi over Bluetooth.** *Assumed; Leo can change.* Up to 5 networks (`kWifiSlots`, `parseWifi`). Passwords
+3. **Wi-Fi over Bluetooth.** Up to 5 networks (`kWifiSlots`, `parseWifi`). Passwords
    cross only the encrypted, bonded link and are never logged. `secrets.h` stays as the fallback list when NVS has
    none.
-4. **iOS.** *Assumed; Leo can change.* CoreBluetooth central with the `bluetooth-central` background mode and state
+4. **iOS.** CoreBluetooth central with the `bluetooth-central` background mode and state
    restoration. The relay runs **in the foreground only** for the showcase. The background keeps the connection and
    the status, nothing more (see "iOS: what really works in the background").
-5. **Battery gate.** *Assumed; Leo can change.* A power A/B on the wearable is required (Task W6c):
+5. **Battery gate.** A power A/B on the wearable is required (Task W6c):
    - relaying over Bluetooth must project **no worse than Wi-Fi polling in the same session**, with an absolute
      floor of **44.7 h**;
    - Bluetooth on with no phone (advertising, Wi-Fi polling) must project **≥ 43.6 h**, which is 5% under today's
@@ -84,14 +91,15 @@ Only the real decisions. Everything else is in "Assumed defaults" below.
 
    See Gates.
 
-Smaller calls of mine, built in unless Leo says otherwise:
+Smaller calls, also accepted:
 
 6. **Wi-Fi stays joined while relaying** (if a network is saved). The app's LAN fallback stays instant, and docked
    detection keeps working. Only the polling stops.
 7. **Bluetooth is always on** in the live build: advertising whenever no phone is connected. `POST /ble` and the old
    "BLE only without Wi-Fi, or 120 s after `/ble`" rule go away.
-8. **No `/pair` on the wearable.** Ecosystem Task 9 (pairing over the network) isn't built. The token arrives over
-   Bluetooth. Task 9 comes back only as the fallback if Bluetooth fails (see Cut lines).
+8. **Two ways to pair the wearable.** Bluetooth first: the passkey bonds, and the app writes the token over the
+   bond (`POST /token`). As the fallback, ecosystem Task 9 is built as Task W6d: `POST /pair` with the code on the
+   wearable's screen, exactly as the dock's (decision 4). Either way the wearable ends up with the household token.
 9. **The relay rides the app's own arrivals fetches.** The wearable's stops are added to what `ArrivalsStore`
    tracks, so a stop that is both on screen and on the wrist costs one request, not two.
 
@@ -207,13 +215,15 @@ The wearable dispatches the message when its last chunk arrives, then answers th
 | `POST /nearby` | base spec `nearby` | `parseNearby` | both | as today |
 | `POST/DELETE /pin` | `ConfigStop` | `parseStop` | both | as today |
 | `POST/DELETE /follow` | follow body | `parseFollow` | both | as today |
-| `POST /reset` | `{}` | — | both | as today, plus Bluetooth bonds cleared and a new address (open question 3) |
+| `POST /reset` | `{}` | — | both | as today, plus Bluetooth bonds cleared and a new address (decision 3) |
+| `POST /pair` | `{"code","token"}` | `parsePair`, `PairGate` | **HTTP only**, no bearer token | the Wi-Fi fallback (W6d): saves the token as the dock does (200, 403, 409, 423) |
 | `POST /token` | `{"token"}` | `parseToken` | **Bluetooth only** | saves the HTTP bearer token (NVS, `lan::setToken`) |
 | `POST /wifi` | `{"slot","ssid","pass"}` | `parseWifi(…, kWifiSlots, …)` | **Bluetooth only** | saves the slot to NVS `wifi`; the network task rejoins strongest-first |
 | `POST /relay` | **new** `{"now", "wmo"?, "temp"?}` | `parseRelayTick` | both | sets the clock if it isn't set yet; weather if present; marks "relaying" for 90 s when it came over Bluetooth |
 | `POST /stop` | **new** `{"id","type","records":[stop record…]}` | `parseRelayStop` | both (HTTP ≤ 1 KB, for `link_send.py`) | replaces every card at that stop when its newest `ts` ≥ the stored newest; a stop not in the list or the pin is ignored (200) |
 
-`POST /ble` is removed. HTTP keeps `GET /info` and `GET /config`.
+`POST /ble` is removed. HTTP keeps `GET /info` and `GET /config`. `/pair` over Bluetooth gets `0x82`: the bond
+replaces it there.
 
 ### Status (wearable → phone, `info`)
 
@@ -312,7 +322,11 @@ real check; it's recommended after the showcase and is not a gate.
 4. **Relay merge.** Newest `ts` wins per stop. A `/stop` for a stop not in the list is ignored. A relayed record
    keeps Follow working (`followView`). Polling resumes 90 s after the last tick. Test: `live_test.cpp` relay
    cases.
-5. **Secrets.** A Wi-Fi password never appears in serial output, logs, `WifiMessage`'s descriptions, or the NimBLE
+5. **The Wi-Fi fallback stays whole.** With Bluetooth off (serial `b`, or not started), a fresh wearable with a
+   network in `secrets.h` or NVS pairs by code (`POST /pair`, the same `PairGate` and status codes as the dock),
+   polls CTA itself, and takes pin, follow, nearby and config over HTTP. A token written over Bluetooth closes the
+   gate (409). Test: `test_pair` (shared, exists) and `link_send.py --garbage`; on device, W6d Step 3.
+6. **Secrets.** A Wi-Fi password never appears in serial output, logs, `WifiMessage`'s descriptions, or the NimBLE
    log (`CONFIG_BT_NIMBLE_LOG_LEVEL_NONE`). The passkey is never printed.
 
 ---
@@ -324,37 +338,43 @@ real check; it's recommended after the showcase and is not a gate.
 | **X — spec and docs** | `docs/superpowers/specs/2026-11-14-ecosystem-design.md`, base spec §8.3/8.4/9.5/10, app spec §6, this plan, `docs/superpowers/plans/2026-11-14-ecosystem.md` (Tasks 9, 12, 19 notes), `docs/superpowers/plans/2026-11-14-esp-idf-port.md` (W6 pointer) | X1, X2 | nothing (X1 first) |
 | **L — shared library** | `firmware/lib/cta/src/ble_frame.*` (new), `link_msg.*`, `ble_ids.h`, `cta_config.h` (relay constants), `firmware/native/test/test_ble_frame`, `test_link` (new cases), `tools/link_send.py` (`relay`, `stop` commands) | L1 | X1 approved |
 | **K — CTAKit** | `ios/CTAKit/**` (`BLEFrames.swift` new, `LinkMessages.swift`, `BLEMessages.swift`, `StopRecord.swift`, `Config.swift`) | K1 | X1 approved |
-| **W — wearable** | `firmware/handheld/mock/src/ble_setup.*`, `link.*`, `live.*`, `live_store.*`, `main.cpp`, `sdkconfig.defaults`, `tools/live_test.cpp`; `ui.cpp` setup states only (passkey, "Joining Wi-Fi…"), coordinated with H-UI | W6a, W6b, W6c | L1 merged before W6a Step 3 |
+| **W — wearable** | `firmware/handheld/mock/src/ble_setup.*`, `link.*`, `live.*`, `live_store.*`, `main.cpp`, `sdkconfig.defaults`, `tools/live_test.cpp`; `ui.cpp` setup states only (pairing code, passkey, "Joining Wi-Fi…"), coordinated with H-UI | W6d, W6a, W6b, W6c | W6d: nothing (X1 first); L1 merged before W6a Step 3 |
 | **AB — app Bluetooth** | `ios/CTATracker/Devices/BLELink.swift`, `WearableRelay.swift`, `WearableSetup.swift` (all new); the routing seam in `DeviceLink.swift`; `UIBackgroundModes` in `project.pbxproj` | AB1, AB2, AB3 | K1 merged |
 | **A — app (existing)** | as in the ecosystem plan; adds Wi-Fi RSSI and "via Bluetooth / Wi-Fi" to Task 11's device page | 11, 12 (dock branch), 13–17 | K1 for the new `InfoMessage` fields |
 
 **Files shared between tracks:**
 - **AB and A share `DeviceLink.swift` and the setup flow.** AB lands the routing seam first, as AB1's first small
   commit (`post`/`delete`/`feed` go through one `route(id)`), and A rebases on it. Task 12's found card and flow shell
-  are A's. AB adds the wearable branch (`WearableSetup.swift`), and A's dock branch keeps `POST /pair`.
-- **W and H-UI share `ui.cpp`.** W touches only the Pairing state's text (the passkey) and adds a "Joining Wi-Fi…"
-  bubble. F3's settings page, if it lands, shows "Phone: connected" and holds the Wi-Fi off switch (open question 2).
+  are A's. AB adds the wearable's Bluetooth branch (`WearableSetup.swift`). A's code-pairing branch (`POST /pair`)
+  serves the dock, and the wearable when Bluetooth isn't available (AB2 picks the branch).
+- **W and H-UI share `ui.cpp`.** W touches only the Pairing state's text (the code from W6d, the passkey from W6a)
+  and adds a "Joining Wi-Fi…" bubble. F3's settings page, if it lands, shows "Phone: connected" and holds the Wi-Fi
+  off switch (decision 2).
 
 ### Order, day by day
 
 | Day | X | L | K | W (wearable board) | AB | A |
 |---|---|---|---|---|---|---|
-| **11/15** | X1 spec diff, morning → Leo approves | L1 | K1 | W6a Steps 1–2 (rebase `9aa8b43`, controller in flash, RAM re-measure) | — | Tasks 11–12 as planned |
+| **11/15** | X1 spec diff, morning → Leo sees it | L1 | K1 | **W6d** (pairing by code, the fallback), then W6a Steps 1–2 (rebase `9aa8b43`, controller in flash, RAM re-measure) | — | Tasks 11–12 as planned (Task 12's code pairing on the dock, then the wearable with W6d) |
 | **11/16** | — | `link_send.py` relay commands | — | W6a Steps 3–6 (GATT, frames, dispatcher, pairing, token/Wi-Fi) | AB1 (transport) | 12, 13 |
-| **11/17** | — | — | — | W6b (relay intake, polling switch, no-Wi-Fi boot) | AB1 on the board; AB2 (setup) | 13, 14 |
+| **11/17** | — | — | — | W6b (relay intake, polling switch, no-Wi-Fi boot) | AB1 on the board; AB2 (setup, with the code fallback) | 13, 14 |
 | **11/18** | — | — | — | W6c RAM gates (morning), power A/B (afternoon, needs the iPhone) | AB2, AB3 (relay) | 15, 16 |
 | **11/19** | — | — | — | fixes from the gates | AB3 on the board | 16, 17 |
 | **11/20** | — | — | — | full showcase run over Bluetooth, home network and no Wi-Fi; **18:00: step 7 go/no-go** | fixes | fixes |
 | **11/21** | X2 docs and demo script | | | | | freeze 18:00 |
 | **11/22** | dry run twice on campus, plus no Wi-Fi | | | | | |
 
-**Merge order onto main:** X1, then L1 and K1, then W6a, then AB1, then W6b, then AB2 and AB3, then W6c (results
+**Merge order onto main:** X1, then W6d (and Task 12, so the HTTP-only path is whole on main by 11/16), then L1
+and K1, then W6a, then AB1, then W6b, then AB2 and AB3, then W6c (results
 only), then X2. Each track rebases on main before merging. Finished, reviewed work ships without asking.
 
-**Estimates (agent-days):** X1 0.25 · L1 0.5 · K1 0.5 · W6a 1.5 · W6b 1.0 · W6c 0.5 (plus about 3 h of board and
-phone time) · AB1 1.0 · AB2 0.75 · AB3 0.75 · X2 0.25. About **7 agent-days** over three parallel tracks. The
-critical paths are L1 → W6a → W6b → W6c (done by 11/18 evening) and K1 → AB1 → AB3 (on the board 11/19). That leaves
-**about one day of slack** before the freeze. Track A's own Tasks 11–17 still need all of 11/15–11/20, which is why
+**Estimates (agent-days):** X1 0.25 · L1 0.5 · K1 0.5 · W6d 0.5 · W6a 1.5 · W6b 1.0 · W6c 0.5 (plus about 3 h of
+board and phone time) · AB1 1.0 · AB2 1.0 · AB3 0.75 · X2 0.25. About **7.75 agent-days** over three parallel tracks.
+W6d is small because the gate, its tests, the status codes, `link_send.py pair` and the fake board's `/pair` all exist
+from the dock's Task 7; AB2 grows by 0.25 for the fallback branch, since Task 12 already builds the code screen. The
+critical paths are L1 → W6a → W6b → W6c (done by 11/18 evening, with W6d first on Track W) and K1 → AB1 → AB3
+(on the board 11/19). W6d costs Track W about half a day, so that leaves **about half a day of slack** before the
+freeze. Track A's own Tasks 11–17 still need all of 11/15–11/20, which is why
 AB is a separate session.
 
 ### Cut lines
@@ -363,8 +383,10 @@ AB is a separate session.
   D4): Bluetooth carries status, pin, follow, nearby and config, but no relay (the 8 KB buffer and `/stop` go). Wi-Fi
   is required again, and step 7 stays cut.
 - **11/19 12:00, Bluetooth unstable on the board** (drops, coexistence stalls TLS): the wearable goes back to HTTP
-  only, with Task 9 Appendix A pairing (`POST /pair`, the code in the bubble, about 0.5 day, as the dock's
-  `9735f8e`). The app's Bluetooth stays in the code, switched off by a flag.
+  only. Nothing new is built: W6d's code pairing, the HTTP link and the wearable's own polling are on main and tested
+  since 11/16. The wearable stops starting Bluetooth at boot (one line), takes its networks from `secrets.h` and NVS,
+  and the app's Bluetooth stays in the code, switched off by a flag, so AB2's setup goes straight to the code. Step 7
+  stays cut.
 - **11/20 18:00, P2 or the latency gate fails:** the relay ships off by default (the app doesn't send `/relay`); the
   rest of the Bluetooth link stays.
 
@@ -373,27 +395,31 @@ AB is a separate session.
 ### Task X1: Spec and plan changes for the Bluetooth link (Track X)
 
 **Files:** `docs/superpowers/specs/2026-11-14-ecosystem-design.md`, `docs/superpowers/specs/2026-11-03-cta-tracker-design.md`
-(§8.3, §8.4 if open question 1 is yes, §9.5, §10), `docs/superpowers/specs/2026-11-04-ios-app-design.md` (§6
-notes), `docs/superpowers/plans/2026-11-14-ecosystem.md` (Task 9: replaced by W6a here; Task 12: wearable branch is
-AB2; Task 19: replaced by W6b/AB3), `docs/superpowers/plans/2026-11-14-esp-idf-port.md` (W6 points here; E1 is
+(§8.3, §8.4, §9.5, §10), `docs/superpowers/specs/2026-11-04-ios-app-design.md` (§6 notes),
+`docs/superpowers/plans/2026-11-14-ecosystem.md` (Task 9: the wearable's Wi-Fi pairing, the fallback, built as W6d
+here; Task 12: the wearable's Bluetooth branch is AB2, its code branch stays; Task 19: replaced by W6b/AB3), `docs/superpowers/plans/2026-11-14-esp-idf-port.md` (W6 points here; E1 is
 superseded by this task), `todo.md` F17.
 
-- [ ] **Step 1:** In the ecosystem spec:
-  - The status line records Leo's 2026-11-14 decisions: Bluetooth first for the wearable, the dock Wi-Fi only.
-  - §1 and §2: step 7 comes back conditionally (open question 2).
+- [x] **Step 1:** In the ecosystem spec:
+  - The status line records Leo's 2026-11-14 decisions: Bluetooth first for the wearable, its Wi-Fi path (pairing
+    by code included) kept as the fallback, the dock Wi-Fi only.
+  - §1 and §2: step 7 comes back conditionally (decision 2).
   - §4.1 and §4.2: a new picture, with the phone ⇄ wearable link over Bluetooth, the LAN as the fallback, and the
     dock on the LAN.
-  - §4.3: the wearable's Bluetooth bond, and the token written over it.
+  - §4.3: the wearable's Bluetooth bond, and the token written over it; `POST /pair` stays for the dock and as the
+    wearable's fallback.
   - §4.4: "The link" section of this plan (GATT, frames, envelope, messages, status).
-  - §5.1: wearable setup over Bluetooth (pair → Wi-Fi optional → Trackie); the dock stays network pairing.
+  - §5.1: wearable setup over Bluetooth (pair → Wi-Fi optional → Trackie), with the code on screen when Bluetooth
+    isn't available; the dock stays network pairing.
   - §5.8: the relay is back.
   - §6: RAM and power gates from this plan.
   - §7: risks (coexistence; iOS background limits; re-pairing).
   - §12 becomes "built", and points here.
-- [ ] **Step 2:** The base spec §10's table matches this plan's GATT (retired characteristics struck through, with
+- [x] **Step 2:** The base spec §10's table matches this plan's GATT (retired characteristics struck through, with
   the date), and §8.3 says that the phone relays over Bluetooth and the wearable needs no Wi-Fi. The app spec §6
-  note: the wearable sets up over Bluetooth again, the dock over the network.
-- [ ] **Step 3:** Put the spec diff in the report for Leo. **No build task starts until he approves it.** Check the
+  note: the wearable sets up over Bluetooth again (the code on screen as its fallback), the dock over the network.
+  Base spec §8.4 takes decision 1.
+- [x] **Step 3:** Put the spec diff in the report for Leo. **No build task starts until he approves it.** Check the
   diff for network names, home paths and tokens. Commit (docs only, no review):
   `docs(ecosystem): Bluetooth first for the wearable, the relay back`.
 
@@ -500,7 +526,7 @@ public struct RelayStop: Encodable, Sendable { let id: String; let type: StopRec
 - [ ] **Step 2:** Implement. Run the CTAKit tests (`swift test` in `ios/CTAKit`) in full.
 - [ ] **Step 3:** Commit: `feat(ctakit): BLE frames, relay messages, vehicle on records, Wi-Fi signal in info`.
 
-### Task W6a: Wearable Bluetooth link (Track W; ecosystem Task 9 and the old W6, replaced)
+### Task W6a: Wearable Bluetooth link (Track W; the old W6, replaced)
 
 **Files:** `firmware/handheld/mock/src/ble_setup.h/.cpp` (grows into the link; the name stays), `link.h/.cpp`
 (dispatcher), `main.cpp`, `live.cpp` (Wi-Fi list from NVS written over Bluetooth; no exit with no networks),
@@ -555,14 +581,15 @@ void forgetBonds();               // ble_store_clear() plus a new random static 
     list and rejoins strongest-first.
   - With no networks saved at boot, `netTask` no longer deletes itself. It waits for a list, and starts Wi-Fi on the
     first one without a reboot.
-  - `info.paired` = a bond exists or a token is saved. While a Wi-Fi join after a `/wifi` write is under way, the
+  - `info.paired` = a bond exists or a token is saved. While a BLE pairing is under way the passkey replaces W6d's
+    code in the bubble; the code comes back if the pairing fails and no token is saved. While a Wi-Fi join after a `/wifi` write is under way, the
     bubble says "Joining Wi-Fi…", and the result shows in `info.wifi`.
   - BLE starts at boot in the live build (assumed default 7) and stays on. Serial `b` still toggles it for
     measurements.
 - [ ] **Step 6: Reset and re-pair.** `resetLink` (serial `R`, `POST /reset`, the two-finger hold) also calls
   `forgetBonds()`: `ble_store_clear()`, a new static random address from `ble_hs_id_gen_rnd(0, …)` saved in NVS, and
   `ble_hs_id_set_rnd` at every start. **Verify on the board:** after a reset, the iPhone that held the old bond
-  pairs again with a fresh passkey prompt and no Forget in iOS Settings (open question 3). If not, report it, and
+  pairs again with a fresh passkey prompt and no Forget in iOS Settings (decision 3). If not, report it, and
   X2's demo script adds the Forget step.
 - [ ] **Step 7: Verify (board plus LightBlue; app checks come with AB1):**
   - An unpaired write gets an authentication error. Paired with the passkey from the bubble, writes work:
@@ -578,7 +605,7 @@ void forgetBonds();               // ble_store_clear() plus a new random static 
 ### Task W6b: Relay intake and polling while relaying (Track W)
 
 **Files:** `link.cpp` (`/relay`, `/stop`), `live.h/.cpp` (relaying flag, polling switch, clock), `live_store.h/.cpp`
-(`applyRelay`), `main.cpp` (`info.relaying`, docked rule if open question 1 is yes, serial `W`), `tools/live_test.cpp`.
+(`applyRelay`), `main.cpp` (`info.relaying`, the docked rule of decision 1, serial `W`), `tools/live_test.cpp`.
 
 **Interfaces:**
 
@@ -603,7 +630,9 @@ bool relaying();                                        // a Bluetooth tick in t
   - Polls resume within one pass after the hold ends.
   - `/relay` over Bluetooth with no NTP sets the clock (`settimeofday`). NTP takes over when it syncs.
   - Serial `W` forgets nothing: it drops Wi-Fi and keeps it off until reboot, for the step 7 demo.
-  - Docked rule: as open question 1's answer.
+  - Docked rule (decision 1): USB power and a battery, plus slot 0 joined only if any network is saved. A
+    `live_test` or native case covers both branches if the rule moves into a testable function; otherwise verify it
+    on the board with and without a saved network.
 - [ ] **Step 3: Verify (board):**
   - Over HTTP from the Mac, `link_send.py relay` then `stop '<Belmont records>'` shows the relayed cards (with Wi-Fi
     up, as a stand-in until AB3). Then over Bluetooth with the app (AB3):
@@ -641,6 +670,37 @@ log columns for the Bluetooth state (`power_log.cpp`, `tools/power_model.py`, an
    come in bursts every 30 s).
 2. Advertising interval 1022.5 ms (one of Apple's recommended values) after 60 s with no connection.
 3. Turn `info` RSSI updates down to the heartbeat only.
+
+### Task W6d: Wearable pairing over Wi-Fi, the fallback (Track W; ecosystem Task 9; runs first, 11/15)
+
+Leo's change (decision 4): the wearable keeps a full Wi-Fi path that works without Bluetooth. This is ecosystem
+Task 9 as written there, on the shared gate the dock already uses. It lands on main before W6a, so the HTTP-only path
+is built and tested before any Bluetooth code goes in.
+
+**Files:** `firmware/handheld/mock/src/link.cpp` (`POST /pair`), `main.cpp` (the gate's code at boot; the token saved
+through the serial `T` path), `ui.cpp` (the Pairing state's text only: the code, and "Restart to pair").
+
+**Interfaces:** consumes `cta::parsePair`, `cta::PairGate`, `kPairWindowMs`, `kPairMaxWrong`
+(`firmware/lib/cta/src/pair.*`, tested in `test_pair`) and `InfoMsg.paired`. No shared-library change.
+
+- [ ] **Step 1:** Implement as the dock's `firmware/dock/src/link.cpp` does (`9735f8e`):
+  - At boot, with no token saved, fill `gate.code` from `esp_random()` (6 digits; never logged).
+  - `POST /pair`: no bearer token. Size (413), then `parsePair` (400), then `gate.check(code, nowMs, paired)`. Map
+    the result to HTTP as the dock does: Ok 200, WrongCode 403, AlreadyPaired 409, Locked and Closed 423.
+  - On Ok: the token is in use at once (`lan::setToken`), and the loop saves it to NVS (no flash from httpd's PSRAM
+    stack), through the same path as serial `T`.
+  - The bubble shows the code (`123 456`) while no token is saved and Wi-Fi is joined; after the 5-minute window or
+    5 wrong codes, "Restart to pair". Without Wi-Fi it shows nothing new (Bluetooth pairing, W6a, covers that case).
+  - `POST /reset` (and `R`, the two-finger hold) wipes the token, so the reboot shows a new code.
+  - The window counts from boot, as on the dock: a wearable that joins Wi-Fi late (after a `/wifi` write over
+    Bluetooth) pairs over Bluetooth instead, or is restarted.
+- [ ] **Step 2:** Run the native suite (`pio test -e native`; `test_pair` already covers the gate) and build the
+  wearable.
+- [ ] **Step 3: Verify (board):** after `R`, the bubble shows the code;
+  `python3 tools/link_send.py cta-pet-xxxx.local pair <code>` gives 200 and `--token` writes then work; a wrong code
+  gives 403, the sixth try 423, a second pair 409; `--garbage` still gives 400/413/401/401; the code never appears on
+  serial. Then Task 12's setup pairs the wearable from the app with the code, if Task 12 has landed.
+- [ ] **Step 4:** Commit: `feat(handheld): pair over the network with the code on screen (the Wi-Fi fallback)`.
 
 ### Task AB1: The Bluetooth transport in the app (Track AB)
 
@@ -683,10 +743,10 @@ tests in `ios/CTATrackerTests/BLELinkTests.swift` (the pure parts).
   - Rebooting the wearable reconnects within 10 s.
 - [ ] **Step 4:** Commit: `feat(ios): Bluetooth link to the wearable, HTTP as the fallback`.
 
-### Task AB2: Wearable setup over Bluetooth (Track AB; with Task 12's shell)
+### Task AB2: Wearable setup over Bluetooth, the code as the fallback (Track AB; with Task 12's shell)
 
 **Files:** Create `ios/CTATracker/Devices/WearableSetup.swift`; hook into Task 12's `FoundCard`/`SetupFlow` (A owns
-the shell; this adds the wearable branch).
+the shell and its code-pairing screen; this adds the wearable's Bluetooth branch and the choice between the two).
 
 - [ ] **Step 1:** Build the wearable branch:
   - `BLELink.found` raises "Trackie found · Set up".
@@ -700,11 +760,20 @@ the shell; this adds the wearable branch).
   - **Pet** (first device only).
   - **Ready.**
   - **Forget:** removes the device and says to finish in iOS Settings → Bluetooth (app spec 6.3).
+  - **The code fallback (decision 4).** A wearable found by Bonjour with `paired: false` also raises the card. The
+    flow uses Task 12's code screen ("Type the code shown on Trackie", `POST /pair`) when Bluetooth isn't available:
+    Bluetooth off or not allowed on the phone, the app's Bluetooth flag off (cut line), or no `CTA-Pet-*` seen
+    within 5 s. If the Bluetooth pairing fails or times out (30 s) and the wearable is on the network unpaired, the
+    Pair screen offers "Use the code on Trackie instead". After a code pairing the flow skips the Wi-Fi step (the
+    wearable is already on Wi-Fi) and goes to Pet and Ready. The pure choice (Bluetooth or code, from the phone's
+    Bluetooth state, what's been found, and the flag) gets a test in `ios/CTATrackerTests`.
 - [ ] **Step 2: Verify (board):**
   - From fresh (`R`): pair with the passkey, skip Wi-Fi, and the wearable works over Bluetooth alone.
   - Again from fresh with the phone's hotspot as the Wi-Fi: it joins, and the HTTP fallback works with the token.
-  - Re-pair after a reset with no Forget in iOS Settings (open question 3).
-- [ ] **Step 3:** Commit: `feat(ios): set up the wearable over Bluetooth, Wi-Fi optional`.
+  - Re-pair after a reset with no Forget in iOS Settings (decision 3).
+  - With Bluetooth off on the phone, a fresh wearable (Wi-Fi from `secrets.h`) sets up with the code on its screen
+    and works over HTTP.
+- [ ] **Step 3:** Commit: `feat(ios): set up the wearable over Bluetooth, Wi-Fi optional, the code as the fallback`.
 
 ### Task AB3: The relay (Track AB)
 
@@ -749,7 +818,8 @@ the Bluetooth connection; the last `NearbyMessage` sent and `pinned` are the sto
   - reset → pair over Bluetooth;
   - step 7 if go;
   - the iPhone's Auto-Lock off;
-  - the Forget step if open question 3's address change didn't work;
+  - the Forget step if decision 3's address change didn't work;
+  - pairing by code if Bluetooth is cut or won't pair (W6d);
   - what to do if Bluetooth drops (the app falls back to the LAN if Wi-Fi is set).
 - [ ] **Step 3:** Check the diff for network names, home paths and tokens. Commit:
   `docs: Bluetooth link in the READMEs and the demo script`.

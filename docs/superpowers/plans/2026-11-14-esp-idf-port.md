@@ -739,6 +739,10 @@ fails, use D4's ladder. Results go into `docs/ecosystem/day1-link.md` under "ESP
 
 ### Task W6: Wearable BLE setup (ecosystem Task 9, BLE version)
 
+> **Replaced 2026-11-14 (Leo)** by `docs/superpowers/plans/2026-11-14-wearable-ble-link.md` (Tasks W6a–W6d): Bluetooth first
+> with the relay, Bluetooth always on, no `POST /ble`, and the wearable's pairing over the network kept as the
+> fallback (W6d). The notes below still hold where that plan doesn't override them.
+
 The original Task 9 from `21a0fd7`, on IDF. D5 no longer builds BLE (the dock is Wi-Fi only), so the IDF notes that
 were D5's are this task's now:
 
@@ -773,6 +777,9 @@ slots 0–4 saved in NVS take priority over `secrets.h`).
 ## Track E — undo Appendix A in the docs
 
 ### Task E1: Bring the BLE tasks back into the ecosystem plan and spec
+
+> **Superseded 2026-11-14** by Task X1 of `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`, which made these spec and
+> plan edits for the Bluetooth-first design.
 
 > **2026-11-14 (Leo): the dock is Wi-Fi only.** Whatever E1 brings back is the wearable's; ecosystem Task 7 stays the
 > dock's pairing over Wi-Fi (D5), and Task 19's relay never involves the dock.

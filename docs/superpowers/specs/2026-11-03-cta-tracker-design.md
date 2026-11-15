@@ -246,6 +246,14 @@ The screen is always on, dimmed. After 15 s with no touch it drops to low bright
 
 ### 8.3 Location and data
 
+> **Changed 2026-11-14 (Leo): Bluetooth first for the handheld, built.** The phone and the handheld talk over one
+> bonded Bluetooth link (ecosystem spec `2026-11-14-ecosystem-design.md`, sections 4.4 and 5.8; plan
+> `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`). The handheld needs no Wi-Fi: while the app is in the
+> foreground and connected, the phone relays the arrivals themselves (`POST /stop`, whole stops every 30–60 s) and
+> the handheld polls nothing. Its `wake` arrives in an `info` notify instead of a `request`. On Wi-Fi with no phone
+> relaying, it polls for itself (step 3). The local network is its fallback link, and the dock is Wi-Fi only. The
+> handheld saves up to 5 Wi-Fi networks, set from the app over Bluetooth, with `secrets.h` as the fallback list.
+
 1. On every wake, the handheld sends a `request` to the app over BLE with whether it has Wi-Fi.
 2. The app takes one location fix and writes `nearby`: the location, the 5 nearest train station IDs, 5 bus stop IDs, and `close`, the 3 nearest stops of either kind. The bus stops are each route and direction's nearest stop, then the 5 nearest of those. Five of each, not ten, keeps the first load and each refresh quick (Leo, 2026-11-09); the 10 nearest stops outright are often one corner's few routes, both ways, on every side of the street. The handheld shows one card per route and direction, at the nearest listed stop that serves it (Leo, 2026-11-09). The handheld can't rank stations against bus stops itself because it has no stop coordinates.
 3. **On Wi-Fi:** the handheld polls those stops itself (section 6.6).
@@ -259,6 +267,9 @@ Until the app's BLE link exists, a laptop stands in for it: `tools/send_nearby.p
 The handheld saves up to 3 Wi-Fi networks, all set from the app.
 
 ### 8.4 Docked
+
+> **Changed 2026-11-14 (Leo):** docked = USB power and a battery, plus the first saved network (home) joined *only
+> if any network is saved*. A handheld with no Wi-Fi, on Bluetooth alone, docks on power alone.
 
 Docked means the AXP2101 reports USB power **and** a battery **and** the handheld is on its first saved network (home). A board with no battery runs on USB whenever it's on at all, so it never counts as docked (Leo, 2026-11-09). While docked, the pet is Asleep, the screen dims further, and polling slows (section 6.6).
 
@@ -307,7 +318,10 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 
 ### 9.5 Handheld relay
 
-> **Dropped for the showcase (2026-11-14)** with Bluetooth; see the ecosystem spec, section 12.
+> **Back 2026-11-14 (Leo), for the showcase if its gates pass by 11/20 18:00.** The relay runs over Bluetooth with
+> the app in the foreground only; in the background the app keeps the connection and the status notifies and relays
+> nothing. No "Always" location: a new `nearby` waits for the foreground. See the ecosystem spec, section 5.8, and
+> the plan's "iOS: what really works in the background." The rest of this section is the original design.
 
 - CoreBluetooth central, with the Bluetooth and location background modes and state restoration, so iOS can relaunch the app for BLE events after the system closes it.
 - **Nearby search:** the nearest stops come from the bundled `stops.json`, searched by distance from one location fix.
@@ -323,7 +337,11 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 
 ## 10. BLE protocol
 
-> **Not built for the showcase (2026-11-14).** The ecosystem spec (`2026-11-14-ecosystem-design.md`) replaces this: devices pair over the local network with a 6-digit code on screen (its section 4.3), Wi-Fi comes from `secrets.h`, and Bluetooth is future work (its section 12).
+> **Changed 2026-11-14 (Leo): built for the handheld only; the dock has no Bluetooth.** The handheld's service keeps
+> its UUID and `info`, adds one `link` characteristic, and retires the others (the table below). Messages longer than
+> one write are chunked (up to 8 KB), so the 512-byte cap no longer applies. The dock pairs over the local network with
+> a 6-digit code (ecosystem spec 4.3), and so does the handheld as its fallback when Bluetooth isn't available.
+> Details: ecosystem spec 4.4 and the plan `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`, "The link".
 
 One custom GATT service, implemented with ESP-IDF's NimBLE on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `CTA-Pet-xxxx`, where `xxxx` is the end of the MAC address.
 
@@ -334,12 +352,13 @@ All payloads are UTF-8 JSON, at most 512 bytes per write.
 | Characteristic | UUID | Properties | Payload |
 |---|---|---|---|
 | Service | `d8d4388c-c8e3-4ff0-b269-015d0979c266` | | |
-| `info` | `fb360799-3925-45c3-90be-c32d504bbc99` | read | `{type: "dock"\|"handheld", fw, battery, charging, wifi: {connected, ssid}, last_update}` |
-| `wifi` | `8d0820b1-1735-4f23-b1be-17b5d867632e` | write (encrypted) | `{slot: 0–2, ssid, pass}`; the dock only accepts slot 0 |
-| `config` | `d8427173-107a-4c28-97ba-ab3b12d1500f` | read, write | `{stops: [{type, route, dir, id, name} ×3], pet: {name, colors}, settings: {screen, led, night_start, night_end}}`; `stops` is dock-only, and a write may include any subset of keys |
-| `request` | `3c4dd75c-a019-4171-b7f1-b8dd87eda07c` | notify | handheld → app: `{want: "nearby", wifi: bool}` |
-| `nearby` | `e8b866e4-18bf-4ab4-bd7c-07b52cb2a057` | write | `{lat, lon, trains: [station IDs], buses: [stop IDs], close: [3 IDs]}`; each list nearest first |
-| `snapshot` | `7d05cd5a-5784-431f-b051-deb65bc0c3ee` | write | one stop record (6.2) |
+| `info` | `fb360799-3925-45c3-90be-c32d504bbc99` | read, notify (encrypted, authenticated; 2026-11-14) | the handheld's `GET /info` JSON (ecosystem spec 4.4), framed; notified on subscribe, on change, and every 30 s |
+| `link` (new, 2026-11-14) | `4a1eedc7-ebeb-42b2-9ce5-e1cc4f05e398` | write with response (encrypted, authenticated) | a framed envelope, `POST /pin` and a newline, then the JSON body; carries `config`, `nearby`, `pin`, `follow`, `reset`, `token`, `wifi`, `relay`, `stop` |
+| ~~`wifi`~~ | `8d0820b1-1735-4f23-b1be-17b5d867632e` | ~~write (encrypted)~~ | retired 2026-11-14: `POST /wifi` on `link`, slots 0–4 |
+| ~~`config`~~ | `d8427173-107a-4c28-97ba-ab3b12d1500f` | ~~read, write~~ | retired 2026-11-14: `POST /config` on `link` |
+| ~~`request`~~ | `3c4dd75c-a019-4171-b7f1-b8dd87eda07c` | ~~notify~~ | retired 2026-11-14: `wake` in `info` notifies |
+| ~~`nearby`~~ | `e8b866e4-18bf-4ab4-bd7c-07b52cb2a057` | ~~write~~ | retired 2026-11-14: `POST /nearby` on `link` |
+| ~~`snapshot`~~ | `7d05cd5a-5784-431f-b051-deb65bc0c3ee` | ~~write~~ | retired 2026-11-14: `POST /stop` on `link`, a whole stop's records |
 
 The UUIDs are defined once in `firmware/lib/cta/ble_ids.h` and mirrored in the app.
 

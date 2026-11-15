@@ -6,6 +6,12 @@
 - **Status:** Approved by Leo, 2026-11-14. **Changed 2026-11-14 after the day-1 spike (Leo): no Bluetooth for the
   showcase.** Pairing is over the network with the code on screen, Wi-Fi comes from `secrets.h`, and step 7 (the relay)
   is dropped. Bluetooth is future work (section 12). Results: `docs/ecosystem/day1-link.md`.
+  **Changed again 2026-11-14 after the ESP-IDF port (Leo): Bluetooth first for the wearable, the dock Wi-Fi only.**
+  On ESP-IDF, Bluetooth fits in internal RAM (controller in flash, buffers in PSRAM). The phone and the wearable talk
+  over a bonded Bluetooth link: setup, every message, and the relay of arrivals, so the wearable works with no Wi-Fi
+  (step 7 is back if its gates pass by 11/20 18:00). The wearable's Wi-Fi path stays a working fallback, its own
+  pairing by code included ("still implement Wi-Fi on the wearable, just in case Bluetooth doesn't work out"). The dock
+  is unchanged: Wi-Fi only, pairing over the network. Plan: `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`.
 - **Builds on:** `2026-11-03-cta-tracker-design.md` (the base spec) and `2026-11-04-ios-app-design.md` (the app spec).
   Where this document and those disagree on how the devices talk to each other, this one wins.
 
@@ -22,16 +28,18 @@ The showcase is a longer demo, so several features have to work end to end, and 
 set things on the phone and the dock and the wearable follow, and the other way around.
 
 **The showcase runs on one Wi-Fi network the whole time.** The phone, the dock, and the wearable are always on the
-same network. That's why the link, setup included, is the local network, not Bluetooth (section 4), and why features that
-only matter away from home don't have to be fully functional (Leo, 2026-11-14).
+same network, and features that only matter away from home don't have to be fully functional (Leo, 2026-11-14). The
+dock's link is the local network. The wearable's link is Bluetooth first, with the local network as its fallback
+(section 4), so the wearable doesn't depend on the router letting the phone reach it.
 
 ## 2. What the showcase shows
 
-In the order it would be shown. Steps 1–6 and 8 are committed; step 7 was dropped with Bluetooth (section 12).
+In the order it would be shown. Steps 1–6 and 8 are committed; step 7 is back, conditionally (below).
 Section 9 has two extras built only if there's time.
 
 1. **Pairing.** A "Dock found · Set up" card slides up in the app. The device shows a 6-digit code and the user types
-   it into the app. The same flow pairs the wearable.
+   it into the app. The wearable pairs the same way over Bluetooth: Trackie shows a passkey and the user types it
+   into iOS's prompt. If Bluetooth isn't available, the wearable shows a network pairing code like the dock's.
 2. **One Trackie.** Changing Trackie's name or color in the app changes Trackie on the dock and the wearable.
 3. **Dock stops both ways.** Picking a stop on the dock's screen shows in the app; picking one in the app changes
    the dock's section and its LED row.
@@ -40,20 +48,22 @@ Section 9 has two extras built only if there's time.
    somewhere and the wearable shows the same stops the phone's list does (Leo, 2026-11-14).
 5. **Send to Trackie.** In the app's stop detail, "Send to Trackie" pins that stop to the wearable's Home card.
 6. **Follow a train.** Choosing one departure in the app makes the wearable count down to that vehicle.
-7. ~~**No Wi-Fi.** With the wearable's Wi-Fi off, the phone keeps its cards updated over Bluetooth.~~ Dropped
-   2026-11-14: it needs Bluetooth on the wearable (section 12).
+7. **No Wi-Fi.** With the wearable's Wi-Fi off, the phone keeps its cards updated over Bluetooth. **Conditional
+   (Leo, 2026-11-14):** shown only if the wearable's RAM, power and latency gates (section 6) pass by 11/20 18:00;
+   otherwise it stays cut and Bluetooth still carries steps 4–6.
 8. **Docking.** Setting the wearable on the dock puts Trackie to sleep. Find my handheld shows where it was last
    seen.
 
-Also folded in from `todo.md`: **F1** (the wearable saves at least 5 Wi-Fi networks and joins the strongest, from
-`secrets.h`; setting them from the app needed Bluetooth and is future work) and **F5** (tap Trackie for the reason behind his mood, which mostly exists on the
+Also folded in from `todo.md`: **F1** (the wearable saves at least 5 Wi-Fi networks and joins the strongest, set
+from the app over Bluetooth, with `secrets.h` as the fallback list) and **F5** (tap Trackie for the reason behind his mood, which mostly exists on the
 wearable already).
 
 ## 3. Goals, non-goals, anti-goals
 
 **Goals**
 
-- Steps 1–6 and 8 work on the real hardware, on one network, repeatably, for a long live demo.
+- Steps 1–6 and 8 work on the real hardware, on one network, repeatably, for a long live demo; step 7 too if its
+  gates pass.
 - Pairing can be shown live more than once: a device can be reset to fresh without reflashing (section 5.4).
 - The dock's frame rate and the wearable's battery behavior don't get worse than today's merged numbers
   (`docs/perf/summary.md`, `docs/power/summary.md`).
@@ -76,9 +86,11 @@ on the dock's charging plug, so docked detection (base spec 8.4) and the battery
 
 - A flaky demo: a feature that works one time in three is worse than one that isn't there. Each step must recover by
   itself from a dropped request or a rebooted device.
-- Anyone on the network can change the devices: writes need the token set at pairing (section 4.3).
+- Anyone on the network or in Bluetooth range can change the devices: HTTP writes need the token set at pairing,
+  and Bluetooth writes need the bonded, encrypted link (section 4.3).
 - The dock stutters or the wearable runs out of internal RAM because of the new link.
-- A Wi-Fi password ever crosses the network in the clear, or gets logged or stored on the phone.
+- A Wi-Fi password ever crosses the network, or anything but the bonded Bluetooth link, or gets logged or stored
+  on the phone.
 
 ## 4. Architecture
 
@@ -98,34 +110,47 @@ Bluetooth costs about 50 KB of internal RAM, which would take both boards to abo
 6-digit code, the app sends it with `POST /pair`), Wi-Fi comes from `secrets.h`, and step 7 is dropped. The rest of
 B stands.
 
+**Then Bluetooth first for the wearable (Leo, 2026-11-14, after the ESP-IDF port).** On native ESP-IDF the Bluetooth
+controller runs from flash and its buffers move to PSRAM, so it fits next to Wi-Fi and TLS (measured on the wearable
+in W5, re-measured in the plan's Task W6a). The wearable's link becomes Bluetooth for everything (closer to A, but on
+one bonded link with the HTTP messages carried inside it), and the local network is its fallback. The dock stays on
+the local network only (Leo: "the dock is only wifi"). Plan: `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`.
+
 ### 4.2 The shape
 
 ```
-                      ┌──────────── home Wi-Fi (one network) ────────────┐
-                      │                                                  │
-   ┌─────────┐  HTTP  │  ┌───────────┐   HTTP   ┌───────────┐            │
-   │  Dock   │◄───────┼──┤ iPhone app├─────────►│ Wearable  │            │
-   │ (4.3")  │◄───────┼──┴───────────┴──────────┤ (1.75")   │            │
-   └─────────┘  HTTP (dock ↔ wearable, extras)  └───────────┘            │
-                      └──────────────────────────────────────────────────┘
-   Each device still polls CTA, alerts, and weather itself, exactly as today.
+                       Bluetooth (bonded, encrypted): setup, messages, status, relay
+                     ┌────────────────────────────────────────────────┐
+                     │                                                ▼
+   ┌─────────┐  HTTP ┌────────────┐  HTTP (fallback, when BT is down) ┌───────────┐
+   │  Dock   │◄──────┤ iPhone app ├ - - - - - - - - - - - - - - - - -►│ Wearable  │
+   │ (4.3")  │       └────────────┘                                   │ (1.75")   │
+   └─────────┘◄ - - - - - - HTTP (dock ↔ wearable, extras) - - - - - -┤           │
+        └──────────────────── home Wi-Fi (one network) ───────────────┴───────────┘
+   The dock polls CTA, alerts, and weather itself. The wearable does too when it's on Wi-Fi and the phone isn't
+   relaying; while the phone relays over Bluetooth, it polls nothing.
 ```
 
-- **Wi-Fi:** each device joins the strongest of the networks compiled into the git-ignored `secrets.h` (section 5.1).
-  No Wi-Fi name or password ever crosses the network.
-- **Pairing:** over the network, with a 6-digit code on the device's screen (section 4.3). No Bluetooth runs on
-  either board.
+- **Wi-Fi:** the dock joins the strongest of the networks compiled into the git-ignored `secrets.h`. The wearable
+  joins the strongest of up to 5 networks set from the app over Bluetooth, with `secrets.h` as the fallback list
+  when none is saved (section 5.1). Wi-Fi is optional on the wearable. No Wi-Fi password ever crosses the network.
+- **Pairing:** the dock over the network, with a 6-digit code on its screen (section 4.3). The wearable over
+  Bluetooth with a passkey, or, as the fallback, over the network with a code like the dock's.
+- **Bluetooth (wearable only):** one GATT service, `link` for phone → wearable messages and `info` for status
+  notifies (section 4.4). The app sends every wearable write over Bluetooth while it holds an encrypted link, and
+  over HTTP otherwise.
 - **Local network:** each device runs a small HTTP server on port 80 on its existing network task (core 0, never the
   dock's frame loop), and announces itself over mDNS as `cta-dock-xxxx.local` / `cta-pet-xxxx.local` (`xxxx` from
   its MAC) with a Bonjour service `_ctatracker._tcp` whose TXT record carries `type=dock|handheld` and
   `id`. The app finds devices with `NWBrowser`. Bodies are JSON with the base spec's shapes wherever one exists.
 - **Device → app:** while the app is in the foreground it polls each known device's `GET /info` every 2 s (my call:
   far simpler than the device pushing to the phone, and cheap on a LAN). Counters in `info` tell the app something
-  changed (section 4.4). In the background the app polls nothing (base spec 6.6 still holds).
+  changed (section 4.4). In the background the app polls nothing (base spec 6.6 still holds). While the wearable is
+  connected over Bluetooth, its `info` notifies replace its poll; the poll resumes at once when Bluetooth drops.
 
 ### 4.3 Pairing token
 
-A device with no token shows a 6-digit code on its screen, new at every boot and never logged. The app sends that code
+**On the dock, and on the wearable as its fallback:** a device with no token shows a 6-digit code on its screen, new at every boot and never logged. The app sends that code
 with a random 128-bit token in `POST /pair {"code", "token"}`. The device accepts it once, only within 5 minutes of
 boot, comparing the code in constant time. After 5 wrong codes it refuses every try until it's rebooted. A late or
 locked try gets an answer that tells the app to ask the user to restart the device (my call: the plan has the exact
@@ -137,6 +162,14 @@ each other too (section 9). Plain HTTP on the home network is accepted for the d
 request: someone sniffing the network at that moment could see the token. The code proves the user can see the
 device. No Wi-Fi password ever goes over the network.
 
+**On the wearable, first: the Bluetooth bond.** The wearable shows a 6-digit passkey in Trackie's bubble (never
+logged), and the user types it into iOS's pairing prompt (display-only passkey, bonding, MITM protection, LE Secure
+Connections). The bond authenticates every Bluetooth write. Once the link is encrypted, the app writes the household
+token over it (`POST /token`), so the wearable's HTTP fallback works with the same token as the dock. The wearable
+offers the network code only while it has no token and is on Wi-Fi; a token from either path closes the other. A
+reset clears the bond and gives the wearable a new random Bluetooth address, so the iPhone pairs afresh (unverified;
+if not, the user forgets the old entry in iOS Settings → Bluetooth).
+
 ### 4.4 Messages
 
 New or changed shapes are marked. All JSON; IDs and names keep the base spec's sizes.
@@ -144,12 +177,31 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 | Endpoint | Device | Body | Notes |
 |---|---|---|---|
 | `GET /info` | both | `{type, id, fw, battery, charging, wifi:{connected, ssid}, last_update, picks_ver, wake, docked, paired}` | **New fields:** `picks_ver` (dock: goes up on every pick, from either side), `wake` (wearable: goes up on every wake, 8.2), `docked` (wearable, 8.4), `paired` (has a token; false raises the app's found card). |
-| `POST /pair` | both | **new:** `{code, token}` | Pairing (4.3). No bearer token. |
+| `POST /pair` | both | **new:** `{code, token}` | Pairing (4.3). No bearer token. HTTP only; on the wearable, the fallback. |
 | `GET /config`, `POST /config` | both | base spec §10 `config`: `{stops, pet, settings}`, any subset | `stops` is dock-only. The app writes `pet` and `settings` to every device on connect and on change (app spec §6). |
 | `POST /nearby` | wearable | base spec §10 `nearby` | Parsed by the existing `cta::parseNearby`; same path as `send_nearby.py` today. |
 | `POST /pin`, `DELETE /pin` | wearable | **new:** one picked stop, the `ConfigStop` shape `{type, route, dir, id, name}` | Step 5. |
 | `POST /follow`, `DELETE /follow` | wearable | **new:** `{type, route, dir, id, name, vehicle, dest}` | Step 6. `vehicle` is the train run number (`rn`) or bus vehicle ID (`vid`). |
-| `POST /reset` | both | `{}` | Forgets the token, then reboots fresh (section 5.4). |
+| `POST /reset` | both | `{}` | Forgets the token, then reboots fresh (section 5.4). The wearable also clears its bonds and makes a new Bluetooth address. |
+| `POST /token` | wearable | `{token}` | **Bluetooth only** (404 on HTTP). The household token, written after the bond. |
+| `POST /wifi` | wearable | `{slot, ssid, pass}`, slots 0–4 | **Bluetooth only** (404 on HTTP). Saves a network; the wearable rejoins strongest-first. |
+| `POST /relay` | wearable | `{now, wmo?, temp?}` | The relay tick: sets the clock if unset, weather if present; over Bluetooth it marks the wearable "relaying" for 90 s, and it stops its own CTA polling meanwhile. |
+| `POST /stop` | wearable | `{id, type, records: [stop record…]}` | Relayed arrivals for one stop (base spec 6.2 records); the newest `ts` wins. |
+
+`POST /ble` is gone. The wearable's `info` also carries `wifi.rssi`, `settings` and `relaying`.
+
+**Over Bluetooth (wearable).** The same messages ride one GATT service (UUIDs in `ble_ids.h`):
+
+| Characteristic | Properties | Payload |
+|---|---|---|
+| Service `d8d4388c-…` | | advertised as `CTA-Pet-xxxx` |
+| `info` `fb360799-…` | read, notify (encrypted, authenticated) | the `GET /info` JSON; notified on subscribe, on any change, and every 30 s, at most once a second |
+| `link` `4a1eedc7-…` (new) | write with response (encrypted, authenticated) | an envelope `<POST or DELETE> <path>`, a newline, then the JSON body of the HTTP message above |
+
+Messages longer than one write are split into chunks with a 1-byte header (first, last, a 6-bit sequence), up to
+8 KB. The wearable answers each write with success, or an ATT error that maps to 400, 413, 404, or a broken
+sequence. One dispatcher on the wearable serves both transports with the same parsers. The plan's "The link" section
+has the details.
 
 The shared C++ library gets parsers for the new bodies next to `nearby_msg` and `picks`, with native tests; CTAKit
 gets the matching encoders next to `BLEMessages.swift`.
@@ -158,20 +210,40 @@ gets the matching encoders next to `BLEMessages.swift`.
 
 ### 5.1 Pairing and Wi-Fi (step 1, F1)
 
-- A fresh device is already on the network (Wi-Fi from `secrets.h`). The app finds it by Bonjour, and a `GET /info`
+**The dock** (unchanged):
+
+- A fresh dock is already on the network (Wi-Fi from `secrets.h`). The app finds it by Bonjour, and a `GET /info`
   with `paired: false` raises the "Dock found · Set up" (or "Trackie found · Set up") card.
 - The setup flow follows app spec §6, minus the Wi-Fi step: Pair ("Type the code shown on your dock") → Pet (first
   device only) → done. A wrong code says so. A late or locked try says to restart the device.
-- The device shows the code while it has no token: on the dock's setup screen, and in Trackie's bubble on the
-  wearable (`docs/handheld-ui.md`'s Pairing state). Once the 5 minutes are up or it's locked, it says to restart.
+- The dock shows the code on its setup screen while it has no token. Once the 5 minutes are up or it's locked, it
+  says to restart.
+
+**The wearable,** Bluetooth first:
+
+- A fresh wearable advertises `CTA-Pet-xxxx`; the app, in the foreground, raises "Trackie found · Set up".
+- **Pair:** "Type the code shown on Trackie when your iPhone asks." Trackie's bubble shows the passkey
+  (`docs/handheld-ui.md`'s Pairing state). Once bonded, the app writes the household token.
+- **Wi-Fi (optional, "Skip"):** network name and password, "Add another" up to 5, home first. Each goes over the
+  bonded link (`POST /wifi`); the app watches `info.wifi.connected` for up to 20 s ("Couldn't join. Check the
+  password."). The password is never stored or logged on the phone.
+- **Pet** (first device only) → **Ready.**
+- **The fallback:** when Bluetooth isn't available (off or not allowed on the phone, or the wearable not seen) or the
+  Bluetooth pairing fails, and the wearable is on the network unpaired, the app uses the dock's flow: Trackie's bubble
+  shows a 6-digit code and the app sends it with `POST /pair` (4.3). Wi-Fi then comes from the wearable's saved list
+  or `secrets.h`. Once the 5-minute window is up or it's locked, Trackie says to restart.
+
+**Both:**
+
 - **Settings → Devices** lists each device from its `info`: online or not connected, last update, Wi-Fi network,
   and (wearable) battery and charging. A device's page has its stops (dock) and Forget.
-- **F1:** both devices take up to 5 networks from `secrets.h`: home and campus, plus the phone's hotspot as the
+- **F1:** both devices take up to 5 networks: the dock from `secrets.h`; the wearable from the app over Bluetooth,
+  with `secrets.h` as the fallback list when it has none saved. Home and campus, plus the phone's hotspot as the
   backup. Slot 0 is home on the wearable, used by docked detection (8.4). Each joins the strongest network in range
-  and moves to the next strongest when the link drops, as `todo.md` F1 describes. Adding a network from the app
-  needed Bluetooth to keep the password off the network; it's future work (section 12).
+  and moves to the next strongest when the link drops, as `todo.md` F1 describes.
 - iOS needs `NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_ctatracker._tcp`) in the app's Info.plist,
-  and no Bluetooth permission.
+  `NSBluetoothAlwaysUsageDescription`, and the `bluetooth-central` background mode (it keeps the connection and the
+  status notifies; the relay runs in the foreground only).
 
 ### 5.2 One Trackie (step 2)
 
@@ -193,8 +265,10 @@ gets the matching encoders next to `BLEMessages.swift`.
 ### 5.4 Resetting for the demo
 
 `POST /reset`, a serial command, and a hidden gesture on each device (the builder picks one that can't happen by
-accident) wipe the token and reboot to the fresh state, showing a new pairing code. There's no Bluetooth bond to
-remove in iOS Settings, so the device can be paired again at once.
+accident) wipe the token and reboot to the fresh state, showing a new pairing code. The dock has no Bluetooth bond,
+so it can be paired again at once. The wearable also clears its bonds and takes a new random Bluetooth address, so
+the iPhone sees a new device and asks for the passkey again (unverified; if not, the demo script adds "Forget
+CTA-Pet-xxxx in iOS Settings → Bluetooth").
 
 ### 5.5 Nearby on the wrist (step 4)
 
@@ -213,6 +287,8 @@ remove in iOS Settings, so the device can be paired again at once.
 - When the app goes to the background the wearable keeps the last list it got; its next wake asks again (above), and
   the app, if open, answers with what its list shows then.
 - A pinned or followed stop (5.6, 5.7) stays on the wearable's Home card across new lists.
+- `nearby`, the pin and the follow (5.5–5.7) go over Bluetooth while the wearable is connected, and over HTTP
+  otherwise; the wearable's `wake` arrives in an `info` notify instead of a poll.
 
 ### 5.6 Send to Trackie (step 5)
 
@@ -237,35 +313,60 @@ remove in iOS Settings, so the device can be paired again at once.
   or a new follow replaces it.
 - F6's map display (every vehicle on the line in the app's map) isn't part of this design.
 
-### 5.8 Relay with no Wi-Fi (step 7): dropped
+### 5.8 Relay with no Wi-Fi (step 7): back
 
-Dropped 2026-11-14 with Bluetooth. Without Wi-Fi the wearable shows its last data greying out, as it does today. The
-design is kept in section 12.
+Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates pass by 11/20 18:00.
+
+- While the app is in the foreground and the wearable is connected over Bluetooth, the app sends `POST /relay` every
+  30 s (the time, and the weather if it has it), then `POST /stop` for each of the wearable's stops (the last
+  `nearby` plus the pin) whose arrivals it fetched since the last send, each stop at least every 60 s. The relay
+  rides the app's own arrivals fetches, so a stop both on screen and on the wrist costs one request.
+- Records are base spec 6.2 stop records with the vehicle (`veh`), one per line and direction, keyed as the wearable's
+  own cards, so Follow (5.7) runs on relayed data too.
+- While relaying, the wearable polls nothing (no CTA, alerts or weather). It resumes its own polling, if it has
+  Wi-Fi, 90 s after the last tick. With no Wi-Fi at all, `/relay` sets its clock.
+- In the background the app keeps the connection and the status, and relays nothing. Without the phone and without
+  Wi-Fi the wearable shows its last data greying out, as it does today.
+- The demo shows it with serial `W` (Wi-Fi off until reboot), or F3's switch if F3 lands.
 
 ### 5.9 Docking and find my handheld (step 8)
 
-- Docked detection and Trackie asleep are already built (8.4). The wearable reports `docked` in `info`.
-- **Find my handheld:** when a wearable that was online misses 3 polls in a row (about 6 s), the app saves the
+- Docked detection and Trackie asleep are already built (8.4). The wearable reports `docked` in `info`. **Changed
+  2026-11-14 (Leo):** docked = USB power and a battery, plus slot 0 joined only if any Wi-Fi network is saved, so a
+  wearable on Bluetooth alone still sleeps on the dock.
+- **Find my handheld:** when a wearable that was online misses 3 polls in a row (about 6 s) with neither link
+  working (Bluetooth disconnected and HTTP not answering), the app saves the
   phone's location and the time, and Settings → Find my handheld shows them as a map pin, or "Connected now." On the
   one demo network, powering the wearable off shows it.
 
 ## 6. Constraints
 
-- **Time:** about 9 working days. Steps 1–6 and 8 first, in the order of section 10; section 9 slips first.
-- **Internal RAM:** the foundation plan's floor is 40 KB free internal RAM at the worst moment. Today: the wearable
-  about 44 KB, the dock 49–51 KB, both during a TLS handshake. The HTTP server and mDNS take some; Bluetooth's
-  ~50 KB is why it's out.
+- **Time:** about 9 working days. Steps 1–6 and 8 first, in the order of section 10; section 9 slips first, then
+  step 7.
+- **Internal RAM:** the foundation plan's floor is 40 KB free internal RAM at the worst moment, on both boards. On
+  the wearable the worst moment is Bluetooth connected and relaying, Wi-Fi joined, a TLS handshake, and an HTTP
+  burst. The gate: ≥ 40 KB in each of three 10-minute cases (Bluetooth connected and relaying; connected, not
+  relaying, with TLS polling and an HTTP burst; advertising with Wi-Fi polling), and no leak over 3 Bluetooth off/on
+  cycles. W5 measured 67.1 KB connected (idle) before the controller moved to flash.
+- **The wearable's battery with Bluetooth:** a power A/B against main in the same session. Bluetooth on with the phone
+  away (advertising, Wi-Fi polling) projects ≥ 43.6 h (5% under today's 45.9 h). Relaying projects no worse than Wi-Fi
+  polling in the same session, with a floor of 44.7 h. Bluetooth's radio current is modeled from Espressif's
+  datasheet (the board has no current sensor); a discharge run per mode is the real check, after the showcase.
+- **Latency over Bluetooth:** pin or follow on the wrist ≤ 1 s; a new `nearby` fills its first cards ≤ 10 s;
+  relayed cards never older than 60 s while connected; reconnect after a wearable reboot ≤ 10 s; the HTTP fallback
+  takes over ≤ 6 s after Bluetooth drops.
 - **The dock's frame loop:** all new work runs on the network task (core 0). The dock perf runner
   (`tools/dock_perf_run.py`) must show no worse frames than `docs/perf/summary.md`.
 - **The wearable's battery:** the server and the app's 2 s polls keep its radio busier while the app is open. Check
   with the power tools (`docs/power/`) that the dim, app-closed case is unchanged.
 - **Toolchain:** both boards on native ESP-IDF 5.4.1 (PlatformIO `framework = espidf`, pioarduino 54.03.20), with
   IDF's cJSON; no Arduino core or library, and no Arduino build or fallback (Leo, 2026-11-14; port plan
-  `docs/superpowers/plans/2026-11-14-esp-idf-port.md`). Bluetooth, when it returns, is NimBLE through IDF. The day-1
-  spike's result (on the old Arduino build) is in `docs/ecosystem/day1-link.md`.
-- **Security:** the public repo rules of base spec §12 hold. The token and Wi-Fi passwords are never logged, never
-  committed, and the app keeps the token in the Keychain.
-- **Docs:** base spec §8.3, §9.5, and §10 get updated to point here when this is built.
+  `docs/superpowers/plans/2026-11-14-esp-idf-port.md`). Bluetooth is NimBLE through IDF, on the wearable only. The
+  day-1 spike's result (on the old Arduino build) is in `docs/ecosystem/day1-link.md`.
+- **Security:** the public repo rules of base spec §12 hold. The token, Wi-Fi passwords and the passkey are never
+  logged, never committed, and the app keeps the token in the Keychain. `/wifi` and `/token` are accepted only over
+  the bonded Bluetooth link.
+- **Docs:** base spec §8.3, §8.4, §9.5, and §10 point here (done 2026-11-14).
 
 ### 6.1 The rest of `todo.md`, built in the same window
 
@@ -275,8 +376,9 @@ iOS map), and the bugs B1 and B2. They're planned separately, but they touch thi
 
 - **F3, the wearable's settings page,** is where the wearable's side of this design shows: the networks from F1
   (which one it's on, in range or not) and pairing and unpairing (the reset of 5.4). If F3 lands first, the reset
-  goes there; if not, it's the hidden gesture and serial command this design specifies (my call). Networks come only
-  from `secrets.h` (5.1); F3 never takes a password on the watch.
+  goes there; if not, it's the hidden gesture and serial command this design specifies (my call). Networks come from
+  the app over Bluetooth or `secrets.h` (5.1); F3 never takes a password on the watch. F3 may show "Phone:
+  connected" and hold step 7's Wi-Fi off switch.
 - **F2, the battery level,** reads the same power state that `info` reports; one source for both.
 - **F4, the new font,** changes text on every screen this design adds (setup messages, the ★ card, the countdown).
   New screens use the existing text routines (`firmware/lib/gfx` fonts, `Theme` in the app), so the swap stays in one
@@ -289,8 +391,11 @@ iOS map), and the bugs B1 and B2. They're planned separately, but they touch thi
 
 | Risk | Mitigation |
 |---|---|
-| Bluetooth doesn't fit in internal RAM next to Wi-Fi and TLS | **Happened** (day 1: about 50 KB on both boards). The fallback is now the design: pairing over the network with the code on screen (4.3), Wi-Fi from `secrets.h`. The pairing moment survives; only the Wi-Fi handover and step 7 are lost. |
-| The phone can't reach the boards on a network | **Happened at home** on day 1: the Mac and both boards reached each other, but the iPhone's connections never reached either board, likely the router keeping the phone apart from the 2.4 GHz boards. Campus is checked on campus or at the 11/22 dry run; if it fails there too, the phone's hotspot is the demo network (compiled into both boards' `secrets.h` lists). |
+| Bluetooth doesn't fit in internal RAM next to Wi-Fi and TLS | **Happened** on the Arduino build (day 1: about 50 KB on both boards). On ESP-IDF it fits on the wearable (W5: 67.1 KB connected, before the controller moved to flash). If the RAM gate fails after the plan's ladder (11/18), Bluetooth carries status and messages but not the relay, Wi-Fi is required again, and step 7 stays cut. |
+| Bluetooth is unstable on the wearable: drops, or Wi-Fi/Bluetooth coexistence stalls TLS | The wearable's whole Wi-Fi path stays built and tested: the HTTP link, its own polling, and pairing by code (4.3). If Bluetooth isn't stable by 11/19 12:00, the wearable stops starting it, and the app's Bluetooth is switched off by a flag; nothing new has to be built. |
+| iOS background limits | The relay runs only with the app in the foreground (Auto-Lock off on the demo iPhone). In the background the connection and status stay; a force-quit app is never relaunched (base spec 9.5), and the wearable falls back to its own Wi-Fi polling if it has Wi-Fi. |
+| Re-pairing after a reset: iOS can't remove a bond from an app, and a wearable that forgot its bond gets refused | A reset gives the wearable a new random Bluetooth address, so the iPhone sees a new device (unverified). If that fails, the demo script adds "Forget CTA-Pet-xxxx in iOS Settings → Bluetooth"; pairing by code is the last resort. |
+| The phone can't reach the boards on a network | The wearable no longer needs it: Bluetooth doesn't go through the router. The dock still does. **Happened at home** on day 1: the Mac and both boards reached each other, but the iPhone's connections never reached either board, likely the router keeping the phone apart from the 2.4 GHz boards. Campus is checked on campus or at the 11/22 dry run; if it fails there too, the phone's hotspot is the demo network (compiled into both boards' `secrets.h` lists). |
 | The campus IoT network blocks devices from reaching each other or blocks multicast (common on campus networks; the phone can join it, Leo, 2026-11-14) | The showcase runs on the campus IoT network, and Leo develops and tests on his home network (2026-11-14; network names stay out of the repo). Day 1 checks both (section 10). Both go in the wearable's saved list (F1); for the showcase the campus network is slot 0, home, so docking works there (8.4). The app remembers each device's last IP address and tries it directly, and a device page shows its address, so blocked mDNS alone isn't fatal. If the boards and the phone can't reach each other there at all, the phone's hotspot is the demo network. Assumed: the IoT network takes a password only (my call); one that signs in with a username (PEAP, which the wearable's `WIFI_EAP_USER` already supports) goes in `secrets.h` the same way. |
 | The fallback hotspot is the same iPhone that runs the app | Whether the app can reach boards on its own hotspot is untested; check it before the 11/22 dry run, since home already failed the phone check. |
 | iOS local network permission is denied | The app explains it and links to Settings, the way it handles location. |
@@ -305,7 +410,11 @@ stops on the phone's list while the app is open.
 
 Also: one wearable in the demo, with its battery in and docked on the dock's plug; most of `todo.md` done in the same
 window (6.1). After the day-1 spike: no Bluetooth for the showcase, pairing over the network with the code on screen
-(plan Appendix A), Wi-Fi from `secrets.h`, step 7 dropped, Bluetooth as future work.
+(plan Appendix A), Wi-Fi from `secrets.h`, step 7 dropped, Bluetooth as future work. After the ESP-IDF port:
+Bluetooth first for the wearable with the relay, the dock Wi-Fi only; docked on power and a battery when no network
+is saved; step 7 back if its gates pass by 11/20 18:00; a new Bluetooth address on reset, with Forget as the
+fallback; the plan's five defaults (no polling while relaying, one GATT service, Wi-Fi over Bluetooth, foreground
+relay, the power gate); and the wearable keeps its full Wi-Fi path, pairing by code included, as a real fallback.
 
 **My calls, marked above:** the 2 s `info` poll; the pairing token; the extra `info` fields; the pin kept in RAM
 only; device settings riding along; the reset paths; re-sending pin and follow after a reboot; the mirror's 10 s
@@ -339,35 +448,34 @@ within `docs/handheld-ui.md`, and the setup screens' look within app spec §4.6.
 3. Steps 2 and 3 (pet and settings, dock stops both ways).
 4. Steps 4, 5, 6 (nearby, pin, follow), with the `rn`/`vid` data in CTAKit.
 5. Step 8 (find my handheld) and the reset paths.
-6. F1 and F5 polish, then section 9.
-7. A full dry run of section 2 on the hardware, on one network, at least twice in a row.
+6. The wearable's Bluetooth link, setup and relay (step 7), in the order of the Bluetooth plan. Its pairing by code
+   lands first, so the Wi-Fi fallback is whole before any Bluetooth code goes in.
+7. F1 and F5 polish, then section 9.
+8. A full dry run of section 2 on the hardware, on one network, at least twice in a row.
 
 ## 11. Testing
 
-- **Shared C++ library (native, Unity):** parsing every new body (pin, follow, pair, the new `info` fields, trip),
+- **Shared C++ library (native, Unity):** Bluetooth frames and the envelope; parsing every new body (pin, follow,
+  pair, relay tick, relayed stop, the new `info` fields, trip),
   including malformed ones that must leave the old state alone, as `parseNearby` and `decodePicks` do; the pairing
   rules (right code once, 5-minute window, lock after 5 wrong tries).
-- **CTAKit (Swift Testing):** encoders for every new body, the `rn`/`vid` on `Prediction` from the shared fixtures,
+- **CTAKit (Swift Testing):** the same frame vectors as the C++ tests; encoders for every new body, the `rn`/`vid` on `Prediction` from the shared fixtures,
   and the token never appearing in any description or log string (as `WifiMessage` does for passwords).
 - **On the Mac:** a small script (or `curl` lines in the READMEs) that drives each endpoint, so the firmware can be
   tested before the app side exists.
-- **On hardware:** the section 2 run, the dock perf runner, a power run of the wearable dim with the app closed, and
-  a reset → pair → demo cycle.
+- **On hardware:** the section 2 run (over Bluetooth, and with the wearable on the HTTP fallback), the dock perf
+  runner, the wearable's RAM, power and latency gates (section 6), and a reset → pair → demo cycle, by passkey and by
+  code.
 
-## 12. Future work: Bluetooth
+## 12. Bluetooth: built for the wearable
 
-Dropped for the showcase on 2026-11-14, kept as the design for a later version. In Leo's words: "Bluetooth would be
-cool later, but for a real version I'd likely use a more powerful device." The day-1 spike showed it works
-(on the Arduino build of the time: NimBLE-Arduino 2.5.2 on arduino-esp32 3.2.0, passkey pairing and an encrypted write from the iPhone on both boards)
-but costs about 50 KB of internal RAM, more than either board has to spare during TLS
-(`docs/ecosystem/day1-link.md`).
+Was "Future work: Bluetooth" (dropped for the showcase on the day-1 spike, 2026-11-14). Back the same day after the
+ESP-IDF port (Leo): the wearable is Bluetooth first, with the relay, and the dock stays Wi-Fi only. The design is in
+sections 4–6 above; the GATT, frames, envelope, messages, status, relay, iOS background behaviour, gates and tasks are
+in `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`.
 
-- **Setup over Bluetooth:** base spec §10's GATT service (`ble_ids.h`) cut down to `info`, `wifi` (encrypted write),
-  and a token characteristic, with passkey pairing; Bluetooth runs only while a device has no working Wi-Fi, or for
-  2 minutes after `POST /ble`. It lets the app hand over Wi-Fi (and "Add network" on a device page) without the
-  password crossing the network. iOS can't remove a bond, so a reset would need the user to forget the device in
-  iOS Settings → Bluetooth.
-- **Relay with no Wi-Fi (old step 7):** after 60 s without Wi-Fi the wearable turns Bluetooth on; the app, in the
-  foreground, writes one `snapshot` per card every 60 s (base spec 8.3 step 4). Plan Task 19 keeps the steps.
-- **What it needs:** a board with more internal RAM, or Bluetooth only while CTA polling is paused (the spike
-  projected about 30 KB on the wearable even then, under the 40 KB floor).
+What changed from the old future-work note: Bluetooth runs all the time on the wearable (advertising whenever no phone
+is connected), not only during setup or for 2 minutes after `POST /ble`, which is gone. The base spec's `wifi`,
+`config`, `request`, `nearby` and `snapshot` characteristics become paths on one `link` characteristic. The relay
+sends whole stops (`POST /stop`) every 30–60 s in the foreground, not one `snapshot` per card. Leo's earlier "for a
+real version I'd likely use a more powerful device" still stands for after the showcase.

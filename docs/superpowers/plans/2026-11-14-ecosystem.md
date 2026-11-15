@@ -28,6 +28,16 @@ Arduino APIs (`MDNS.begin`, ArduinoJson) were written for the Arduino build; bui
 > work (spec section 12): "Bluetooth would be cool later, but for a real version I'd likely use a more powerful
 > device."
 
+> **Decision, 2026-11-14 (Leo, after the ESP-IDF port): Bluetooth first for the wearable, the dock Wi-Fi only.**
+> The wearable's Bluetooth link, setup and relay are planned in `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`
+> (approved 2026-11-14). Task 7 stays the dock's pairing over the network (done, `9735f8e`). **Task 9** is the
+> wearable's pairing over the network, kept as the **fallback** and built as that plan's Task W6d, on the same
+> `cta::PairGate`. **Task 12**'s code flow stays for the dock and for the wearable when Bluetooth isn't available; the
+> wearable's Bluetooth branch is that plan's Task AB2. **Task 19** is replaced by its Tasks W6b and AB3 (the relay
+> over Bluetooth, showcase step 7 if its gates pass by 11/20 18:00). Task 10's `NSBluetoothAlwaysUsageDescription`
+> stays, and Task 12 no longer removes it. The wearable keeps its whole Wi-Fi path working (the HTTP link, its own
+> polling, its own pairing) in case Bluetooth doesn't work out.
+
 ## Global Constraints
 
 - Showcase on one network: the campus IoT network (slot 0, home, on the wearable); development on Leo's home network.
@@ -676,6 +686,10 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears the follow; a
 
 ### Task 9: Wearable pairing over the network (Track H)
 
+> **2026-11-14 (Leo): the Wi-Fi fallback, built as Task W6d** of `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`,
+> before the Bluetooth tasks. The wearable pairs over Bluetooth first; this code pairing is what the app uses when
+> Bluetooth isn't available. The `/ble` clean-up below moves to that plan's Task W6a.
+
 **Files:**
 - Modify: `firmware/handheld/mock/src/link.cpp` (`POST /pair`), `main.cpp` (code at boot), `ui.cpp` setup states
   only (the code in Trackie's bubble: the existing Pairing state, spec'd in `docs/handheld-ui.md`)
@@ -744,6 +758,10 @@ enum TokenStore { static func token() -> String?; static func setToken(_ t: Stri
 - [ ] **Step 3: Commit:** `feat(ios): devices list and device page`.
 
 ### Task 12: Setup flow over the network (Track A)
+
+> **2026-11-14 (Leo):** build this as written for the dock, and for the wearable as its fallback (pairing with the
+> code from Task 9 / W6d). The wearable's Bluetooth branch is Task AB2 of `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`,
+> which hooks into this found card and flow shell. **Keep `NSBluetoothAlwaysUsageDescription`**; don't drop it.
 
 **Files:** Create `ios/CTATracker/Devices/FoundCard.swift`, `SetupFlow.swift`; modify `DeviceLink.swift` (unpaired
 boards found by Bonjour, `pair`), `ios/CTATracker.xcodeproj/project.pbxproj` (drop
@@ -866,6 +884,9 @@ in the App Group.
 - [ ] **Step 3: Commit:** `feat(handheld): pinned stop and follow countdown on Home`.
 
 ### Task 19: Relay with no Wi-Fi — DROPPED (2026-11-14)
+
+> **Replaced 2026-11-14 (Leo)** by Tasks W6b and AB3 of `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`: the
+> relay over Bluetooth with whole stops (`POST /stop`), not one `snapshot` per card. The text below is history.
 
 **Dropped with the Appendix A decision:** the relay is phone to wearable only: the dock has no BLE (Leo, 2026-11-14,
 "the dock is only wifi"). It needs Bluetooth on the wearable, and BLE's ~50 KB of internal RAM
