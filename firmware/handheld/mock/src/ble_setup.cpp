@@ -93,7 +93,10 @@ int accessLink(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void*) {   // the
     if (ble_hs_mbuf_to_flat(ctxt->om, bufs->chunk, sizeof(bufs->chunk), &n) != 0) return kAttBadFrames;
     const cta::FrameResult fr = reasm->add(bufs->chunk, n);
     if (fr == cta::FrameResult::More) return 0;
-    if (fr == cta::FrameResult::Error) return kAttBadFrames;
+    if (fr == cta::FrameResult::Error) {
+        printf("ble: link chunk out of sequence (%u bytes, header 0x%02x)\n", n, n ? bufs->chunk[0] : 0);
+        return kAttBadFrames;
+    }
     cta::Method m;
     char path[cta::kPathLen + 1];
     const char* body = nullptr;
@@ -102,6 +105,10 @@ int accessLink(uint16_t, uint16_t, ble_gatt_access_ctxt* ctxt, void*) {   // the
     if (cta::parseEnvelope(reasm->message(), reasm->length(), m, path, body, len)) {
         const int st = lan::apply(m == cta::Method::Delete, path, body, len, lan::Via::Ble);
         rc = st == 200 ? 0 : st == 413 ? kAttTooLarge : st == 404 ? kAttNotFound : kAttBadBody;
+        // Path and status only: a body may hold a password or the token.
+        printf("ble: %s %s: %d\n", m == cta::Method::Delete ? "DELETE" : "POST", path, st);
+    } else {
+        printf("ble: link message without an envelope (%u bytes)\n", static_cast<unsigned>(reasm->length()));
     }
     noteStack();
     return rc;
@@ -127,7 +134,8 @@ void advertise() {
     ble_gap_adv_params params = {};
     params.conn_mode = BLE_GAP_CONN_MODE_UND;
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    ble_gap_adv_start(BLE_OWN_ADDR_RANDOM, nullptr, BLE_HS_FOREVER, &params, onGap, nullptr);
+    const int rc = ble_gap_adv_start(BLE_OWN_ADDR_RANDOM, nullptr, BLE_HS_FOREVER, &params, onGap, nullptr);
+    if (rc != 0 && rc != BLE_HS_EALREADY) printf("ble: advertising didn't start (%d)\n", rc);
 }
 
 void countBonds() {
@@ -138,10 +146,12 @@ void countBonds() {
 int onGap(ble_gap_event* e, void*) {   // the host task
     switch (e->type) {
         case BLE_GAP_EVENT_CONNECT:
+            printf("ble: connect, status %d\n", e->connect.status);
             if (e->connect.status == 0) conn = e->connect.conn_handle;
             else advertise();
             break;
         case BLE_GAP_EVENT_DISCONNECT:
+            printf("ble: disconnect, reason 0x%03x\n", e->disconnect.reason);
             conn = BLE_HS_CONN_HANDLE_NONE;
             subscribed = false;
             shownKey = 0;
@@ -151,6 +161,8 @@ int onGap(ble_gap_event* e, void*) {   // the host task
             advertise();
             break;
         case BLE_GAP_EVENT_PASSKEY_ACTION:
+            printf("ble: passkey action %d (%s)\n", e->passkey.params.action,
+                   e->passkey.params.action == BLE_SM_IOACT_DISP ? "shown on screen" : "not handled");
             if (e->passkey.params.action == BLE_SM_IOACT_DISP) {   // the code goes on the screen only, never a log
                 ble_sm_io io = {};
                 io.action = BLE_SM_IOACT_DISP;
@@ -159,20 +171,32 @@ int onGap(ble_gap_event* e, void*) {   // the host task
                 ble_sm_inject_io(e->passkey.conn_handle, &io);
             }
             break;
-        case BLE_GAP_EVENT_ENC_CHANGE:
+        case BLE_GAP_EVENT_ENC_CHANGE: {
+            ble_gap_conn_desc d = {};
+            ble_gap_conn_find(e->enc_change.conn_handle, &d);
+            printf("ble: encryption, status %d: encrypted %d, authenticated %d, bonded %d, key size %d\n",
+                   e->enc_change.status, d.sec_state.encrypted, d.sec_state.authenticated, d.sec_state.bonded,
+                   d.sec_state.key_size);
             shownKey = 0;
             countBonds();
             // A subscribe can come before encryption (its CCCD isn't protected): notify on the loop's next setInfo,
             // not at the 30 s heartbeat, which is the app's pairing timeout.
             if (e->enc_change.status == 0) subNew = true;
             break;
+        }
+        case BLE_GAP_EVENT_MTU:
+            printf("ble: MTU %u\n", e->mtu.value);
+            break;
         case BLE_GAP_EVENT_SUBSCRIBE:
+            printf("ble: subscribe, handle %u (%s), notify %d\n", e->subscribe.attr_handle,
+                   e->subscribe.attr_handle == infoHandle ? "info" : "other", e->subscribe.cur_notify);
             if (e->subscribe.attr_handle == infoHandle) {
                 subscribed = e->subscribe.cur_notify;
                 subNew = subscribed;
             }
             break;
         case BLE_GAP_EVENT_REPEAT_PAIRING: {   // the phone lost its bond and we kept ours: drop ours and pair again
+            puts("ble: repeat pairing: dropping our old bond for this phone");
             ble_gap_conn_desc d;
             if (ble_gap_conn_find(e->repeat_pairing.conn_handle, &d) == 0) ble_store_util_delete_peer(&d.peer_id_addr);
             return BLE_GAP_REPEAT_PAIRING_RETRY;
@@ -187,6 +211,7 @@ int onGap(ble_gap_event* e, void*) {   // the host task
 void onSync() {
     ble_hs_id_set_rnd(addr);
     countBonds();
+    printf("ble: up as %s, %s\n", ble_svc_gap_device_name(), hasBond ? "bonded" : "no bond");
     advertise();
 }
 
