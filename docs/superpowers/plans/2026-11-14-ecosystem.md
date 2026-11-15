@@ -895,8 +895,9 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
   wearable merely found over Bonjour (fixes Task 15's fallback to `online[id].type`).
 - Known gap: the app can't see a pin swiped off on the wearable: `/info` carries no pin, so any later
   `.resendState` (reconnect or reboot) brings it back. Fix would be a `pin` field in `/info` (spec and firmware
-  change). Also, a reset wearable the app first sees again only after re-pairing looks like a plain reboot and gets
-  the old pin.
+  change).
+- A new pairing of a wearable (`DeviceLink.onAdded`, called from `add`) clears `pinned` and `followed`, so a reset
+  wearable re-paired over Bluetooth doesn't get the old pin back.
 - [ ] **Step 2: Verify:** pin Belmont Red → the wearable's Home card is Belmont with ★ (after Task 18); follow the
   next train → the wearable counts down to it; reboot the wearable → pin and follow come back.
 - [ ] **Step 3: Commit:** `feat(ios): send a stop to Trackie and follow a departure`.

@@ -31,6 +31,7 @@ import os
     @ObservationIgnored private(set) var sentPin: [String: ConfigStop] = [:]
     @ObservationIgnored var onSent: (() -> Void)?   // the relay sends a changed stop set at once
     var onAction: ((String, DeviceWatch.Action) -> Void)?   // AppModel reacts (Tasks 13–17)
+    @ObservationIgnored var onAdded: ((String) -> Void)?   // a device just paired: AppModel drops the old wrist pin
 
     @ObservationIgnored private var found: [String: String] = [:]   // id -> "ip:port" Bonjour gave this session
     @ObservationIgnored private var resolving: Set<String> = []
@@ -119,6 +120,7 @@ import os
     /// Saves a device just set up; one already known by that id is updated in place (re-pairing).
     func add(_ id: String, kind: DeviceKind, peripheral: UUID?) {
         devices = Self.adding(id, kind: kind, peripheral: peripheral, lastIP: found[id], to: devices)
+        onAdded?(id)
     }
 
     /// Removes the device; a Bluetooth bond stays until the user forgets it in iOS Settings (app spec 6.3).

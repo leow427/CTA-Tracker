@@ -68,6 +68,11 @@ import SwiftUI
             // A wake with the stops it already has sends nothing; coming online always does (it may have been reset).
             sendNearby(to: id, unlessHas: action == .sendNearby)
         }
+        // A fresh pairing means a fresh wearable (a demo reset, spec 5.4): its old pin and follow don't come back.
+        devices.onAdded = { [weak self] id in
+            guard let self, isWearable(id) else { return }
+            (pinned, followed) = (nil, nil)
+        }
         location.onFix = { [weak self] in
             guard let self, following else { return }
             awaitingFix.filter { self.devices.online[$0] != nil }.forEach { self.sendNearby(to: $0, unlessHas: false) }
