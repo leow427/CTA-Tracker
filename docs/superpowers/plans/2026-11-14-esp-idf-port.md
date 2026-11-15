@@ -36,9 +36,9 @@ esp_http_client, esp_http_server, nvs_flash, i2c_master, NimBLE. Unity native te
    (`firmware/native/test/json_bound.h`): the parser's peak cJSON bytes are no more than one bare parse of the same
    reply (no slack needed), and nothing is left allocated. The same bound also covers bus patterns (`buildBusRows`,
    `busPatternPath`) and the picker's routes and stops.
-2. **The fallback cut-off.** If a board still misses its gates on IDF at 18:00 on 11/17, should it demo from the last
-   Arduino commit (tagged `arduino-final`, Task J0) or keep going on IDF? My recommendation: the cut-off as stated,
-   decided per board.
+2. **No Arduino fallback (Leo, 2026-11-14: "there should be no arduino build now").** There is no cut-off: a board
+   that misses a gate is fixed on ESP-IDF. The `arduino-final` tag stays as history and as the A side of before/after
+   comparisons only, never as a demo build.
 
 ---
 
@@ -121,7 +121,6 @@ merges. Finished, reviewed work ships without asking (commit, push, merge).
 | 11/15 | — | D3 (gates), D4 (BLE measure) | W3, W4 (gates, power A/B) |
 | 11/16 | — | D5 (BLE setup) | W5 (BLE measure), W6 (BLE setup) |
 | 11/17 | E1; app Task 12 (BLE flow) on Track A | showcase steps on IDF | showcase steps on IDF |
-| 11/17 18:00 | **Cut-off** (open question 2): a board that still fails its gates demos from `arduino-final` | | |
 | 11/18–21 | the ecosystem plan's remaining days, unchanged | | |
 | 11/22 | dry run | | |
 
@@ -313,7 +312,7 @@ Per board:
 
 ### Task J0: Tag the last Arduino build
 
-- [x] **Step 1:** `git tag arduino-final 3598b0b && git push origin arduino-final`, the fallback for open question 2.
+- [x] **Step 1:** `git tag arduino-final 3598b0b && git push origin arduino-final`, kept as history and as the A side of comparisons (no demo fallback; open question 2).
   No code. (Tagged and pushed 2026-11-14.)
 
 ### Task J1: Port `firmware/lib` from ArduinoJson to cJSON
