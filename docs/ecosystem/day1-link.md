@@ -181,3 +181,30 @@ their schedule.
   30 KB of internal RAM (controller, host task stack).
 - **Not measured yet:** BLE with a phone connected (LightBlue). A connection adds the controller's link buffers. If it
   drops under 40 KB, D4's ladder starts at its step 1: smaller msys/ACL counts, `BLE_MAX_ACT=1`.
+
+### Wearable (ESP-IDF port, Task W5, 2026-11-14)
+
+The real live firmware on native ESP-IDF 5.4.1 with IDF's NimBLE (host memory in PSRAM, one connection, peripheral
+only, `BT_CTRL_BLE_MAX_ACT=2`). Serial `b` turns BLE on (advertising the service as `CTA-Pet-xxxx`, with an `info`
+read) and off (`nimble_port_stop` + `nimble_port_deinit`). Lowest free internal RAM
+(`heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`), with the normal polls running (trains every 60 s on a
+kept-open, resumed TLS connection; buses, alerts, weather):
+
+| Build / state | Free at boot | Lowest over the window |
+|---|---|---|
+| BLE compiled out (`CONFIG_BT_ENABLED=n`) | 195.6 KB | 123.6 KB (polling) |
+| BLE compiled in, off, 10 min | 168.5 KB | 87.5 KB |
+| BLE on, advertising, no phone connected, 10 min | | **51.4 KB** |
+| BLE off again | | free back to 93,868 B |
+
+- **Pass so far:** 51.4 KB with BLE on, against the 40 KB floor, without a phone connected. The 10 minutes with an
+  iPhone connected in LightBlue are still to do.
+- **The controller's memory is taken at boot:** with `CONFIG_BT_ENABLED=y`, 27 KB less internal RAM is free at boot,
+  whether BLE ever starts or not. Starting BLE takes about 35 KB more (free 93.9 → 59.0 KB).
+- **No leak:** off, on, off: the free figure came back to exactly 93,868 B each time.
+- The whole cost, about 72 KB against the build without BLE, is more than the plan's estimate of 25–30 KB. If a
+  connected phone takes it under 40 KB: of the ladder's first rung only `BLE_MAX_ACT=1` touches internal RAM (NimBLE's
+  pools are already in PSRAM, and `MSYS_1_BLOCK_COUNT` is already 12); then the Wi-Fi and lwIP rungs, then fallback 1.
+- Repeated on the follow-up fix commit (TCP_NODELAY, 16 KB outgoing TLS record): BLE off 87.1 KB over 5 min, BLE on
+  **50.6 KB** over 10 min, free back to 93,724 B after each off, no TLS errors. That commit with BLE compiled out
+  polls at a 114 KB minimum.

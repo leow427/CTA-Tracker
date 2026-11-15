@@ -53,6 +53,7 @@
 #ifdef HANDHELD_LIVE
 #include <esp_mac.h>
 
+#include "ble_setup.h"
 #include "link.h"
 #include "live.h"
 #include "live_model.h"
@@ -693,6 +694,16 @@ void pollSerial(uint32_t ms) {
             else if (!power::off()) puts("power: no power chip, so no off");
             continue;
         }
+        if (line[0] == 'b' && len <= 2) {   // BLE on or off (Task W5: what it costs in internal RAM)
+            char name[20];
+            snprintf(name, sizeof(name), "CTA-Pet-%s", info.id);
+            if (ble_setup::running()) ble_setup::stop();
+            else if (!ble_setup::start(name)) puts("ble: didn't start");
+            printf("ble: %s; internal free %u (min %u)\n", ble_setup::running() ? "on" : "off",
+                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                   static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)));
+            continue;
+        }
         if (line[0] == 'R' && len <= 2) resetLink("serial");   // "R" alone (a CR may trail it)
         if (line[0] == 'T' && line[1] == ' ') {
             char* t = line + 2;
@@ -1026,7 +1037,8 @@ void loop() {
                       mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 #ifdef HANDHELD_LIVE
-        k += snprintf(line + k, sizeof(line) - k, ", wifi %d, CTA requests %u, httpd stack left %u%s%s", snap->wifiUp,
+        k += snprintf(line + k, sizeof(line) - k, ", ble %d, wifi %d, CTA requests %u, httpd stack left %u%s%s",
+                      ble_setup::running(), snap->wifiUp,
                       static_cast<unsigned>(snap->requests), static_cast<unsigned>(lan::stackLeft()),
                       snap->status[0] ? ", " : "", snap->status);
         if (snap->hasPin) k += snprintf(line + k, sizeof(line) - k, ", pinned %s %s", snap->pin.rec.id, snap->pin.rec.route);
