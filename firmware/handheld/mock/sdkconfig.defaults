@@ -94,6 +94,10 @@ CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_SM_SC=y
+# Secure Connections only: no legacy pairing, whose 6-digit key falls to a sniffed exchange (spec 4.3). Not
+# ble_hs_cfg.sm_sc_only: in IDF 5.4.1's NimBLE it never answers a valid SC request (ble_sm_pair_req_rx's else-if
+# skips the response), so iOS's pairing timed out after 30 s
+CONFIG_BT_NIMBLE_SM_LEGACY=n
 CONFIG_BT_NIMBLE_LOG_LEVEL_NONE=y
 CONFIG_BT_CTRL_BLE_MAX_ACT=2
 # The controller's code from flash (here XIP from PSRAM, which flash writes don't stall) instead of about 20 KB of

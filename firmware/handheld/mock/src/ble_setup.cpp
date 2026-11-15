@@ -184,6 +184,9 @@ int onGap(ble_gap_event* e, void*) {   // the host task
             if (e->enc_change.status == 0) subNew = true;
             break;
         }
+        case BLE_GAP_EVENT_IDENTITY_RESOLVED:
+            puts("ble: the phone's identity address resolved (a bonded phone)");
+            break;
         case BLE_GAP_EVENT_MTU:
             printf("ble: MTU %u\n", e->mtu.value);
             break;
@@ -276,7 +279,6 @@ bool start(const char* name) {
     ble_hs_cfg.sm_bonding = 1;
     ble_hs_cfg.sm_mitm = 1;
     ble_hs_cfg.sm_sc = 1;
-    ble_hs_cfg.sm_sc_only = 1;   // no legacy pairing: its 6-digit key falls to a sniffed exchange (spec 4.3: SC)
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_svc_gap_init();
