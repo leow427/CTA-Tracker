@@ -151,10 +151,11 @@ the local network only (Leo: "the dock is only wifi"). Plan: `docs/superpowers/p
 ### 4.3 Pairing token
 
 **On the dock, and on the wearable as its fallback:** a device with no token shows a 6-digit code on its screen, new at every boot and never logged. The app sends that code
-with a random 128-bit token in `POST /pair {"code", "token"}`. The device accepts it once, only within 5 minutes of
-boot, comparing the code in constant time. After 5 wrong codes it refuses every try until it's rebooted. A late or
-locked try gets an answer that tells the app to ask the user to restart the device (my call: the plan has the exact
-status codes). Every device paired from the same app gets the same token (one household).
+with a random 128-bit token in `POST /pair {"code", "token"}`. An unpaired device stays in pairing mode until it's
+paired, with no time window (Leo, 2026-11-14). It compares the code in constant time. After 5 wrong codes it waits
+30 s (`423` with `retry_after`) and then shows a new code. To pair again, the user opens the device's own Settings
+page (the dock's gear, the wearable's swipe-left page) and taps Pair again, which wipes its token or bond and shows a
+fresh code. Every device paired from the same app gets the same token (one household).
 
 Every HTTP request that changes something carries `Authorization: Bearer <token>`. Reads (`GET /info`) and
 `POST /pair` don't need it. The token lives in each device's NVS and in the app's Keychain. Devices use it to talk to
@@ -215,9 +216,9 @@ gets the matching encoders next to `BLEMessages.swift`.
 - A fresh dock is already on the network (Wi-Fi from `secrets.h`). The app finds it by Bonjour, and a `GET /info`
   with `paired: false` raises the "Dock found · Set up" (or "Trackie found · Set up") card.
 - The setup flow follows app spec §6, minus the Wi-Fi step: Pair ("Type the code shown on your dock") → Pet (first
-  device only) → done. A wrong code says so. A late or locked try says to restart the device.
-- The dock shows the code on its setup screen while it has no token. Once the 5 minutes are up or it's locked, it
-  says to restart.
+  device only) → done. A wrong code says so. During the 30 s cooldown the app says a new code will appear on the device.
+- The dock shows the code on its setup screen while it has no token, for as long as it takes. During a cooldown it
+  shows "Too many tries, new code in N s".
 
 **The wearable,** Bluetooth first:
 
@@ -231,7 +232,7 @@ gets the matching encoders next to `BLEMessages.swift`.
 - **The fallback:** when Bluetooth isn't available (off or not allowed on the phone, or the wearable not seen) or the
   Bluetooth pairing fails, and the wearable is on the network unpaired, the app uses the dock's flow: Trackie's bubble
   shows a 6-digit code and the app sends it with `POST /pair` (4.3). Wi-Fi then comes from the wearable's saved list
-  or `secrets.h`. Once the 5-minute window is up or it's locked, Trackie says to restart.
+  or `secrets.h`. Pairing stays open until paired, with the same cooldown and new code after 5 wrong tries.
 
 **Both:**
 
@@ -418,7 +419,7 @@ relay, the power gate); and the wearable keeps its full Wi-Fi path, pairing by c
 
 **My calls, marked above:** the 2 s `info` poll; the pairing token; the extra `info` fields; the pin kept in RAM
 only; device settings riding along; the reset paths; re-sending pin and follow after a reboot; the mirror's 10 s
-limit; the restart message after a late or locked pairing try.
+limit.
 
 **Left to the builder:** HTTP server and mDNS libraries, the exact JSON field
 names beyond those above, the gestures (pin swipe, follow, reset), the layout of the ★ and countdown on the wearable
@@ -458,7 +459,7 @@ within `docs/handheld-ui.md`, and the setup screens' look within app spec §4.6.
 - **Shared C++ library (native, Unity):** Bluetooth frames and the envelope; parsing every new body (pin, follow,
   pair, relay tick, relayed stop, the new `info` fields, trip),
   including malformed ones that must leave the old state alone, as `parseNearby` and `decodePicks` do; the pairing
-  rules (right code once, 5-minute window, lock after 5 wrong tries).
+  rules (right code once, open until paired, a 30 s cooldown and a new code after 5 wrong tries, reset on Pair again).
 - **CTAKit (Swift Testing):** the same frame vectors as the C++ tests; encoders for every new body, the `rn`/`vid` on `Prediction` from the shared fixtures,
   and the token never appearing in any description or log string (as `WifiMessage` does for passwords).
 - **On the Mac:** a small script (or `curl` lines in the READMEs) that drives each endpoint, so the firmware can be
