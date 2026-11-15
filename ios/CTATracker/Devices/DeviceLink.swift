@@ -6,14 +6,23 @@ import os
 
 /// Finds the boards on the Wi-Fi over Bonjour and talks to them over HTTP (ecosystem spec 4.2, 4.4): polls each one's
 /// `GET /info` every 2 s while the app is active and feeds every answer, or miss, to its `DeviceWatch`.
+/// The wearable goes over Bluetooth first (`BLELink`): its notifies replace the poll, and writes fall back to HTTP.
 @Observable final class DeviceLink {
-    struct Device: Identifiable, Codable, Equatable { let id: String; let kind: DeviceKind; var name: String; var lastIP: String? }
-    enum LinkError: Error { case noAddress, noToken, status(Int) }
+    struct Device: Identifiable, Codable, Equatable {
+        let id: String; let kind: DeviceKind; var name: String; var lastIP: String?
+        var peripheral: UUID? = nil   // the wearable's Bluetooth identity on this phone
+    }
+    enum LinkError: Error, Equatable { case noAddress, noToken, status(Int), disconnected }
+    enum Transport {
+        case bluetooth, wifi
+        var label: String { self == .bluetooth ? "via Bluetooth" : "via Wi-Fi" }
+    }
 
     static let pollSec = 2.0   // ecosystem spec 4.2
 
     /// Devices set up from this app, saved with the address each was last found at.
-    var devices = KnownDevices.load() { didSet { KnownDevices.save(devices) } }
+    var devices: [Device] { didSet { KnownDevices.save(devices); ble.known = Self.peripherals(devices) } }
+    let ble: BLELink
     private(set) var online: [String: InfoMessage] = [:]   // by device id
     var onAction: ((String, DeviceWatch.Action) -> Void)?   // AppModel reacts (Tasks 13–17)
 
@@ -29,6 +38,18 @@ import os
     }()
     private let log = Logger(subsystem: "io.github.leow427.CTATracker", category: "link")
 
+    init() {
+        let saved = KnownDevices.load()
+        devices = saved
+        ble = BLELink(known: Self.peripherals(saved))
+        ble.onInfo = { [weak self] id, info in self?.feed(id, info) }
+    }
+
+    /// How the app reaches this device right now, for the device page; nil while it's offline.
+    func transport(of id: String) -> Transport? {
+        ble.connected[id] != nil ? .bluetooth : online[id] != nil ? .wifi : nil
+    }
+
     /// Browses and polls while the app is active; `false` stops both (nothing runs in the background).
     func setActive(_ active: Bool) {
         poll?.cancel()
@@ -36,12 +57,14 @@ import os
         browser?.cancel()
         browser = nil
         found = [:]   // re-resolve on each activation: a board may have moved while we were away
+        ble.setActive(active)
         guard active else { return }
         browse()
         poll = Task {
             while !Task.isCancelled {
                 let next = ContinuousClock.now + .seconds(Self.pollSec)
-                for id in Set(devices.map(\.id)).union(found.keys).union(watches.keys) {
+                // A wearable on Bluetooth reports by notify; its poll resumes the moment the link drops.
+                for id in Set(devices.map(\.id)).union(found.keys).union(watches.keys) where ble.connected[id] == nil {
                     Task { feed(id, try? await get("/info", from: id)) }
                 }
                 try? await Task.sleep(until: next)
@@ -54,15 +77,22 @@ import os
     }
 
     func post(_ path: String, _ body: some Encodable, to id: String) async throws {
-        let data = try JSONEncoder().encode(body)
-        _ = try await send(Self.request("POST", path, address: address(of: id), token: TokenStore.token(), body: data))
+        try await write("POST", path, JSONEncoder().encode(body), to: id)
     }
 
     func delete(_ path: String, to id: String) async throws {
-        _ = try await send(Self.request("DELETE", path, address: address(of: id), token: TokenStore.token()))
+        try await write("DELETE", path, nil, to: id)
     }
 
     // MARK: - Pure parts (tested)
+
+    /// Bluetooth when it's connected, else HTTP; a Bluetooth write lost to a disconnect is retried once over HTTP.
+    static func route(ble: (() async throws -> Void)?, http: () async throws -> Void) async throws {
+        guard let ble else { return try await http() }
+        do { try await ble() } catch LinkError.disconnected { try await http() }
+    }
+
+    nonisolated static func peripherals(_ devices: [Device]) -> Set<UUID> { Set(devices.compactMap(\.peripheral)) }
 
     /// Bonjour's answer this session, else the address the device last had: blocked mDNS alone isn't fatal (spec 7).
     nonisolated static func address(of id: String, found: [String: String], known: [Device]) -> String? {
@@ -95,6 +125,13 @@ import os
     // MARK: - Network
 
     private func address(of id: String) -> String? { Self.address(of: id, found: found, known: devices) }
+
+    private func write(_ method: String, _ path: String, _ body: Data?, to id: String) async throws {
+        try await Self.route(
+            ble: ble.connected[id] == nil ? nil : { try await self.ble.send(method, path, body, to: id) },
+            http: { _ = try await self.send(Self.request(method, path, address: self.address(of: id),
+                                                         token: TokenStore.token(), body: body)) })
+    }
 
     private func send(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)

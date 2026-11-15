@@ -678,9 +678,14 @@ through the serial `T` path), `ui.cpp` (the Pairing state's text only: the code,
 ### Task AB1: The Bluetooth transport in the app (Track AB)
 
 **Files:** Create `ios/CTATracker/Devices/BLELink.swift`; modify `DeviceLink.swift` (routing seam: `post`, `delete`,
-the `/info` poll skip, and `feed` from notifies), `ios/CTATracker.xcodeproj/project.pbxproj` (`UIBackgroundModes` =
-`bluetooth-central`; keep `NSBluetoothAlwaysUsageDescription`), `App/AppModel.swift` (one line: start `BLELink`);
-tests in `ios/CTATrackerTests/BLELinkTests.swift` (the pure parts).
+the `/info` poll skip, and `feed` from notifies), `ios/CTATracker/Info.plist` (`UIBackgroundModes` =
+`bluetooth-central`; `NSBluetoothAlwaysUsageDescription` stays in the build settings); tests in
+`ios/CTATrackerTests/BLELinkTests.swift` (the pure parts). As built: `DeviceLink` owns the `BLELink` (`devices.ble`) and
+passes `setActive` on, so `AppModel` is untouched; `DeviceLink.transport(of:)` gives the device page "via Bluetooth" /
+"via Wi-Fi"; `LinkError` gains `.disconnected`, the only error that retries over HTTP. The central is created at launch only
+once Bluetooth was allowed (for restoration); otherwise AB2 calls `ble.start()` after its own explanation (app spec 3),
+and AB2 sets `Device.peripheral`, so Step 3 runs with AB2. A failed connect or a broken bond
+(`peerRemovedPairingInformation`) doesn't reconnect at once; the next foreground scan does.
 
 **Interfaces:**
 
@@ -698,7 +703,7 @@ tests in `ios/CTATrackerTests/BLELinkTests.swift` (the pure parts).
 // Device gains `peripheral: UUID?` (saved in KnownDevices).
 ```
 
-- [ ] **Step 1:** Implement the central with `CBCentralManagerOptionRestoreIdentifierKey` and `willRestoreState`:
+- [x] **Step 1:** Implement the central with `CBCentralManagerOptionRestoreIdentifierKey` and `willRestoreState`:
   - scan for the service UUID in the foreground only;
   - keep a pending `connect` to each known wearable;
   - discover `link` and `info`, subscribe to `info`, and reassemble notifies with `BLEFrames.Reassembler`;
@@ -706,7 +711,7 @@ tests in `ios/CTATrackerTests/BLELinkTests.swift` (the pure parts).
     iOS, unverified), sent with response, one message at a time through an `AsyncStream` queue;
   - map ATT errors 0x80–0x83 to `LinkError.status(400/413/404/0)`;
   - log no bodies.
-- [ ] **Step 2:** Pure tests: the routing rule (BLE when connected, HTTP otherwise, a retry after a disconnect), the
+- [x] **Step 2:** Pure tests: the routing rule (BLE when connected, HTTP otherwise, a retry after a disconnect), the
   ATT-to-status map, and a notify reassembled across 3 chunks into an `InfoMessage`.
 - [ ] **Step 3: Verify (board, after W6a):**
   - The paired wearable (paired from LightBlue first, or from AB2) shows online with battery and RSSI while
@@ -714,7 +719,7 @@ tests in `ios/CTATrackerTests/BLELinkTests.swift` (the pure parts).
   - "Send to Trackie" works with the phone on cellular.
   - Turning Bluetooth off on the wearable (`b`) moves the app to HTTP within 6 s when Wi-Fi is up.
   - Rebooting the wearable reconnects within 10 s.
-- [ ] **Step 4:** Commit: `feat(ios): Bluetooth link to the wearable, HTTP as the fallback`.
+- [x] **Step 4:** Commit: `feat(ios): Bluetooth link to the wearable, HTTP as the fallback`.
 
 ### Task AB2: Wearable setup over Bluetooth, the code as the fallback (Track AB; with Task 12's shell)
 
