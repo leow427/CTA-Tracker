@@ -35,7 +35,7 @@ from send_nearby import CLOSE, PER_TAB
 MAX_BODY = 1024  # cta::kMaxBody
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 CODE_RE = re.compile(r"^[0-9]{6}$")
-PAIR_WINDOW_S, PAIR_MAX_WRONG = 5 * 60, 5   # cta::kPairWindowMs, cta::kPairMaxWrong
+PAIR_MAX_WRONG, PAIR_COOLDOWN_S = 5, 30   # cta::kPairMaxWrong, cta::kPairCooldownMs
 BURST_N, BURST_SECONDS, BURST_LIMIT_MS = 20, 2.0, 500
 FAKE_ID = "f4ce"
 DEFAULT_PIN = {"type": "train", "route": "Red", "dir": "95th/Dan Ryan", "id": "41320", "name": "Belmont"}
@@ -209,7 +209,8 @@ class FakeBoard:
             raise ValueError(kind)
         self.kind, self.token, self.now = kind, token, now
         self.code = code or f"{secrets.randbelow(10 ** 6):06d}"
-        self.wrong = 0   # wrong codes since boot
+        self.wrong = 0   # wrong codes since this code was set
+        self.cool_start = None   # when the cooldown began, while one runs (code None)
         self.booted = now()
         self.picks_ver = 0
         self.wake = 0
@@ -279,13 +280,22 @@ class FakeBoard:
             return 400, {"error": "bad body"}
         if self.token is not None:
             return 409, {"error": "already paired"}
-        if self.wrong >= PAIR_MAX_WRONG or self.now() - self.booted > PAIR_WINDOW_S:
-            return 423, {"error": "restart to pair"}
+        self.refresh_code()
+        if self.cool_start is not None:
+            return 423, {"error": "cooling down",
+                         "retry_after": math.ceil(PAIR_COOLDOWN_S - (self.now() - self.cool_start))}
         if not hmac.compare_digest(msg["code"], self.code):
             self.wrong += 1
+            if self.wrong >= PAIR_MAX_WRONG:   # drop the guessed-at code; a new one after the cooldown
+                self.code, self.wrong, self.cool_start = None, 0, self.now()
             return 403, {"error": "wrong code"}
         self.token = msg["token"]
         return 200, {}
+
+    def refresh_code(self):
+        """cta::PairGate::needsCode: once the cooldown is over, the board picks a new code."""
+        if self.cool_start is not None and self.now() - self.cool_start >= PAIR_COOLDOWN_S:
+            self.code, self.cool_start = f"{secrets.randbelow(10 ** 6):06d}", None
 
     def _apply(self, path, msg):
         if not valid(path, msg):
@@ -321,9 +331,11 @@ class FakeBoard:
 def serve(board, port):
     shown = [None]
 
-    def show_code():   # the fake's screen: the code while it's unpaired, again after each /reset
+    def show_code():   # the fake's screen: the code while it's unpaired, again after each /reset or new code
+        board.refresh_code()
         if board.token is None and board.code != shown[0]:
-            print(f"Unpaired: pairing code {board.code}, open for {PAIR_WINDOW_S // 60} minutes", file=sys.stderr)
+            print(f"Unpaired: pairing code {board.code}" if board.code else
+                  f"Unpaired: {PAIR_MAX_WRONG} wrong codes, a new one in {PAIR_COOLDOWN_S} s", file=sys.stderr)
         shown[0] = board.code if board.token is None else None
 
     class Handler(http.server.BaseHTTPRequestHandler):

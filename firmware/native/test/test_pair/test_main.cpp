@@ -38,23 +38,62 @@ static void wrong_code_counts() {
     TEST_ASSERT_EQUAL(cta::PairResult::Ok, g.check("042917", 1000, false));   // still open after 2
 }
 
-static void locks_after_5_wrong() {
+static void cools_down_after_5_wrong_then_needs_a_new_code() {
     cta::PairGate g = gate();
+    TEST_ASSERT_FALSE(g.needsCode(1000));
     for (int i = 0; i < cta::kPairMaxWrong; ++i) TEST_ASSERT_EQUAL(cta::PairResult::WrongCode, g.check("000000", 1000, false));
     TEST_ASSERT_FALSE(g.open(1000));
-    TEST_ASSERT_EQUAL(cta::PairResult::Locked, g.check("042917", 1000, false));   // the 6th try, right code
-    TEST_ASSERT_EQUAL_UINT8(cta::kPairMaxWrong, g.wrong);                        // locked tries don't count on
+    TEST_ASSERT_EQUAL_STRING("", g.code);   // the guessed-at code is gone
+    TEST_ASSERT_EQUAL(cta::PairResult::CoolingDown, g.check("042917", 1001, false));   // the old code, too late
+    TEST_ASSERT_EQUAL_UINT32(30, g.retryAfterSec(1000));
+    TEST_ASSERT_EQUAL_UINT32(1, g.retryAfterSec(1000 + cta::kPairCooldownMs - 1));   // rounded up
+    TEST_ASSERT_FALSE(g.needsCode(1000 + cta::kPairCooldownMs - 1));
+    // 30 s on: the board picks a new code, and the count starts again
+    const uint32_t later = 1000 + cta::kPairCooldownMs;
+    TEST_ASSERT_EQUAL_UINT32(0, g.retryAfterSec(later));
+    TEST_ASSERT_TRUE(g.needsCode(later));
+    TEST_ASSERT_EQUAL(cta::PairResult::WrongCode, g.check("042917", later, false));   // "" never matches
+    g.setCode("731005");
+    TEST_ASSERT_FALSE(g.needsCode(later));
+    TEST_ASSERT_TRUE(g.open(later));
+    for (int i = 0; i < cta::kPairMaxWrong - 1; ++i) g.check("000000", later, false);
+    TEST_ASSERT_EQUAL(cta::PairResult::Ok, g.check("731005", later, false));
 }
 
-static void closed_after_5_minutes() {
+static void open_until_paired() {
     cta::PairGate g = gate();
-    TEST_ASSERT_TRUE(g.open(cta::kPairWindowMs));
-    TEST_ASSERT_FALSE(g.open(cta::kPairWindowMs + 1));
-    TEST_ASSERT_EQUAL(cta::PairResult::Closed, g.check("042917", cta::kPairWindowMs + 1, false));
-    TEST_ASSERT_EQUAL(cta::PairResult::Closed, g.check("000000", cta::kPairWindowMs + 1, false));
-    TEST_ASSERT_EQUAL_UINT8(0, g.wrong);   // a closed gate doesn't count wrong codes
-    cta::PairGate last = gate();
-    TEST_ASSERT_EQUAL(cta::PairResult::Ok, last.check("042917", cta::kPairWindowMs, false));   // the last ms is in
+    const uint32_t hours = 6u * 3600u * 1000u;   // no window: an unpaired board waits as long as it takes
+    TEST_ASSERT_TRUE(g.open(hours));
+    TEST_ASSERT_EQUAL(cta::PairResult::Ok, g.check("042917", hours, false));
+    // the cooldown survives the millisecond clock wrapping (49.7 days)
+    cta::PairGate w = gate();
+    const uint32_t nearWrap = 0xFFFFFFFFu - 1000;
+    for (int i = 0; i < cta::kPairMaxWrong; ++i) w.check("000000", nearWrap, false);
+    TEST_ASSERT_EQUAL(cta::PairResult::CoolingDown, w.check("042917", 5000, false));   // wrapped, 6 s in
+    TEST_ASSERT_TRUE(w.needsCode(nearWrap + cta::kPairCooldownMs));
+}
+
+static void reset_forgets_the_code_and_count() {
+    cta::PairGate g = gate();
+    for (int i = 0; i < cta::kPairMaxWrong; ++i) g.check("000000", 1000, false);
+    g.reset();   // "Pair again", or after the board forgets its token
+    TEST_ASSERT_EQUAL_UINT8(0, g.wrong);
+    TEST_ASSERT_EQUAL_STRING("", g.code);
+    TEST_ASSERT_EQUAL_UINT32(0, g.retryAfterSec(1001));   // no cooldown either
+    TEST_ASSERT_TRUE(g.needsCode(1001));
+    g.setCode("555123");
+    TEST_ASSERT_EQUAL(cta::PairResult::Ok, g.check("555123", 1001, false));
+    // a few typos before pairing don't carry over to the next code
+    for (void (*fresh)(cta::PairGate&) : {+[](cta::PairGate& x) { x.reset(); x.setCode("246810"); },
+                                         +[](cta::PairGate& x) { x.setCode("246810"); }}) {
+        cta::PairGate t = gate();
+        t.check("000000", 1000, false);
+        t.check("000000", 1000, false);
+        fresh(t);
+        TEST_ASSERT_EQUAL_UINT8(0, t.wrong);
+        for (int i = 0; i < cta::kPairMaxWrong - 1; ++i) t.check("000000", 1000, false);
+        TEST_ASSERT_EQUAL(cta::PairResult::Ok, t.check("246810", 1000, false));
+    }
 }
 
 static void paired_answers_already() {
@@ -63,7 +102,7 @@ static void paired_answers_already() {
     TEST_ASSERT_EQUAL(cta::PairResult::AlreadyPaired, g.check("000000", 1000, true));
     TEST_ASSERT_EQUAL_UINT8(0, g.wrong);
     for (int i = 0; i < cta::kPairMaxWrong; ++i) g.check("000000", 1000, false);
-    TEST_ASSERT_EQUAL(cta::PairResult::AlreadyPaired, g.check("042917", cta::kPairWindowMs + 1, true));   // first
+    TEST_ASSERT_EQUAL(cta::PairResult::AlreadyPaired, g.check("042917", 1001, true));   // before the cooldown
 }
 
 static void no_code_never_pairs() {
@@ -117,8 +156,9 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(right_code_pairs);
     RUN_TEST(wrong_code_counts);
-    RUN_TEST(locks_after_5_wrong);
-    RUN_TEST(closed_after_5_minutes);
+    RUN_TEST(cools_down_after_5_wrong_then_needs_a_new_code);
+    RUN_TEST(open_until_paired);
+    RUN_TEST(reset_forgets_the_code_and_count);
     RUN_TEST(paired_answers_already);
     RUN_TEST(no_code_never_pairs);
     RUN_TEST(parse_takes_code_and_token);

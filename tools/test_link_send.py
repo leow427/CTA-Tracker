@@ -260,22 +260,30 @@ class PairTests(unittest.TestCase):
         self.assertEqual(call(board, "POST", "/config", b"{}")[0], 200)   # the token works at once
         self.assertEqual(self.pair(board, self.CODE), 409)
 
-    def test_locks_after_5_wrong(self):
-        board = self.fresh()
-        self.assertEqual([self.pair(board, "000000") for _ in range(5)], [403] * 5)
-        self.assertEqual(self.pair(board, self.CODE), 423)   # the right code, too late
-        self.assertFalse(call(board, "GET", "/info")[1]["paired"])
-
-    def test_closed_after_5_minutes(self):
+    def test_cools_down_after_5_wrong_then_new_code(self):
         clock = Clock()
-        late = self.fresh(clock)
-        clock.t += 300.001
-        self.assertEqual(self.pair(late, self.CODE), 423)
-        self.assertEqual(self.pair(late, "000000"), 423)
-        self.assertEqual(late.wrong, 0)
         board = self.fresh(clock)
-        clock.t += 300
-        self.assertEqual(self.pair(board, self.CODE), 200)   # the last moment is in
+        self.assertEqual([self.pair(board, "000000") for _ in range(5)], [403] * 5)
+        clock.t += 0.5
+        status, reply = call(board, "POST", "/pair", json.dumps({"code": self.CODE, "token": TOKEN}).encode(),
+                             token=None)
+        self.assertEqual((status, reply), (423, {"error": "cooling down", "retry_after": 30}))   # the old code
+        self.assertFalse(call(board, "GET", "/info")[1]["paired"])
+        clock.t += 29.5
+        wrong = "000000" if self.CODE != "000000" else "111111"
+        self.assertEqual(self.pair(board, wrong), 403)   # the cooldown is over: a new code, counted afresh
+        new = board.code
+        self.assertRegex(new, r"^[0-9]{6}$")
+        if new == wrong:   # a 1-in-a-million draw
+            return
+        self.assertEqual([self.pair(board, wrong) for _ in range(3)], [403] * 3)
+        self.assertEqual(self.pair(board, new), 200)
+
+    def test_no_time_limit(self):
+        clock = Clock()
+        board = self.fresh(clock)
+        clock.t += 6 * 3600   # an unpaired board waits as long as it takes
+        self.assertEqual(self.pair(board, self.CODE), 200)
 
     def test_bad_bodies_are_400_and_count_nothing(self):
         board = self.fresh()

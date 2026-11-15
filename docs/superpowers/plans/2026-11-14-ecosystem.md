@@ -568,6 +568,19 @@ mismatch → `wrong++`, WrongCode; else Ok. HTTP: Ok 200 (save the token, then `
 WrongCode 403, AlreadyPaired 409, Locked or Closed 423 (the app says to restart the board). `/pair` needs no bearer
 token and takes the same 1 KB limit.
 
+**Changed 2026-11-14 (Leo, built with Task L1 of the wearable BLE link plan):**
+- There is no 5-minute window: an unpaired board stays in pairing mode until it pairs. `kPairWindowMs`, `Locked`
+  and `Closed` are gone.
+- The 5th wrong code in a row drops the code and starts a 30 s cooldown (`kPairCooldownMs`). During it, `check`
+  returns `CoolingDown`: HTTP 423 with `{"error":"cooling down","retry_after":<seconds>}`
+  (`PairGate::retryAfterSec`).
+- After the cooldown, `PairGate::needsCode(now)` is true. The board picks a new code with `setCode` and redraws it.
+- "Pair again" (from the board's settings page) wipes the token or bond, then calls `PairGate::reset()`. That leaves
+  no code, so `needsCode` asks for a fresh one.
+- `open(now)` now means "a code is set and no cooldown is running".
+- The test names, the steps below and the screen copy ("Restart the dock to pair") describe the old gate. The dock
+  task that picks this up replaces them.
+
 - [x] **Step 1: Write the failing tests** in `test_pair`: `right_code_pairs`, `wrong_code_counts`,
   `locks_after_5_wrong` (the 6th try, right code, is Locked), `closed_after_5_minutes`, `paired_answers_already`,
   `parse_rejects_bad_code` (5 digits, 7 digits, letters), `parse_rejects_bad_token`, `bad_json_leaves_state`,

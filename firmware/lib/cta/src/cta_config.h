@@ -37,8 +37,9 @@ constexpr int kMaxBusCards = 80;
 constexpr int kMaxTrainCards = 80;
 
 // Pairing over the network (ecosystem spec 4.3)
-constexpr uint32_t kPairWindowMs = 5 * 60 * 1000;   // pairing open for 5 minutes after boot
-constexpr uint8_t kPairMaxWrong = 5;                // then locked until reboot
+// An unpaired board stays in pairing mode until it pairs (Leo, 2026-11-14: no 5-minute window).
+constexpr uint8_t kPairMaxWrong = 5;            // wrong codes in a row, then a cooldown and a new code
+constexpr uint32_t kPairCooldownMs = 30 * 1000;
 
 // Follow a train (ecosystem spec 5.7)
 constexpr uint32_t kFollowEndedSecs = 60;   // Arrived or Lost shows this long, then the card falls back to the pin
