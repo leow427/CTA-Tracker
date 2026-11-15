@@ -1,6 +1,7 @@
 // Checks the live build's data path on a laptop: live::Store (the nearby list, what each response adds, that a
 // failed one keeps the last good data, the pinned stop and the follow) and mock::fromLive (the countdown, stale data kept, alerts per route, offline, close stops,
-// the home card, docked). Uses the recorded Belmont response and small synthetic Bus Tracker and alerts replies.
+// the home card, docked) and the phone's relayed stops (Store::applyRelay). Uses the recorded Belmont response and
+// small synthetic Bus Tracker and alerts replies.
 // Build and run (from firmware/handheld/mock):
 //   cc -O2 -c ../../native/lib/cJSON/cJSON.c -o /tmp/cJSON.o
 //   c++ -std=c++17 -Isrc -I../../lib/cta/src -I../../native/lib/cJSON tools/live_test.cpp src/live_store.cpp \
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <initializer_list>
 #include <string>
 
 #include "live_model.h"
@@ -159,6 +161,33 @@ int main() {
     mock::fromLive(m, snap, bench, t0, false);
     CHECK(!m.wifiSetUp);                     // Settings says "Not set up"
     snap.status[0] = 0;
+
+    // Relaying over Bluetooth, nothing else is offline: fresh relayed cards aren't greyed out by "No Wi-Fi".
+    snprintf(snap.status, sizeof(snap.status), "No Wi-Fi");
+    snap.relaying = true;
+    m = mock::Model();
+    mock::fromLive(m, snap, bench, t0, true);
+    CHECK(!m.offline);
+    snap.relaying = false;
+    m = mock::Model();
+    mock::fromLive(m, snap, bench, t0, true);
+    CHECK(m.offline);
+    snap.status[0] = 0;
+
+    // Docked with no Wi-Fi saved (decision 1): USB and a battery are enough; with a network saved, home Wi-Fi too.
+    {
+        power::State dock = bench;
+        dock.battery = true;
+        snprintf(snap.status, sizeof(snap.status), "No Wi-Fi set up");
+        m = mock::Model();
+        mock::fromLive(m, snap, dock, t0, true);
+        CHECK(m.docked);
+        snprintf(snap.status, sizeof(snap.status), "No Wi-Fi");
+        m = mock::Model();
+        mock::fromLive(m, snap, dock, t0, true);
+        CHECK(!m.docked);
+        snap.status[0] = 0;
+    }
 
     // Docked: USB, a battery, and home Wi-Fi; never without a battery.
     snap.homeWifi = true;
@@ -378,6 +407,122 @@ int main() {
         CHECK(ps.applyBuses(buses.data(), buses.size(), t0) == 3);
         look();
         CHECK(s.pin.rec.type == cta::Kind::Bus && s.pin.rec.count == 1 && s.pin.rec.ts == t0 && s.nBuses == 0);
+    }
+
+    // The phone's relay (wearable BLE link plan, "Relay"): each stop's records land where its poll would put them.
+    {
+        static live::Store rs;
+        static live::Snapshot s;
+        CHECK(rs.init());
+        rs.setNearby(nb);   // trains 41320 ..., buses 14915, 1921, ...
+        auto look = [&]() { live::clear(s); rs.fill(s); };
+        auto rec = [](cta::Kind k, const char* id, const char* route, const char* dir, int16_t min, uint32_t ts,
+                      const char* veh) {
+            cta::StopRecord r = {};
+            r.type = k;
+            snprintf(r.id, sizeof r.id, "%s", id);
+            snprintf(r.route, sizeof r.route, "%s", route);
+            snprintf(r.dir, sizeof r.dir, "%s", dir);
+            snprintf(r.name, sizeof r.name, "Stop %s", id);
+            r.count = 1;
+            r.arrivals[0].min = min;
+            snprintf(r.arrivals[0].dest, sizeof r.arrivals[0].dest, "%s", dir);
+            r.arrivals[0].live = true;
+            snprintf(r.arrivals[0].vehicle, sizeof r.arrivals[0].vehicle, "%s", veh);
+            r.ts = ts;
+            return r;
+        };
+        static cta::RelayStop rl;
+        auto relay = [&](cta::Kind k, const char* id, std::initializer_list<cta::StopRecord> recs) {
+            rl = {};
+            rl.type = k;
+            snprintf(rl.id, sizeof rl.id, "%s", id);
+            for (const cta::StopRecord& r : recs) rl.records[rl.n++] = r;
+            return rs.applyRelay(rl);
+        };
+        using cta::Kind;
+
+        // A relayed station replaces its cards; an older relay doesn't.
+        CHECK(relay(Kind::Train, "41320", {rec(Kind::Train, "41320", "Red", "Howard", 3, t0, "901"),
+                                           rec(Kind::Train, "41320", "Brn", "Loop", 5, t0, "402")}));
+        look();
+        CHECK(s.nTrains == 2 && s.trains[0].stop == 0);
+        CHECK(relay(Kind::Train, "41320", {rec(Kind::Train, "41320", "Red", "Howard", 9, t0 - 60, "")}));
+        look();
+        CHECK(s.nTrains == 2);
+        CHECK(relay(Kind::Train, "41320", {rec(Kind::Train, "41320", "Red", "Howard", 2, t0 + 30, "901")}));
+        look();
+        CHECK(s.nTrains == 1 && s.trains[0].rec.ts == t0 + 30);
+        CHECK(relay(Kind::Train, "41320", {}));
+        look();
+        CHECK(s.nTrains == 0);
+        CHECK(relay(Kind::Train, "41320", {rec(Kind::Train, "41320", "Red", "Howard", 2, t0 + 30, "901")}));
+
+        // A relayed bus stop replaces only that stop's cards.
+        CHECK(relay(Kind::Bus, "14915", {rec(Kind::Bus, "14915", "77", "Westbound", 4, t0, "")}));
+        CHECK(relay(Kind::Bus, "1921", {rec(Kind::Bus, "1921", "22", "Northbound", 6, t0, "")}));
+        look();
+        CHECK(s.nBuses == 2);
+        CHECK(relay(Kind::Bus, "14915", {rec(Kind::Bus, "14915", "77", "Westbound", 3, t0 + 30, ""),
+                                         rec(Kind::Bus, "14915", "77", "Eastbound", 7, t0 + 30, "")}));
+        look();
+        CHECK(s.nBuses == 3);
+        int at1921 = 0;
+        for (int i = 0; i < s.nBuses; ++i) at1921 += strcmp(s.buses[i].rec.id, "1921") == 0;
+        CHECK(at1921 == 1);
+
+        // An empty relay (the phone found nothing coming) clears that stop, as an empty poll would.
+        CHECK(relay(Kind::Bus, "1921", {}));
+        look();
+        CHECK(s.nBuses == 2);
+        CHECK(relay(Kind::Bus, "1921", {rec(Kind::Bus, "1921", "22", "Northbound", 6, t0, "")}));
+        look();
+        CHECK(s.nBuses == 3);
+
+        // A stop that's neither listed nor pinned is ignored.
+        CHECK(!relay(Kind::Train, "40000", {rec(Kind::Train, "40000", "Red", "Howard", 1, t0, "")}));
+        CHECK(!relay(Kind::Bus, "55555", {rec(Kind::Bus, "55555", "36", "Southbound", 1, t0, "")}));
+        look();
+        CHECK(s.nTrains == 1 && s.nBuses == 3);
+
+        // A relayed alert flag survives the alerts merge (OR'd with the poll's).
+        CHECK(relay(Kind::Train, "41210", {rec(Kind::Train, "41210", "Brn", "Kimball", 4, t0 + 30, "")}));
+        rl.records[0].alert = true;
+        rl.records[0].ts = t0 + 40;
+        CHECK(rs.applyRelay(rl));
+        CHECK(rs.applyAlerts(alerts.data(), alerts.size()) >= 0);   // alerts 22 and P, not Brn
+        look();
+        bool brnAlert = false;
+        for (int i = 0; i < s.nTrains; ++i)
+            if (strcmp(s.trains[i].rec.id, "41210") == 0) brnAlert = s.trains[i].rec.alert;
+        CHECK(brnAlert);
+
+        // A pin outside the list takes its relay, and Follow counts down and goes Due from relayed records.
+        cta::PickedStop jarvis = {};
+        jarvis.type = Kind::Train;
+        snprintf(jarvis.route, sizeof jarvis.route, "Red");
+        snprintf(jarvis.dir, sizeof jarvis.dir, "Howard");
+        snprintf(jarvis.id, sizeof jarvis.id, "41190");
+        snprintf(jarvis.name, sizeof jarvis.name, "Jarvis");
+        cta::FollowMsg f = {};
+        f.stop = jarvis;
+        snprintf(f.vehicle, sizeof f.vehicle, "815");
+        snprintf(f.dest, sizeof f.dest, "Howard");
+        rs.setFollow(&f);
+        CHECK(relay(Kind::Train, "41190", {rec(Kind::Train, "41190", "Red", "Howard", 4, t0, "815")}));
+        rs.updateFollow(t0 + 5);
+        look();
+        CHECK(s.hasPin && s.pin.rec.ts == t0 && s.pin.rec.arrivals[0].min == 4);
+        CHECK(s.hasFollow && s.follow.state == cta::FollowState::Waiting && s.follow.min == 4);
+        CHECK(relay(Kind::Train, "41190", {rec(Kind::Train, "41190", "Red", "Howard", 0, t0 + 240, "815")}));
+        rs.updateFollow(t0 + 245);
+        look();
+        CHECK(s.hasFollow && s.follow.state == cta::FollowState::Due);
+
+        // The phone's weather.
+        rs.setWeather(61, 4.5f);
+        look();
+        CHECK(s.hasWeather && s.wmo == 61 && s.tempC == 4.5f);
     }
 
     printf(failures ? "%d failed\n" : "all passed\n", failures);

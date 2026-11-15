@@ -93,6 +93,56 @@ bool Store::applyWeather(const char* body, size_t len) {
     return true;
 }
 
+void Store::setWeather(int wmo, float tempC) {
+    hasWeather_ = true;
+    wmo_ = wmo;
+    tempC_ = tempC;
+}
+
+namespace {
+
+uint32_t newest(const cta::StopRecord* r, int n, const char* id = nullptr) {
+    uint32_t t = 0;
+    for (int i = 0; i < n; ++i)
+        if ((!id || strcmp(r[i].id, id) == 0) && r[i].ts > t) t = r[i].ts;
+    return t;
+}
+
+}  // namespace
+
+bool Store::applyRelay(const cta::RelayStop& s) {
+    const bool pinned = hasPin_ && pin_.type == s.type && strcmp(pin_.id, s.id) == 0;
+    const uint32_t ts = newest(s.records, s.n);
+    if (s.type == cta::Kind::Train) {
+        Station* st = nullptr;
+        for (int i = 0; i < nearby_.nTrains && !st; ++i)
+            if (strcmp(nearby_.trains[i], s.id) == 0) st = &stations_[i];
+        if (!st && pinned) st = &stations_[cta::kNearbyPerTab];   // the pinned station's own poll
+        if (!st) return false;
+        if (s.n && ts < newest(st->cards, st->n)) return true;   // older than what's here (empty: nothing coming)
+        const int n = s.n < kCardsPerStation ? s.n : kCardsPerStation;
+        memcpy(st->cards, s.records, sizeof(cta::StopRecord) * n);
+        st->n = n;
+        st->ok = true;
+        for (int c = 0; c < n; ++c) addRoute(st->cards[c].route);
+        return true;
+    }
+    bool listed = pinned;
+    for (int i = 0; i < nearby_.nBuses && !listed; ++i) listed = strcmp(nearby_.buses[i], s.id) == 0;
+    if (!listed) return false;
+    if (s.n && ts < newest(bus_, nBus_, s.id)) return true;
+    int k = 0;   // the other stops' cards stay, in order; this stop's go to the end
+    for (int b = 0; b < nBus_; ++b)
+        if (strcmp(bus_[b].id, s.id) != 0) bus_[k++] = bus_[b];
+    for (int r = 0; r < s.n && k < kMaxBusCards; ++r) {
+        bus_[k++] = s.records[r];
+        addRoute(s.records[r].route);
+    }
+    nBus_ = k;
+    busOk_ = true;
+    return true;
+}
+
 namespace {
 
 bool sameStop(const cta::StopRecord& r, const cta::PickedStop& p) { return r.type == p.type && strcmp(r.id, p.id) == 0; }
@@ -185,7 +235,7 @@ void Store::fill(Snapshot& s) const {
         for (int c = 0; c < stations_[st].n && s.nTrains < kMaxTrainCards; ++c) {
             Rec& r = s.trains[s.nTrains++];
             r.rec = stations_[st].cards[c];
-            r.rec.alert = isAlerted(r.rec.route);
+            r.rec.alert = r.rec.alert || isAlerted(r.rec.route);   // a relayed record may carry its own
             r.stop = static_cast<uint8_t>(st);
         }
     for (int b = 0; b < nBus_ && s.nBuses < kMaxBusCards; ++b) {
@@ -194,7 +244,7 @@ void Store::fill(Snapshot& s) const {
         if (stop == nearby_.nBuses) continue;   // not one of ours (CTA only answers for the stops asked)
         Rec& r = s.buses[s.nBuses++];
         r.rec = bus_[b];
-        r.rec.alert = isAlerted(r.rec.route);
+        r.rec.alert = r.rec.alert || isAlerted(r.rec.route);
         r.stop = static_cast<uint8_t>(stop);
     }
     s.loaded = everyStopPolled();
@@ -221,7 +271,7 @@ void Store::fill(Snapshot& s) const {
             cta::copyTruncated(r.dir, pin_.dir, cta::kNameLen);
             snprintf(r.name, sizeof(r.name), "%s", pin_.name);
         }
-        r.alert = isAlerted(r.route);
+        r.alert = r.alert || isAlerted(r.route);
         s.pin.stop = 0;
     }
     s.hasFollow = hasFollow_;

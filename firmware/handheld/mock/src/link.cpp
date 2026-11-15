@@ -137,7 +137,8 @@ esp_err_t change(httpd_req_t* r) {
 // POST /config, /nearby, /pin, /follow, /token and /wifi need a body; any other write's body, if it has one, must parse.
 int apply(bool del, const char* path, const char* body, size_t len, Via via) {
     if (!mu) return 404;
-    if (len > cta::kMaxBody) return 413;
+    const bool stop = !del && strcmp(path, "/stop") == 0;   // a whole station's records: up to kMaxBleMsg
+    if (len > (stop ? cta::kMaxBleMsg : cta::kMaxBody)) return 413;
     const bool pin = strcmp(path, "/pin") == 0, follow = strcmp(path, "/follow") == 0;
     const bool ble = via == Via::Ble;
     if (!del && pin) {
@@ -190,8 +191,20 @@ int apply(bool del, const char* path, const char* body, size_t len, Via via) {
             sh->inbox.reset = true;
             xSemaphoreGive(mu);
         }
+    } else if (!del && strcmp(path, "/relay") == 0) {
+        cta::RelayTick t;
+        if (!cta::parseRelayTick(body, len, t)) return 400;
+        live::relayTick(t, ble);
+    } else if (stop) {
+        // 3.6 KB: on the heap in PSRAM, never on NimBLE's host stack (or httpd's)
+        auto* s = static_cast<cta::RelayStop*>(heap_caps_malloc(sizeof(cta::RelayStop), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (!s) return 413;
+        const bool ok = cta::parseRelayStop(body, len, *s);
+        if (ok) live::relayStop(*s);
+        heap_caps_free(s);
+        if (!ok) return 400;
     } else {
-        return 404;   // /relay and /stop come with W6b
+        return 404;
     }
     return 200;
 }
@@ -231,7 +244,7 @@ void start(const char* hostLabel) {
     // answer; saving is the loop's job.
     cfg.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     cfg.max_open_sockets = 3;   // the app and a tool at once; each socket costs internal RAM in lwIP
-    cfg.max_uri_handlers = 12;   // 10 now, W6b's /relay and /stop next
+    cfg.max_uri_handlers = 12;
     cfg.lru_purge_enable = true;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         puts("link: httpd didn't start");
@@ -246,6 +259,7 @@ void start(const char* hostLabel) {
         {"/pin", HTTP_POST, change, nullptr},       {"/pin", HTTP_DELETE, change, nullptr},
         {"/follow", HTTP_POST, change, nullptr},    {"/follow", HTTP_DELETE, change, nullptr},
         {"/reset", HTTP_POST, change, nullptr},     {"/pair", HTTP_POST, postPair, nullptr},
+        {"/relay", HTTP_POST, change, nullptr},     {"/stop", HTTP_POST, change, nullptr},
     };
     for (const httpd_uri_t& u : uris)
         if (httpd_register_uri_handler(server, &u) != ESP_OK) printf("link: no route for %s\n", u.uri);

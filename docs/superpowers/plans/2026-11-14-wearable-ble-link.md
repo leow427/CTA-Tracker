@@ -640,19 +640,23 @@ bool paired();                    // a token or a bond
 namespace live {
 void relayTick(const cta::RelayTick& t, bool viaBle);   // clock if unsynced; weather; relaying for kRelayHoldSec if viaBle
 bool relayStop(const cta::RelayStop& s);                // false if the stop isn't in the list or the pin (ignored)
+// As built: relayStop is void (it only queues: one PSRAM slot per stop for the network task, the store's one writer;
+// Store::applyRelay returns the false). Also live::wifiOff() for serial W, Store::setWeather, Snapshot::relaying.
 bool relaying();                                        // a Bluetooth tick in the last kRelayHoldSec
 }
 // Store gains: bool applyRelay(const cta::RelayStop& s);  // replaces the stop's cards if its newest ts >= stored newest
 ```
 
-- [ ] **Step 1: Tests first,** in `tools/live_test.cpp` (laptop):
+- [x] **Step 1: Tests first,** in `tools/live_test.cpp` (laptop):
   - a relayed station replaces its cards, and an older relay doesn't;
   - a relayed bus stop replaces only that stop's cards;
   - a relay for a stop not in the list is ignored;
   - a pin outside the list takes its relay;
   - Follow counts down and goes Due from relayed records;
   - an alert flag survives the alerts merge.
-- [ ] **Step 2:** Implement:
+  *Done, plus: the phone's weather; fresh cards not offline while relaying with "No Wi-Fi"; the docked rule's two
+  branches. Mutation-checked (each of six breaks fails a case).*
+- [x] **Step 2:** Implement:
   - `netTask` skips `pollOne` while `relaying()`. Wi-Fi joins and httpd are untouched.
   - Polls resume within one pass after the hold ends.
   - `/relay` over Bluetooth with no NTP sets the clock (`settimeofday`). NTP takes over when it syncs.
@@ -660,6 +664,13 @@ bool relaying();                                        // a Bluetooth tick in t
   - Docked rule (decision 1): USB power and a battery, plus slot 0 joined only if any network is saved. A
     `live_test` or native case covers both branches if the rule moves into a testable function; otherwise verify it
     on the board with and without a saved network.
+  *As built: `/stop` takes up to `kMaxBleMsg` over Bluetooth (HTTP keeps `kMaxBody`) and parses into a PSRAM
+  buffer, never the host task's stack. With no network saved, the network task's wait loop still takes `nearby`,
+  pins and the relay. While relaying, `Snapshot::relaying` keeps fresh cards from showing offline under "No Wi-Fi".
+  The docked rule is in `live_model.cpp` (covered by `live_test`): no network saved = "No Wi-Fi set up". An empty
+  `records: []` (the phone found nothing coming) clears the stop, as an empty poll does. The network task takes a pin
+  or follow before the relays, so a `/stop` right after its `/pin` lands. Open for Leo: after serial `W` the status is
+  "Wi-Fi off", a network is still saved, so the wearable doesn't count as docked until a reboot (step 7 then 8).*
 - [ ] **Step 3: Verify (board):**
   - Over HTTP from the Mac, `link_send.py relay` then `stop '<Belmont records>'` shows the relayed cards (with Wi-Fi
     up, as a stand-in until AB3). Then over Bluetooth with the app (AB3):

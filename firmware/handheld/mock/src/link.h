@@ -7,7 +7,9 @@
 // adds POST /pair (no token; 404 over Bluetooth): the Wi-Fi fallback's pairing with the code on the screen, through
 // the dock's cta::PairGate (200, 400, 403, 409, 413, 423). A pin,
 // follow or Wi-Fi network goes straight to the network task (live::*, RAM only); writes that touch flash (config,
-// nearby, token) or reboot wait in an inbox for the frame loop (take). Live build only.
+// nearby, token) or reboot wait in an inbox for the frame loop (take). POST /relay and POST /stop (both transports;
+// /stop up to kMaxBleMsg over Bluetooth, kMaxBody over HTTP) feed the phone's relay to live::relayTick/relayStop.
+// Live build only.
 #include <stddef.h>
 #include <stdint.h>
 

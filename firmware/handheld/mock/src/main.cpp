@@ -709,7 +709,7 @@ void writeLine(const char* s, size_t n) {
 // release did). Live build:
 // "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app; "O", the
 // board off (against burn-in on a board left plugged in); "R", the link reset (ecosystem spec 5.4); "T <32 hex>",
-// the household token, as POST /token over Bluetooth sets it (never echoed); "b", Bluetooth off or on; "P", pair again (device::pairAgain).
+// the household token, as POST /token over Bluetooth sets it (never echoed); "b", Bluetooth off or on; "P", pair again (device::pairAgain); "W", Wi-Fi off until reboot.
 void pollSerial(uint32_t ms) {
     static char line[640];
     static int n = 0;
@@ -738,6 +738,7 @@ void pollSerial(uint32_t ms) {
         }
         if (line[0] == 'R' && len <= 2) resetLink("serial");   // "R" alone (a CR may trail it)
         if (line[0] == 'P' && len <= 2) { device::pairAgain(); continue; }
+        if (line[0] == 'W' && len <= 2) { live::wifiOff(); continue; }   // Wi-Fi off until reboot (no-Wi-Fi demo)
         if (line[0] == 'T' && line[1] == ' ') {
             char* t = line + 2;
             t[strcspn(t, "\r ")] = 0;
@@ -971,6 +972,7 @@ void loop() {
         info.lastUpdate = model.fetchedAt;
         info.docked = model.docked;
         info.paired = device::paired();
+        info.relaying = live::relaying();
         info.hasSettings = true;
         info.settings = linkCfg.settings;
         lan::setInfo(info);

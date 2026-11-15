@@ -143,19 +143,20 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
     }
 
     m.loaded = s.loaded || m.nTrains + m.nBuses > 0;
-    m.offline = s.status[0] != 0 || (s.nTrains + s.nBuses > 0 && !anyFresh);
+    // While the phone relays over Bluetooth, the network side's status ("No Wi-Fi") doesn't make fresh cards offline.
+    m.offline = (s.status[0] != 0 && !s.relaying) || (s.nTrains + s.nBuses > 0 && !anyFresh);
     snprintf(m.status, sizeof(m.status), "%s", s.status);
-    // Docked (spec 8.4): USB power and the home network. A board with no battery is on USB whenever it's on at all,
-    // so it never counts as docked.
-    m.powerDocked = p.usb && p.battery && s.homeWifi;
+    // The Settings page. live.cpp says "No Wi-Fi set up" when no network is saved; any other state has one.
+    m.wifiSetUp = s.wifiUp || strcmp(s.status, "No Wi-Fi set up") != 0;
+    // Docked (spec 8.4, decision 1): USB power and a battery, plus the home network when any network is saved. A
+    // board with no battery is on USB whenever it's on at all, so it never counts as docked.
+    m.powerDocked = p.usb && p.battery && (s.homeWifi || !m.wifiSetUp);
     m.battery = p.battery ? p.percent : -1;
     m.charging = p.charging;
     m.hasWeather = s.hasWeather;
     m.wmo = s.wmo;
     m.tempC = s.tempC;
     if (s.hasWeather && !m.weatherForced) m.weather = weatherFor(s.wmo);
-    // The Settings page. live.cpp says "No Wi-Fi set up" when no network is saved; any other state has one.
-    m.wifiSetUp = s.wifiUp || strcmp(s.status, "No Wi-Fi set up") != 0;
     m.bleConnected = device::bleConnected();
 #ifdef ESP_PLATFORM   // the laptop tools keep the model's placeholders
     live::wifiSsid(m.ssid, sizeof(m.ssid));

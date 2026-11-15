@@ -96,6 +96,22 @@ struct PendingLink {
 };
 PendingLink* pendingLink;
 
+// Under mu, in PSRAM: the phone's relay waiting for the network task, the store's one writer. One slot per stop (every
+// listed stop and the pin), so a burst of stops is never dropped; a newer relay of a stop replaces the waiting one.
+constexpr int kRelaySlots = 2 * cta::kNearbyPerTab + 1;
+struct PendingRelay {
+    bool weather;
+    int wmo;
+    float tempC;
+    bool full[kRelaySlots];
+    cta::RelayStop stops[kRelaySlots];
+};
+PendingRelay* pendingRelay;
+cta::RelayStop* relayTaken;          // the network task's copy (PSRAM: 3.6 KB)
+volatile uint32_t relayUntilMs = 0;  // relaying while nowMs() is before this (relayOn)
+volatile bool relayOn = false;
+volatile bool wifiDisabled = false;  // serial "W"
+
 // The saved Wi-Fi networks (ecosystem spec 5.1, F1), slot 0 home, from NVS ("wifi"), else secrets.h's network as
 // slot 0. In PSRAM.
 cta::WifiList* nets;
@@ -474,6 +490,7 @@ void publish() {
     building->homeWifi = building->wifiUp && nets->nets[0].ssid[0] && strcmp(ssid, nets->nets[0].ssid) == 0;
     snprintf(building->status, sizeof(building->status), "%s", status);
     building->requests = requests;
+    building->relaying = relaying();
     xSemaphoreTake(mu, portMAX_DELAY);
     // A clear that arrived while this snapshot was being built (setPin/setFollow cleared the published one already).
     if (pendingLink->pin < 0) building->hasPin = building->hasFollow = false;
@@ -719,6 +736,42 @@ void join(const cta::SavedNet& net, const char* eapUser) {
     esp_wifi_connect();
 }
 
+// The phone's relayed weather and stops into the store. True if anything changed.
+bool takeRelays() {
+    bool any = false;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    if (pendingRelay->weather) {
+        store.setWeather(pendingRelay->wmo, pendingRelay->tempC);
+        pendingRelay->weather = false;
+        any = true;
+    }
+    xSemaphoreGive(mu);
+    for (int i = 0; i < kRelaySlots; ++i) {
+        xSemaphoreTake(mu, portMAX_DELAY);
+        const bool full = pendingRelay->full[i];
+        if (full) *relayTaken = pendingRelay->stops[i];
+        pendingRelay->full[i] = false;
+        xSemaphoreGive(mu);
+        if (full && store.applyRelay(*relayTaken)) any = true;
+    }
+    return any;
+}
+
+// A new nearby list from setNearby(): start over with its stops. True if there was one.
+bool takeNearby() {
+    if (!nearbyPending) return false;
+    static cta::Nearby n;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    n = pendingNearby;
+    nearbyPending = false;
+    xSemaphoreGive(mu);
+    store.setNearby(n);
+    memset(stationPolled, 0, sizeof(stationPolled));
+    busPolled = alertsPolled = weatherPolled = 0;
+    printf("net: nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
+    return true;
+}
+
 bool anySaved() {
     for (const cta::SavedNet& s : nets->nets)
         if (s.ssid[0]) return true;
@@ -766,8 +819,11 @@ void netTask(void*) {
         setStatus("No Wi-Fi set up");
         puts("net: no Wi-Fi saved; waiting for one");
         publish();
-        while (!takeWifi()) {
-            if (takeLink()) publish();
+        while (!takeWifi()) {   // the phone's link and relay work meanwhile
+            bool changed = takeNearby();   // in this order: a relayed pin's stop is accepted once it's pinned
+            changed |= takeLink();
+            changed |= takeRelays();
+            if (changed) publish();
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
@@ -829,20 +885,12 @@ void netTask(void*) {
             discShown = discCount;
             printf("net: disconnected, reason %u\n", discReason);
         }
-        if (nearbyPending) {   // a new list: start over with its stops
-            static cta::Nearby n;
-            xSemaphoreTake(mu, portMAX_DELAY);
-            n = pendingNearby;
-            nearbyPending = false;
-            xSemaphoreGive(mu);
-            store.setNearby(n);
-            memset(stationPolled, 0, sizeof(stationPolled));
-            busPolled = alertsPolled = weatherPolled = 0;
-            printf("net: nearby list: %d stations, %d bus stops\n", n.nTrains, n.nBuses);
+        if (takeNearby()) {   // a new list: start over with its stops
             restUntil = 0;
             publish();
         }
-        if (takeLink()) publish();   // a pin or follow from the app: poll its stop from now on
+        if (takeLink()) publish();     // a pin or follow from the app: poll its stop from now on
+        if (takeRelays()) publish();   // the phone's arrivals and weather, after the pin they may be for
         if (takeWifi()) {   // a new or changed network: rejoin, strongest saved first
             if (wifiUp) {
                 for (Conn& c : conns) closeConn(c);
@@ -861,6 +909,20 @@ void netTask(void*) {
         if (woke) {
             woke = false;
             if (!wasUp && !joining) { lastBegin = 0; retryMs = kWifiRetryMinMs; scanned = false; }
+        }
+        if (wifiDisabled) {   // serial "W": off until reboot; the relay keeps the cards coming
+            if (wifiUp || joining) {
+                for (Conn& c : conns) closeConn(c);
+                esp_wifi_disconnect();
+                wifiUp = false;
+                setJoining(false);
+                puts("net: Wi-Fi off until reboot");
+            }
+            wasUp = false;
+            setStatus("Wi-Fi off");
+            publish();
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
         if (!wifiUp) {
             if (wasUp) {   // F1: rescan and move to the next strongest saved network
@@ -964,6 +1026,10 @@ void netTask(void*) {
             continue;
         }
 #endif
+        if (relaying()) {   // the phone fetches for us: no CTA, alerts or weather polls until its ticks stop
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
         if (restUntil && static_cast<int32_t>(nowMs() - restUntil) < 0) {
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
@@ -989,10 +1055,12 @@ void start() {
     published = static_cast<Snapshot*>(heap_caps_malloc(sizeof(Snapshot), kPsram));
     building = static_cast<Snapshot*>(heap_caps_malloc(sizeof(Snapshot), kPsram));
     pendingLink = static_cast<PendingLink*>(heap_caps_calloc(1, sizeof(PendingLink), kPsram));
+    pendingRelay = static_cast<PendingRelay*>(heap_caps_calloc(1, sizeof(PendingRelay), kPsram));
+    relayTaken = static_cast<cta::RelayStop*>(heap_caps_malloc(sizeof(cta::RelayStop), kPsram));
     nets = static_cast<cta::WifiList*>(heap_caps_calloc(1, sizeof(cta::WifiList), kPsram));
     body = static_cast<char*>(heap_caps_malloc(kMaxBody + 1, kPsram));
     seenAps = static_cast<wifi_ap_record_t*>(heap_caps_malloc(sizeof(wifi_ap_record_t) * kMaxSeen, kPsram));
-    if (!published || !building || !pendingLink || !nets || !body || !seenAps || !store.init()) {
+    if (!published || !building || !pendingLink || !pendingRelay || !relayTaken || !nets || !body || !seenAps || !store.init()) {
         puts("net: out of memory");
         return;
     }
@@ -1073,6 +1141,49 @@ void setPin(const cta::PickedStop* stop) {
     }
     xSemaphoreGive(mu);
 }
+
+void relayTick(const cta::RelayTick& t, bool viaBle) {
+    if (!pendingRelay) return;
+    if (!ntpSynced()) {   // no NTP (no Wi-Fi): the phone's clock; NTP corrects it if Wi-Fi comes up
+        const timeval tv = {static_cast<time_t>(t.now), 0};
+        settimeofday(&tv, nullptr);
+    }
+    xSemaphoreTake(mu, portMAX_DELAY);
+    if (t.hasWeather) {
+        pendingRelay->weather = true;
+        pendingRelay->wmo = t.wmo;
+        pendingRelay->tempC = t.tempC;
+    }
+    xSemaphoreGive(mu);
+    if (viaBle) {
+        relayUntilMs = nowMs() + cta::kRelayHoldSec * 1000;
+        relayOn = true;
+    }
+}
+
+void relayStop(const cta::RelayStop& s) {
+    if (!pendingRelay) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    int slot = -1, free = -1;
+    for (int i = 0; i < kRelaySlots && slot < 0; ++i) {
+        const cta::RelayStop& w = pendingRelay->stops[i];
+        if (pendingRelay->full[i] && w.type == s.type && strcmp(w.id, s.id) == 0) slot = i;
+        else if (!pendingRelay->full[i] && free < 0) free = i;
+    }
+    if (slot < 0) slot = free;
+    if (slot >= 0) {   // all full: more stops than the list holds, so this one isn't ours anyway
+        pendingRelay->stops[slot] = s;
+        pendingRelay->full[slot] = true;
+    }
+    xSemaphoreGive(mu);
+}
+
+bool relaying() {   // the time left, 1 ms to the whole hold; unsigned, so nowMs's 49-day wrap can't revive it
+    const uint32_t left = relayUntilMs - nowMs();
+    return relayOn && left - 1 < cta::kRelayHoldSec * 1000;
+}
+
+void wifiOff() { wifiDisabled = true; }
 
 void setWifi(const cta::WifiMsg& w) {
     if (!pendingLink) return;

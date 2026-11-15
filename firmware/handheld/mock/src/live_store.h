@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "cta_types.h"
+#include "link_msg.h"
 #include "live.h"
 #include "nearby_msg.h"
 
@@ -30,6 +31,13 @@ public:
     int applyBuses(const char* body, size_t len, uint32_t now);                 // all the bus stops, one call
     int applyAlerts(const char* body, size_t len);                              // for routes()
     bool applyWeather(const char* body, size_t len);
+    // A stop's records relayed from the phone (wearable BLE link plan, "Relay"): they replace that stop's cards where
+    // its poll would put them (a listed station's slot, that bus stop's cards, the pinned station's own poll) when
+    // their newest ts is at least the stored newest; an older relay changes nothing. An empty one (nothing coming, no
+    // ts) clears the stop, as an empty poll does. Alert flags are OR'd with the alerts poll. False if the stop is neither listed nor pinned (ignored).
+    bool applyRelay(const cta::RelayStop& s);
+    // The phone's weather (POST /relay), as an Open-Meteo reply would set it.
+    void setWeather(int wmo, float tempC);
 
     // The pinned stop and the followed vehicle (ecosystem spec 5.6, 5.7). setPin(nullptr) clears both; a pin at
     // another stop drops the old stop's data and ends the follow. setFollow also pins f->stop.

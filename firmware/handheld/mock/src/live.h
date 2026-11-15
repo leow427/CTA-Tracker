@@ -48,6 +48,7 @@ struct Snapshot {
     int wmo = 0;
     float tempC = 0;
     uint32_t requests = 0;     // CTA requests since boot, against the keys' daily limits
+    bool relaying = false;     // the phone relays over Bluetooth (live::relaying): fresh cards aren't offline
 };
 
 // Empties s in place. A Snapshot is about 16 KB: never build one as a temporary on a task's stack.
@@ -71,6 +72,16 @@ void setFollow(const cta::FollowMsg* f);
 // A Wi-Fi network for slot w.slot (written over Bluetooth; RAM only, any task): the network task saves it to NVS and
 // rejoins, strongest saved network first. The first replaces secrets.h's fallback network.
 void setWifi(const cta::WifiMsg& w);
+// The phone's relay (wearable BLE link plan, "Relay"; RAM only, any task). A tick sets the clock while NTP hasn't,
+// takes the phone's weather, and, when it came over Bluetooth, marks the wearable as relaying for kRelayHoldSec: no
+// CTA, alerts or weather polls until the ticks stop. A stop's records wait for the network task, which puts them
+// where that stop's poll would (a stop neither listed nor pinned is ignored there).
+void relayTick(const cta::RelayTick& t, bool viaBle);
+void relayStop(const cta::RelayStop& s);
+// A Bluetooth tick came in the last kRelayHoldSec. Any task may ask.
+bool relaying();
+// Serial "W": Wi-Fi off until reboot (the no-Wi-Fi demo); nothing saved is forgotten.
+void wifiOff();
 #ifdef POWER_LOG
 // The stress test's network burst (test only): fetch the next stop, the alerts, or the weather every 2 s,
 // at most 180 per run; resetBurstCount() starts a run's count over.
