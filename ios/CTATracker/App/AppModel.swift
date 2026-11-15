@@ -58,7 +58,11 @@ import SwiftUI
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
         devices.onAction = { [weak self] id, action in
-            guard let self, active, action == .sendNearby || action == .cameOnline, isWearable(id) else { return }
+            guard let self, isWearable(id) else { return }
+            // A rebooted or newly seen wearable lost its pin and follow (kept in RAM, spec 5.6): give them back, even
+            // from the background, since a Bluetooth reconnect can land there.
+            if action == .resendState { resendPin(to: id) }
+            guard active, action == .sendNearby || action == .cameOnline else { return }
             // A wake with the stops it already has sends nothing; coming online always does (it may have been reset).
             sendNearby(to: id, unlessHas: action == .sendNearby)
         }
@@ -110,7 +114,7 @@ import SwiftUI
         (devices.devices.first { $0.id == id }?.kind ?? devices.online[id]?.type) == .handheld
     }
 
-    private var onlineWearables: [String] {
+    var onlineWearables: [String] {
         devices.devices.filter { $0.kind == .handheld && devices.online[$0.id] != nil }.map(\.id)
     }
 
@@ -160,6 +164,47 @@ import SwiftUI
     // shortcut: a failed post still counts as sent in the throttle; the wearable's next wake asks again.
     private func post(_ m: NearbyMessage, to ids: [String]) {
         for id in ids { Task { try? await devices.post("/nearby", m, to: id) } }
+    }
+
+    // MARK: - Send to Trackie and Follow (ecosystem spec 5.6, 5.7)
+
+    /// What the wrist was last told to pin and follow, re-sent when it reboots or first shows up (`.resendState`).
+    private(set) var pinned: ConfigStop?
+    private(set) var followed: FollowMessage?
+    @ObservationIgnored private var followedAt = Date.distantPast   // the followed departure's time
+
+    /// Pins the stop on the online wearables; true when one took it. A pin of another stop ends the follow, as on
+    /// the wearable.
+    func pin(_ stop: ConfigStop) async -> Bool {
+        guard await sendToWrist("/pin", stop) else { return false }
+        if followed?.stop != stop { followed = nil }
+        pinned = stop
+        return true
+    }
+
+    /// Follows one departure on the online wearables (it pins its stop too); true when one took it.
+    func follow(_ f: FollowMessage, at: Date) async -> Bool {
+        guard await sendToWrist("/follow", f) else { return false }
+        (pinned, followed, followedAt) = (f.stop, f, at)
+        return true
+    }
+
+    private func sendToWrist(_ path: String, _ body: some Encodable & Sendable) async -> Bool {
+        var ok = false
+        for id in onlineWearables {
+            do { try await devices.post(path, body, to: id); ok = true } catch {}
+        }
+        return ok
+    }
+
+    /// The follow while its departure could still be on the wrist (gone a minute after it's due, as the list drops
+    /// it), else the pin.
+    private func resendPin(to id: String) {
+        if let f = followed, Date.now.timeIntervalSince(followedAt) < Config.departedGraceSec {
+            Task { try? await devices.post("/follow", f, to: id) }
+        } else if let p = pinned {
+            Task { try? await devices.post("/pin", p, to: id) }
+        }
     }
 
     // MARK: - Storage

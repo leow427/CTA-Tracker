@@ -92,7 +92,7 @@ struct StopDetail: View {
                             }
                         }
                     }
-                    DepartureRow(group: top, state: state, night: Night.now(now), now: now)
+                    DepartureRow(stop: stop, group: top, state: state, night: Night.now(now), now: now)
                     chips(group: top, stop: stop, failing: failing, now: now)
                 }
                 if failing { UnavailableBanner() }   // the list's outage banner, here too (app spec 8)
@@ -148,12 +148,14 @@ struct StopDetail: View {
 /// The chosen line's next departures as big tiles in a row that scrolls sideways, all in the line's card color:
 /// the next one biggest, outlined in the light shade.
 private struct DepartureRow: View {
+    let stop: Stop
     let group: DetailGroup
     let state: DetailState
     let night: Bool
     let now: Date
     @ScaledMetric(relativeTo: .largeTitle) private var lead: CGFloat = 150
     @ScaledMetric(relativeTo: .largeTitle) private var later: CGFloat = 128
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         if group.arrivals.isEmpty {
@@ -164,11 +166,12 @@ private struct DepartureRow: View {
                 .foregroundStyle(Color.cardText(group.line.route))
                 .redacted(reason: state.loaded || state.unknown ? [] : .placeholder)
         } else {
+            let wrist = !model.onlineWearables.isEmpty
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: Theme.Space.m) {
                     ForEach(Array(group.arrivals.enumerated()), id: \.offset) { n, p in
-                        DepartureTile(p: p, route: group.line.route, lead: n == 0,
-                                      stale: state.stale, now: now)
+                        DepartureTile(p: p, route: group.line.route, lead: n == 0, stale: state.stale, now: now,
+                                      follow: wrist ? FollowMessage(stop: stop, line: group.line, departure: p) : nil)
                             .frame(width: n == 0 ? lead : later, height: lead)
                     }
                 }
@@ -187,6 +190,10 @@ private struct DepartureTile: View {
     let lead: Bool
     let stale: Bool   // stale data doesn't claim to be live (the chip gives its age)
     let now: Date
+    let follow: FollowMessage?   // set while a wearable is online and the feed named the vehicle (spec 5.7)
+    @Environment(AppModel.self) private var model
+    @State private var followed: Bool?   // the last follow's result, shown for 2 s
+
     var body: some View {
         let m = ArrivalFormat.minutes(until: p.at, now: now)
         let minutes = p.live && m >= 1
@@ -209,7 +216,13 @@ private struct DepartureTile: View {
             if minutes { Text(m == 1 ? "minute" : "minutes").font(Theme.rounded(.headline, .bold)) }
             Spacer(minLength: 0)
             // Tags on solid color stay plain.
-            if p.delayed {
+            if let followed {
+                Text(followed ? "FOLLOWING" : "NOT SENT").foregroundStyle(followed ? .black : Color.card(route)).plainText()
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
+                    .background(followed ? Theme.live : text, in: PixelShape.small)
+                    .transition(.opacity)
+            } else if p.delayed {
                 Text("DELAYED").foregroundStyle(.black).plainText()
                     .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
                     .background(Theme.amber, in: PixelShape.small)
@@ -225,6 +238,25 @@ private struct DepartureTile: View {
         .plate(Color.cardGradient(route), rim: outline ?? (lead ? text : text.opacity(0.25)), rimWidth: lead ? 3 : 2)
         .opacity(stale ? 0.6 : 1)
         .accessibilityElement(children: .combine)
+        // A long press offers it; a tap does nothing (spec 5.6: only these two controls ever send).
+        .contentShape(.contextMenuPreview, PixelShape())
+        .contextMenu {
+            if follow != nil { Button("Follow on Trackie", systemImage: "scope", action: send) }
+        }
+        .accessibilityActions {
+            if follow != nil { Button("Follow on Trackie", action: send) }
+        }
+        .animation(Theme.snappy, value: followed)
+        .sensoryFeedback(trigger: followed) { _, new in new.map { $0 ? .success : .error } }
+        .task(id: followed) { if followed != nil { try? await Task.sleep(for: .seconds(2)); followed = nil } }
+    }
+
+    private func send() {
+        guard let follow else { return }
+        Task {
+            followed = await model.follow(follow, at: p.at)
+            AccessibilityNotification.Announcement(followed == true ? "Following on Trackie" : "Couldn't reach Trackie").post()
+        }
     }
 }
 
@@ -382,6 +414,38 @@ struct StarButton: View {
         .buttonStyle(PressableCard())
         .sensoryFeedback(.impact(weight: .light), trigger: toggles)   // only a ★ tap, not a change of group
         .accessibilityLabel(on ? "Remove from favorites" : "Add to favorites")
+    }
+}
+
+/// "Send to Trackie" beside ★ (ecosystem spec 5.6): pins this card on the wearable. A plate button like ★; for 2 s
+/// after a send it shows a check or a ⚠, with a success or error haptic, then goes back.
+struct SendToTrackieButton: View {
+    let pin: ConfigStop
+    @Environment(AppModel.self) private var model
+    @State private var sending = false
+    @State private var sent: Bool?
+
+    var body: some View {
+        Button {
+            sending = true
+            Task {
+                sent = await model.pin(pin)
+                sending = false
+                AccessibilityNotification.Announcement(sent == true ? "Sent to Trackie" : "Couldn't reach Trackie").post()
+            }
+        } label: {
+            Image(systemName: sent == nil ? "paperplane.fill" : sent == true ? "checkmark" : "exclamationmark.triangle.fill")
+                .contentTransition(.symbolEffect(.replace))
+                .font(Theme.mapSymbol)
+                .foregroundStyle(sent == true ? Theme.live : .white)
+                .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
+                .plate(edge: 4, shape: .small)
+        }
+        .buttonStyle(PressableCard())
+        .disabled(sending)
+        .sensoryFeedback(trigger: sent) { _, new in new.map { $0 ? .success : .error } }
+        .task(id: sent) { if sent != nil { try? await Task.sleep(for: .seconds(2)); sent = nil } }
+        .accessibilityLabel("Send to Trackie")
     }
 }
 

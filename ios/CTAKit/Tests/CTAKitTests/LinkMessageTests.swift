@@ -52,6 +52,27 @@ struct LinkMessageTests {
         #expect(m.vehicle == "1234567" && m.dest.utf8.count == 24)
     }
 
+    @Test func pinTrainByStationWithLineLabel() {
+        let belmont = Stop(id: "41320", name: "Belmont", lat: 0, lon: 0, kind: .station, lines: nil,
+                           platforms: [Platform(id: "30256", lines: [Line(route: "Red", dir: "95th/Dan Ryan")])])
+        let pin = ConfigStop(pinning: belmont, line: Line(route: "Red", dir: "95th/Dan Ryan"))
+        #expect(pin == ConfigStop(type: .train, route: "Red", dir: "95th/Dan Ryan", id: "41320", name: "Belmont"))
+    }
+
+    @Test func followNeedsAVehicle() throws {
+        let line = Line(route: "22", dir: "Southbound")
+        let stop = Stop(id: "1001", name: "Clark & Belmont", lat: 0, lon: 0, kind: .bus, lines: [line], platforms: nil)
+        func departure(_ vehicle: String?) -> Prediction {
+            Prediction(stopID: "1001", route: "22", dir: "Southbound", dest: "Harrison", at: .now, live: true,
+                       delayed: false, vehicle: vehicle)
+        }
+        let f = try #require(FollowMessage(stop: stop, line: line, departure: departure("1801")))
+        #expect(f.stop == ConfigStop(type: .bus, route: "22", dir: "Southbound", id: "1001", name: "Clark & Belmont"))
+        #expect(f.vehicle == "1801" && f.dest == "Harrison")
+        #expect(FollowMessage(stop: stop, line: line, departure: departure(nil)) == nil)
+        #expect(FollowMessage(stop: stop, line: line, departure: departure("")) == nil)
+    }
+
     @Test func tokenIs32LowerHex() {
         let a = Token.random(), b = Token.random()
         for t in [a, b] {

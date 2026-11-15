@@ -869,9 +869,27 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
 **Interfaces:** Consumes `ConfigStop`, `FollowMessage`, `Prediction.vehicle`, `.resendState`. Produces
 `AppModel.pinned: ConfigStop?`, `AppModel.followed: FollowMessage?`, re-sent on `.resendState`.
 
-- [ ] **Step 1:** "Send to Trackie" next to the ★ (only while the wearable is online) posts `/pin` with the station
+- [x] **Step 1:** "Send to Trackie" next to the ★ (only while the wearable is online) posts `/pin` with the station
   ID for trains (`Slot.fetchID`) and the card's direction; a long press on a departure tile with a `vehicle`
   shows "Follow on Trackie" and posts `/follow`. Tapping elsewhere sends nothing.
+
+**As built (worker notes):**
+- The ★ row lives in `Map/MapScreen.swift` (`DetailHeroView`, over the map), so the button sits there under ★;
+  `SendToTrackieButton` is in `StopDetail.swift` beside `StarButton`. It shows while any paired wearable is online
+  (`AppModel.onlineWearables`, now internal).
+- The bodies come from two CTAKit builders (`LinkMessages.swift`, tested in `LinkMessageTests`):
+  `ConfigStop(pinning: stop, line:)` (station ID for trains, the line's direction label as the wearable keys cards)
+  and `FollowMessage(stop:line:departure:)`, nil without a vehicle.
+- The follow is a context menu on the tile ("Follow on Trackie"), offered only while a wearable is online and the
+  departure has a vehicle; also a VoiceOver action. A tap does nothing.
+- Feedback: the button turns into a check (or ⚠) for 2 s, the tile shows a FOLLOWING (or NOT SENT) tag for 2 s, with
+  a success or error haptic and a VoiceOver announcement. "Sent" means at least one online wearable answered 200.
+- `AppModel.pin`/`follow` post to every online wearable and set `pinned`/`followed` only on success. A pin of another
+  stop clears `followed`, as the firmware does. On `.resendState` (first seen, or rebooted) AppModel re-sends the
+  follow while its departure is less than `Config.departedGraceSec` past, else the pin. This runs even with the app in
+  the background (a Bluetooth reconnect can land there); nearby still waits for the foreground.
+- Known gap: the app can't see a pin cleared on the wearable (swipe, docking): `/info` carries no pin. A later reboot
+  of the wearable brings that pin back. Fix would be a `pin` field in `/info` (spec and firmware change).
 - [ ] **Step 2: Verify:** pin Belmont Red → the wearable's Home card is Belmont with ★ (after Task 18); follow the
   next train → the wearable counts down to it; reboot the wearable → pin and follow come back.
 - [ ] **Step 3: Commit:** `feat(ios): send a stop to Trackie and follow a departure`.

@@ -97,6 +97,22 @@ public struct FollowMessage: Encodable, Sendable {
     }
 }
 
+public extension ConfigStop {
+    /// What "Send to Trackie" pins (spec 5.6): a station by its own ID, as the wearable polls it, or a bus stop, with
+    /// the card's route and direction label, keyed as the wearable keys its cards.
+    init(pinning stop: Stop, line: Line) {
+        self.init(type: stop.kind == .station ? .train : .bus, route: line.route, dir: line.dir, id: stop.id, name: stop.name)
+    }
+}
+
+public extension FollowMessage {
+    /// "Follow on Trackie" for one departure (spec 5.7); nil when the feed gave it no vehicle to match.
+    init?(stop: Stop, line: Line, departure p: Prediction) {
+        guard let vehicle = p.vehicle, !vehicle.isEmpty else { return nil }
+        self.init(stop: ConfigStop(pinning: stop, line: line), vehicle: vehicle, dest: p.dest)
+    }
+}
+
 /// `token`: written over the encrypted BLE link at the end of setup. Kept only in the Keychain,
 /// so its descriptions leave the token out.
 public struct TokenMessage: Encodable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
