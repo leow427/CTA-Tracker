@@ -11,6 +11,8 @@ import Observation
     /// every fix.
     private(set) var coordinate: CLLocationCoordinate2D?
     private(set) var status: CLAuthorizationStatus = .notDetermined
+    /// Called after `coordinate` moves, so a `nearby` waiting on the first fix can go (plan Task 15).
+    @ObservationIgnored var onFix: (() -> Void)?
 
     var denied: Bool { status == .denied || status == .restricted }
 
@@ -75,7 +77,7 @@ import Observation
             let moved = coordinate.map {
                 CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: last) >= Self.listMoveMeters
             } ?? true
-            if moved { coordinate = last.coordinate }
+            if moved { coordinate = last.coordinate; onFix?() }
         }
     }
 

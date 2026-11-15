@@ -835,9 +835,28 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
 
 **Interfaces:** Consumes `NearbyBuilder`, `NearbyThrottle` (Task 5), `.sendNearby`, `.cameOnline`, `DeviceLink.post`.
 
-- [ ] **Step 1:** On `.sendNearby` or `.cameOnline`: while the map is at the user's location, send
+- [x] **Step 1:** On `.sendNearby` or `.cameOnline`: while the map is at the user's location, send
   `fromLocation`; while panned, `fromList(slots, center)`. When the list settles after a pan, offer
   `fromList` to the throttle; a timer calls `flush`. The recenter button sends `fromLocation`.
+
+**As built (worker notes):**
+- The map's `following` moved from `MapScreen`'s `@State` to `AppModel.following` (also touches `Map/MapScreen.swift`),
+  so the model knows whether the map is at the user. `NearbyBuilder.forMap` picks `fromLocation` or `fromList`.
+- Only wearables (`DeviceKind.handheld`) get `nearby`. A wake or come-online while following with no fix yet waits:
+  `LocationService.onFix` sends it when the first fix arrives. With location off nothing goes; the wearable keeps its
+  last list.
+- Direct sends (the wearable asked, recenter) go around the throttle but are recorded with the new
+  `NearbyThrottle.sent`, so a later pan compares against what the wearable really has; it also drops a held pan offer,
+  and recenter cancels the flush. A wake (`.sendNearby`) and recenter skip wearables that already have those stops
+  (each new list blanks the wearable's cards; closing stop detail restores `following` too); `.cameOnline` always
+  sends. Actions are ignored while the app isn't active: the wearable keeps its last list (spec 5.5).
+- Open question for Leo: spec 5.5 says the foreground `nearby` is always built from the card list (also at the user's
+  location and on recenter); this plan step says `fromLocation` there. Built as the plan says; `NearbyBuilder.forMap`
+  is the one place to change if the spec wins.
+- The mirror also runs when the filter or favorites change while panned (the list changed), but not while stop detail
+  is open (its focus clears `following` without a pan). The held offer is flushed by a one-shot 10 s task, restarted
+  on each held offer.
+- A failed post still counts as sent in the throttle; the next wake asks again.
 - [ ] **Step 2: Verify:** wake the wearable → nearby stops fill (no Mac script); pan the map to the Loop → within
   10 s the wearable shows the phone's Loop stops; recenter → back to home stops.
 - [ ] **Step 3: Commit:** `feat(ios): nearby on the wrist, mirrored from the map`.

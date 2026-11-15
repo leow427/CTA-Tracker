@@ -114,3 +114,17 @@ struct NearbyBuilderTests {
         Self.expectValid(m)
     }
 }
+
+extension NearbyBuilderTests {
+    @Test func forMapFollowsOrMirrors() {
+        let list = Self.list([Self.slot("41320", .station, meters: 10)])
+        let loop = CLLocationCoordinate2D(latitude: 41.8819, longitude: -87.6278)
+        let at = { (following: Bool, fix: CLLocationCoordinate2D?) in
+            NearbyBuilder.forMap(following: following, fix: fix, slots: list, center: loop, index: Self.index)
+        }
+        #expect(at(true, Self.belmont) == NearbyBuilder.fromLocation(Self.belmont, index: Self.index))
+        #expect(at(true, nil) == nil)   // no fix yet: wait for one, don't send the Loop
+        #expect(at(false, Self.belmont) == NearbyBuilder.fromList(list, center: loop))
+        #expect(at(false, nil) == NearbyBuilder.fromList(list, center: loop))
+    }
+}

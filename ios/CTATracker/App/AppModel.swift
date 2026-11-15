@@ -13,13 +13,24 @@ import SwiftUI
     /// The dock and wearable on this Wi-Fi (ecosystem spec 4.2), polled only while the app is active.
     let devices = DeviceLink()
     @ObservationIgnored private var lifecycle: [NSObjectProtocol] = []
+    /// At most one mirrored `nearby` per 10 s (spec 5.5); `flushNearby` sends a held one once it's due.
+    @ObservationIgnored private var throttle = NearbyThrottle()
+    @ObservationIgnored private var flushNearby: Task<Void, Never>?
+    /// Wearables that asked for `nearby` before the first fix; they get it when one arrives.
+    @ObservationIgnored private var awaitingFix: Set<String> = []
+    /// In the background the wearable keeps its last list (spec 5.5): Bluetooth notifies still arrive, but go unanswered.
+    @ObservationIgnored private var active = false
 
     /// The list follows this: the user's location, or wherever the map was panned to.
-    var center: CLLocationCoordinate2D = AppModel.loop { didSet { rebuild() } }
-    var filter: KindFilter = .all { didSet { rebuild() } }
+    var center: CLLocationCoordinate2D = AppModel.loop { didSet { rebuild(); mirror() } }
+    var filter: KindFilter = .all { didSet { rebuild(); mirror() } }
+    /// The map follows the user's location; a pan clears it and the recenter button sets it again.
+    var following = true {
+        didSet { if following && !oldValue { recenter() } }
+    }
     /// Starred cards (plan 4 decision 1), saved as JSON in the App Group (app spec 7.4) so the widget can read them.
     var favorites: [Favorite] = AppModel.loadFavorites() {
-        didSet { rebuild(); AppModel.save(favorites) }
+        didSet { rebuild(); AppModel.save(favorites); mirror() }
     }
     /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the list).
     var detailStop: Stop?
@@ -46,11 +57,23 @@ import SwiftUI
         let stops = index
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
+        devices.onAction = { [weak self] id, action in
+            guard let self, active, action == .sendNearby || action == .cameOnline, isWearable(id) else { return }
+            // A wake with the stops it already has sends nothing; coming online always does (it may have been reset).
+            sendNearby(to: id, unlessHas: action == .sendNearby)
+        }
+        location.onFix = { [weak self] in
+            guard let self, following else { return }
+            awaitingFix.filter { self.devices.online[$0] != nil }.forEach { self.sendNearby(to: $0, unlessHas: false) }
+        }
         let nc = NotificationCenter.default
         lifecycle = [(UIApplication.didBecomeActiveNotification, true), (UIApplication.willResignActiveNotification, false)]
             .map { name, active in
-                nc.addObserver(forName: name, object: nil, queue: .main) { [devices] _ in
-                    MainActor.assumeIsolated { devices.setActive(active) }
+                nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.active = active
+                        self?.devices.setActive(active)
+                    }
                 }
             }
     }
@@ -77,6 +100,60 @@ import SwiftUI
     /// Stop names folded once for search, off the main thread from launch, so focusing search never waits on it.
     @ObservationIgnored private var searchIndex: Task<StopSearch.Index?, Never>?
     var search: StopSearch.Index? { get async { await searchIndex?.value } }
+
+    // MARK: - Nearby on the wrist (ecosystem spec 5.5)
+
+    private func isWearable(_ id: String) -> Bool {
+        (devices.devices.first { $0.id == id }?.kind ?? devices.online[id]?.type) == .handheld
+    }
+
+    private var onlineWearables: [String] {
+        devices.devices.filter { $0.kind == .handheld && devices.online[$0.id] != nil }.map(\.id)
+    }
+
+    private var mapNearby: NearbyMessage? {
+        index.flatMap {
+            NearbyBuilder.forMap(following: following, fix: location.coordinate, slots: slots, center: center, index: $0)
+        }
+    }
+
+    /// The wearable asked (a wake, or it came online) or recenter: send now, around the throttle. Following with no fix
+    /// yet waits for one; with location off nothing goes and the wearable keeps its last list. `unlessHas` skips a
+    /// wearable that already has these stops: each new list blanks its cards and re-polls.
+    private func sendNearby(to id: String, unlessHas: Bool) {
+        guard let m = mapNearby else { awaitingFix.insert(id); return }
+        awaitingFix.remove(id)
+        throttle.sent(m, now: .now)   // also drops a held pan offer, which would overwrite this
+        if unlessHas, let had = devices.sentNearby[id], [had.trains, had.buses, had.close] == [m.trains, m.buses, m.close] {
+            return
+        }
+        post(m, to: [id])
+    }
+
+    /// Recenter sends the user's own stops. Closing stop detail also restores following, hence `unlessHas`.
+    private func recenter() {
+        flushNearby?.cancel()
+        onlineWearables.forEach { sendNearby(to: $0, unlessHas: true) }
+    }
+
+    /// While panned, the list's stops go to the wrist once it settles: at most every 10 s, only when they changed.
+    /// Not while stop detail is open: its focus clears `following` without a pan.
+    private func mirror() {
+        guard !following, detailStop == nil, let m = mapNearby else { return }
+        if let now = throttle.offer(m, now: .now) { post(now, to: onlineWearables); return }
+        flushNearby?.cancel()
+        flushNearby = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(NearbyThrottle.minInterval))
+            guard !Task.isCancelled, let self, !following, detailStop == nil,
+                  let m = throttle.flush(now: .now) else { return }
+            post(m, to: onlineWearables)
+        }
+    }
+
+    // shortcut: a failed post still counts as sent in the throttle; the wearable's next wake asks again.
+    private func post(_ m: NearbyMessage, to ids: [String]) {
+        for id in ids { Task { try? await devices.post("/nearby", m, to: id) } }
+    }
 
     // MARK: - Storage
 

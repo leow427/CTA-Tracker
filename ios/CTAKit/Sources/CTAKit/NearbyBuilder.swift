@@ -43,6 +43,14 @@ public enum NearbyBuilder {
             .prefix(Config.hypedClosestStops).map(\.element.id)
         return NearbyMessage(lat: center.latitude, lon: center.longitude, trains: trains, buses: buses, close: close)
     }
+
+    /// What the app sends for its map (plan Task 15): the user's own stops while the map follows them, the list's while
+    /// panned. Nil while following with no fix yet: the list then shows the Loop, not the user's stops.
+    public static func forMap(following: Bool, fix: CLLocationCoordinate2D?, slots: SlotList,
+                              center: CLLocationCoordinate2D, index: StopIndex) -> NearbyMessage? {
+        guard following else { return fromList(slots, center: center) }
+        return fix.map { fromLocation($0, index: index) }
+    }
 }
 
 /// At most one `nearby` per 10 s, and only when the stops changed (Review Focus 5). An offer that comes too soon is
@@ -65,6 +73,13 @@ public struct NearbyThrottle: Sendable {
         sentStops = Self.stops(m)
         sentAt = now
         return m
+    }
+
+    /// Records a message sent around the throttle (the wearable asked, or recenter), so the next offer compares with it.
+    public mutating func sent(_ m: NearbyMessage, now: Date) {
+        held = nil
+        sentStops = Self.stops(m)
+        sentAt = now
     }
 
     /// The held message once it's due, else nil.

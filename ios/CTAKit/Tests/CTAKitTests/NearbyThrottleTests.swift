@@ -59,3 +59,24 @@ struct NearbyThrottleTests {
         #expect(t.flush(now: Self.t0.addingTimeInterval(30)) == nil)
     }
 }
+
+extension NearbyThrottleTests {
+    @Test func directSendIsRemembered() {
+        var t = NearbyThrottle()
+        #expect(t.offer(Self.msg(1), now: Self.t0) != nil)
+        t.sent(Self.msg(2), now: Self.t0.addingTimeInterval(20))   // recenter
+        // Panning back to the first stops resends them: the wearable now shows the second.
+        #expect(t.offer(Self.msg(1), now: Self.t0.addingTimeInterval(25)) == nil)   // held: within 10 s
+        #expect(t.flush(now: Self.t0.addingTimeInterval(30))?.trains == ["40001"])
+        t.sent(Self.msg(3), now: Self.t0.addingTimeInterval(60))
+        #expect(t.offer(Self.msg(3), now: Self.t0.addingTimeInterval(80)) == nil)   // same stops
+    }
+
+    @Test func directSendDropsHeldOffer() {
+        var t = NearbyThrottle()
+        #expect(t.offer(Self.msg(1), now: Self.t0) != nil)
+        #expect(t.offer(Self.msg(2), now: Self.t0.addingTimeInterval(4)) == nil)   // a pan, held
+        t.sent(Self.msg(1), now: Self.t0.addingTimeInterval(6))   // recenter before it was due
+        #expect(t.flush(now: Self.t0.addingTimeInterval(20)) == nil)   // the pan doesn't overwrite home
+    }
+}

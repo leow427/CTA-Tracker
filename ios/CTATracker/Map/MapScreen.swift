@@ -7,16 +7,15 @@ struct MapScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
     @Environment(\.scenePhase) private var scenePhase
-    /// Our own follow state: only a real gesture clears it, and recenter sets it again.
-    @State private var following = true
     /// Tilted 3D or flat 2D, kept between launches (redesign revision 3).
     @AppStorage("map3D") private var threeD = true
 
     var body: some View {
+        @Bindable var model = model   // follow state lives on the model: the wearable's nearby follows it too
         GeometryReader { geo in
             ZStack {
                 // The list covers the bottom at rest, so the camera centers in the part above it.
-                DioramaMap(following: $following, focus: model.detailStop, stations: model.stations, busStops: busPins,
+                DioramaMap(following: $model.following, focus: model.detailStop, stations: model.stations, busStops: busPins,
                            threeD: threeD, puck: model.location.puck,
                            bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
                            onCenter: { model.center = $0 },   // after a pan the list follows the center of the visible map
@@ -36,14 +35,14 @@ struct MapScreen: View {
             } else if model.detailStop == nil {
                 // Its own view, so arrivals updates (the pet's mood) don't rebuild the map. Pans still do: the bus
                 // pins follow the list's slots.
-                MapControls(following: $following, threeD: $threeD).transition(.opacity)
+                MapControls(following: $model.following, threeD: $threeD).transition(.opacity)
             }
         }
         .animation(Theme.snappy, value: model.detailStop == nil)
         // Location (and the compass) run only in the foreground.
         .onChange(of: scenePhase, initial: true) { model.location.setActive(scenePhase != .background) }
         .onChange(of: fixKey, initial: true) { followFix() }
-        .onChange(of: following) { followFix() }
+        .onChange(of: model.following) { followFix() }
     }
 
     /// Under the list, a subtle wash in a darker shade of the map's navy: clear in the top fifth, deepening to mostly
@@ -84,7 +83,7 @@ struct MapScreen: View {
 
     /// While following (and no stop is open), the list centers on the user's fix.
     private func followFix() {
-        guard following, model.detailStop == nil, let c = model.location.coordinate else { return }
+        guard model.following, model.detailStop == nil, let c = model.location.coordinate else { return }
         model.center = c
     }
 }

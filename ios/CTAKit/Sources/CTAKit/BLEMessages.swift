@@ -25,7 +25,7 @@ public struct WifiMessage: Encodable, Sendable, CustomStringConvertible, CustomD
 }
 
 /// `nearby`: each list nearest first; `close` is the 3 nearest of either kind.
-public struct NearbyMessage: Codable, Sendable {
+public struct NearbyMessage: Codable, Equatable, Sendable {
     public let lat: Double
     public let lon: Double
     public let trains: [String]   // station IDs
