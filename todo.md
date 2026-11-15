@@ -4,24 +4,42 @@
 
 Labelled B1, B2, … in order of importance.
 
-### B1. Handheld cards look jagged while scrolling (open investigation)
+### B1. Handheld cards look jagged while scrolling (fixed on the board 2026-11-13; card pop open)
 
-On the handheld (wearable), scrolling the card list doesn't look smooth: the cards' edges look mildly
-jagged, and one side of the screen seems to move at a different rate from the other, or a little before it.
+On the handheld (wearable), scrolling the card list didn't look smooth: the cards' edges looked mildly
+jagged, one side of the screen seemed to move a little before the other, and slow scrolls froze now and then.
+It had two causes, both fixed:
 
-Not diagnosed yet. Leads to check first:
+- **Tearing.** The panel scans its own rows, which are the screen's columns (it's mounted a quarter turn off),
+  at 59.2 Hz (16.9 ms a scan). Frames went out in strips of screen rows, across the scan, with no sync to it,
+  so every moving frame showed with a slanted seam. The panel's TE line is wired to GPIO13 (Waveshare's
+  schematic; their examples and BSP never use it). The firmware now turns TE on (`0x35 00`), draws ten strips of
+  48 screen columns (whole panel rows) and sends each just behind the scan, so a frame shows whole on one scan
+  (`paceSend` in `main.cpp`). While the list moves, each frame starts 2.5 ms before a scan, for a steady two
+  scans a frame. Two gfx fixes came with it: `blitNearest`/`blitScaled` step their source column from the
+  image's own edge (from the clip's edge, a column strip picked different pixels), and `arc` skips strips its
+  sweep misses (7 ms a frame for the scrollbar otherwise). `tools/frame_test.cpp` checks column strips draw
+  exactly the row strips' pixels.
+- **Freezes on slow scrolls.** Not frame time: a touch log of Leo scrolling showed the list only followed a
+  drag while it was more vertical than horizontal since touch-down. Diagonal thumb drags kept crossing 45
+  degrees, and the list stopped dead for 88–656 ms (7 of 26 drags). A drag now takes the axis it first moves
+  along (past 9 px) and keeps it; one that scrolled doesn't count as a tab swipe on release
+  (`pointerMove`/`pointerUp` in `ui.cpp`, checked by `testDiagonalDrag` in `frame_test.cpp`). The old
+  firmware froze the same way.
 
-- **Tearing.** Frames go out in strips of changed rows from a task on core 0 while core 1 draws the next strip
-  (`firmware/handheld/mock/src/main.cpp`), with no sync to the panel's refresh. The panel is mounted a quarter
-  turn off, so its scan runs across the screen's columns: a frame caught mid-scan would show one side of the
-  screen newer than the other, which matches what's seen. Check whether the CO5300 exposes a tearing-effect
-  (TE) signal on this board, and whether sending only whole frames, or sending in step with TE, fixes it.
-- **Frame time.** Measure draw and send time per frame while scrolling (the serial `p` profile, `plog`) to see
-  whether scroll frames miss the refresh, and whether sends lag the draws.
-- **CPU clock.** Make sure scrolling holds full speed for the whole gesture and its fling (`cpu_clock.h`).
+**Cost.** A scroll frame draws in about 21.5 ms in column strips against 15.3 ms in row strips (per-strip
+overhead in the card blits and plates), so scrolling runs at a steady ~28 fps against ~38–49 fps torn before.
+The stats line now shows `scan` and `late sends`; the late sends left come from the one frame where the list
+comes to rest (60–80 ms, either strip order).
 
-Check Waveshare's and Espressif's examples and FAQs for this panel before custom fixes. Done when scrolling
-looks even on the board; record what the cause was here.
+Still open:
+
+- **The card pop.** While moving, cards draw from whatever width is cached; at rest each re-renders at its exact
+  width with bilinear scaling, so the card visibly grows and that frame takes 60–80 ms. Fix: render exact widths
+  one card a frame while the list moves.
+- **Not yet confirmed with a finger:** the axis lock (the laptop check passes), and whether a quick sideways flick
+  that starts mostly vertical now scrolls instead of switching tabs.
+- **59 fps scrolling** would need scroll frames under 16.9 ms, about 25% faster drawing in column strips.
 
 ### B2. Dock screen is still choppy: map 13 fps, picker 17 fps, aim for 24–30 (open)
 

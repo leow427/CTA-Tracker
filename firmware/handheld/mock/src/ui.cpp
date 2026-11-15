@@ -878,7 +878,7 @@ void pointerDown(App& a, Model& m, float x, float y, uint32_t ms) {
     // A press on a moving list stops it where it is, and lifting that press doesn't count as a tap.
     d.caught = (sc == Screen::Stops && fabsf(a.scroll[t] - a.scrollTarget[t]) > 3) ||
                (sc == Screen::Detail && fabsf(a.detailScroll - a.detailTarget) > 3);
-    d.down = true; d.moved = false; d.isLong = false; d.wasDim = a.dim;
+    d.down = true; d.moved = false; d.isLong = false; d.wasDim = a.dim; d.vertical = false;
     d.x0 = d.x = x; d.y0 = d.y = y; d.t0 = ms;
     d.s0 = sc == Screen::Stops ? a.scroll[t] : a.detailScroll;
     d.mx0 = a.mapX; d.my0 = a.mapY;
@@ -893,8 +893,9 @@ void pointerMove(App& a, Model& m, float x, float y, uint32_t ms) {
     d.x = x; d.y = y;
     addSample(a, x, y, ms);
     const float dx = x - d.x0, dy = y - d.y0;
-    if (hypotf(dx, dy) > 9) d.moved = true;
-    if (d.wasDim || !d.moved || d.isLong || fabsf(dy) < fabsf(dx)) return;
+    // The axis is the one the press first moves along: a slow drag drifting past 45 degrees stopped the list dead.
+    if (!d.moved && hypotf(dx, dy) > 9) { d.moved = true; d.vertical = fabsf(dy) >= fabsf(dx); }
+    if (d.wasDim || !d.moved || d.isLong || !d.vertical) return;
     if (a.view.screen == Screen::Stops) {
         const int t = static_cast<int>(a.view.tab);
         float v = d.s0 - dy;
@@ -939,7 +940,7 @@ void pointerUp(App& a, Model& m, float x, float y, uint32_t ms) {
     if (d.isLong) { snprintf(log.what, sizeof(log.what), "long press"); return; }
     const Screen sc = a.view.screen;
     const int t = static_cast<int>(a.view.tab);
-    const bool horizontal = fabsf(dx) > fabsf(dy);
+    const bool horizontal = !d.vertical && fabsf(dx) > fabsf(dy);   // a drag that scrolled stays a scroll
     // Lists settle where they are, or carry on at the finger's speed and slow to a stop on a card.
     auto settle = [&](bool fling) {
         if (sc == Screen::Stops) {

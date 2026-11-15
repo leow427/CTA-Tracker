@@ -7,8 +7,10 @@
 //     skipping the second (main.cpp) shows nothing different;
 //   - the Stops list at rest: redrawing only the live marks' windows when ui::restKey is unchanged leaves the panel
 //     exactly as a whole frame would, and equal keys draw the same pixels outside the marks;
-//   - the row hash (row_hash.h): a row that changes in any one word always hashes differently.
-// Frames are drawn through the device's strip path (48-row strips in the panel's layout).
+//   - the row hash (row_hash.h): a row that changes in any one word always hashes differently;
+//   - strips of screen columns (whole panel rows, sent in the panel's scan order: todo B1) draw exactly the pixels
+//     that strips of screen rows did, through scrolling, a tab switch, and Home.
+// Frames are drawn through the device's strip path (48-column strips in the panel's layout).
 // Build and run (from firmware/handheld/mock):
 //   c++ -std=c++17 -O2 -Isrc -I../../lib/gfx/src -I../../lib/cta/src -I../../lib/pet/src -I<ArduinoJson>/src tools/frame_test.cpp \
 //       ../../lib/gfx/src/*.cpp src/ui.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp \
@@ -42,16 +44,16 @@ constexpr uint32_t kStart = 1794019230;   // 2026-11-06 20:40:30 Chicago: the mi
 
 uint16_t scratch[ui::kScratchPixels];
 
-// The frame through 48-row panel strips, as main.cpp draws it, hashed (FNV-1a 64 over every strip's pixels).
+// The frame through 48-column panel strips, as main.cpp draws it, hashed (FNV-1a 64 over every strip's pixels).
 uint64_t frameHash(ui::App& a, const mock::Model& m, uint32_t ms) {
-    constexpr int kRows = 48;
-    static uint16_t strip[ui::W * kRows];
+    constexpr int kCols = 48;
+    static uint16_t strip[ui::W * kCols];
     uint64_t h = 1469598103934665603ull;
-    for (int y0 = 0; y0 < ui::W; y0 += kRows) {
-        const int rows = y0 + kRows <= ui::W ? kRows : ui::W - y0;
-        ui::Canvas cv = ui::Canvas::panelBand(strip, ui::W, y0, rows);
+    for (int x0 = 0; x0 < ui::W; x0 += kCols) {
+        const int x1 = std::min(ui::W, x0 + kCols);
+        ui::Canvas cv = ui::Canvas::panelWindow(strip, ui::W, x0, x1, 0, ui::W);
         ui::draw(cv, a, m, ms, scratch);
-        for (int i = 0; i < ui::W * rows; ++i) h = (h ^ strip[i]) * 1099511628211ull;
+        for (int i = 0; i < ui::W * (x1 - x0); ++i) h = (h ^ strip[i]) * 1099511628211ull;
     }
     return h;
 }
@@ -240,7 +242,18 @@ void testAodKey() {
 // device's path, main.cpp: each window even-aligned, drawn through Canvas::panelWindow).
 struct Panel {
     uint16_t px[ui::W * ui::W];
-    void full(ui::App& a, const mock::Model& m, uint32_t ms) {
+    void full(ui::App& a, const mock::Model& m, uint32_t ms) {   // the device's strips of screen columns
+        constexpr int kCols = 48;
+        static uint16_t strip[ui::W * kCols];
+        for (int x0 = 0; x0 < ui::W; x0 += kCols) {
+            const int x1 = std::min(ui::W, x0 + kCols);
+            ui::Canvas cv = ui::Canvas::panelWindow(strip, ui::W, x0, x1, 0, ui::W);
+            ui::draw(cv, a, m, ms, scratch);
+            for (int x = x0; x < x1; ++x)
+                for (int y = 0; y < ui::W; ++y) px[y * ui::W + x] = strip[(x - x0) * ui::W + (ui::W - 1 - y)];
+        }
+    }
+    void fullRows(ui::App& a, const mock::Model& m, uint32_t ms) {   // strips of screen rows, as before B1
         constexpr int kRows = 48;
         static uint16_t strip[ui::W * kRows];
         for (int y0 = 0; y0 < ui::W; y0 += kRows) {
@@ -389,14 +402,14 @@ uint32_t rnd() {
 
 void testRowHash() {
     int flips = 0, missed = 0;
-    for (int n : {48, 34, 20}) {
-        for (int trial = 0; trial < 2000; ++trial) {
-            uint32_t w[24];
+    for (int n : {466, 20}) {
+        for (int trial = 0; trial < 300; ++trial) {
+            uint32_t w[233];
             for (uint32_t& x : w) x = rnd();
             if (trial % 3 == 0) for (int i = 0; i < n / 2; ++i) w[i] = 0;   // black rows are common
             const uint32_t h = hashRow(reinterpret_cast<const uint16_t*>(w), n);
             for (int i = 0; i < n / 2; ++i) {
-                uint32_t v[24];
+                uint32_t v[233];
                 memcpy(v, w, sizeof(v));
                 uint32_t d = rnd();
                 if (trial & 1) d &= 0xFFFF << ((rnd() & 1) * 16);   // one pixel
@@ -411,10 +424,75 @@ void testRowHash() {
     printf("row hash: %d one-word changes, %d missed\n", flips, missed);
 }
 
+// ---------- strips of screen columns ----------
+
+void testColumnStrips() {
+    static Panel cols, rows;
+    static mock::Model m;
+    m = mock::Model();
+    m.scenario = mock::Scenario::Live;
+    mock::update(m, kStart, kStart);
+    ui::App a;
+    ui::init(a, 1000);
+    int frames = 0, differ = 0;
+    auto check = [&](uint32_t ms) {
+        ui::tick(a, m, ms);
+        cols.full(a, m, ms);
+        rows.fullRows(a, m, ms);
+        ++frames;
+        if (memcmp(cols.px, rows.px, sizeof(cols.px)) != 0 && ++differ <= 3) printf("FAIL: column strips differ at %u ms\n", ms);
+    };
+    check(1000);   // Home
+    a.view.screen = ui::Screen::Stops;
+    for (uint32_t ms = 1030; ms < 8000; ms += 30) {   // the auto-scroll, then a tap on the other tab and its slide
+        const int t = static_cast<int>(a.view.tab);
+        if (ms == 6010) { ui::pointerDown(a, m, 350, 50, ms - 40); ui::pointerUp(a, m, 350, 50, ms); }
+        else if (ms < 6010) { a.scrollTarget[t] = 560 + 400 * sinf(ms / 700.f); a.lastInput = ms; }
+        check(ms);
+    }
+    CHECK(differ == 0);
+    printf("column strips: %d frames, %d differ from row strips\n", frames, differ);
+}
+
+// ---------- a slow diagonal drag (todo B1) ----------
+
+// A drag that starts upward and drifts past 45 degrees, as a thumb does, keeps scrolling the list the whole way, and
+// lifting it doesn't switch tabs. (The list used to stop dead whenever the drag was more sideways than up.)
+void testDiagonalDrag() {
+    static mock::Model m;
+    m = mock::Model();
+    m.scenario = mock::Scenario::Live;
+    mock::update(m, kStart, kStart);
+    ui::App a;
+    ui::init(a, 1000);
+    a.view.screen = ui::Screen::Stops;
+    uint32_t ms = 1000;
+    float x = 200, y = 400, last = 0;
+    int stalls = 0;
+    ui::pointerDown(a, m, x, y, ms);
+    for (int i = 0; i < 300; ++i) {   // 2.4 s at 8 ms a sample: up first, then up and right at 50 degrees
+        ms += 8;
+        y -= 0.5f;
+        if (i > 40) x += 0.6f;
+        ui::pointerMove(a, m, x, y, ms);
+        ui::tick(a, m, ms);
+        const float s = a.scroll[0];
+        if (i > 40 && s <= last) ++stalls;
+        last = s;
+    }
+    ui::pointerUp(a, m, x, y, ms);
+    CHECK(stalls == 0);
+    CHECK(a.view.tab == ui::Tab::Trains);
+    printf("diagonal drag: scrolled %.0f px, %d samples where the list stood still, tab %s\n", last, stalls,
+           a.view.tab == ui::Tab::Trains ? "kept" : "switched");
+}
+
 }  // namespace
 
 int main() {
     testRowHash();
+    testColumnStrips();
+    testDiagonalDrag();
     testAodKey();
     testCardCache();
     testRestMarks();

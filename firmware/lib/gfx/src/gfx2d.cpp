@@ -878,6 +878,7 @@ void Canvas::arc(float cx, float cy, float r, float a0, float a1, float lw, uint
         const float x = cx + (q == 0 ? r : q == 2 ? -r : 0), y = cy + (q == 1 ? r : q == 3 ? -r : 0);
         bx0 = fminf(bx0, x); bx1 = fmaxf(bx1, x); by0 = fminf(by0, y); by1 = fmaxf(by1, y);
     }
+    if (bx1 + pad < cx0_ || bx0 - pad > cx1_) return;   // the sweep misses this strip of columns (the handheld's)
     const int j0 = clampi(static_cast<int>(floorf(by0 - pad)), cy0_, cy1_), j1 = clampi(static_cast<int>(ceilf(by1 + pad)), cy0_, cy1_);
     const float ro = r + hw + 1, ri = fmaxf(0, r - hw - 1);
     // Only the ring's span on each row. A point is in the sweep when it's past the start and before the end
@@ -1141,11 +1142,13 @@ void Canvas::blitScaled(const uint16_t* src, int sw, int sh, uint16_t key, float
     }
     const int ka = static_cast<int>(256 * a * alpha);
     const int inv = static_cast<int>(65536 * inv1);   // source step per destination pixel, 16.16
-    const int i0 = clampi(static_cast<int>(floorf(x0)), cx0_, cx1_), i1 = clampi(static_cast<int>(ceilf(x0 + dw)), cx0_, cx1_);
+    const int iB = static_cast<int>(floorf(x0));
+    const int i0 = clampi(iB, cx0_, cx1_), i1 = clampi(static_cast<int>(ceilf(x0 + dw)), cx0_, cx1_);
     const int j0 = clampi(static_cast<int>(floorf(y0)), cy0_, cy1_), j1 = clampi(static_cast<int>(ceilf(y0 + dh)), cy0_, cy1_);
     if (i0 >= i1 || j0 >= j1 || ka <= 0) return;
     const uint32_t a32 = static_cast<uint32_t>(ka + 4) >> 3;
-    const int u0 = static_cast<int>(((i0 + 0.5f - x0) * inv1 - 0.5f) * 65536);
+    // Stepped from the image's own first column, as in blitNearest: the same source pixel whatever the clip.
+    const int u0 = static_cast<int>(((iB + 0.5f - x0) * inv1 - 0.5f) * 65536) + (i0 - iB) * inv;
     constexpr int kMaxW = 512;
     constexpr uint32_t kFlag = 0x80000000u;
     static uint32_t mixed[kMaxW];
@@ -1203,12 +1206,14 @@ void Canvas::blitNearest(const uint16_t* src, int sw, int sh, uint16_t key, floa
     const float dw = sw * scale, dh = sh * scale, x0 = cx - dw / 2 + ox, y0 = cy - dh / 2 + oy, inv1 = 1.f / scale;
     const int al = static_cast<int>(256 * a * alpha);
     const int inv = static_cast<int>(65536 * inv1);
-    int i0 = clampi(static_cast<int>(floorf(x0)), cx0_, cx1_);
+    const int iB = static_cast<int>(floorf(x0));
+    int i0 = clampi(iB, cx0_, cx1_);
     const int i1 = clampi(static_cast<int>(ceilf(x0 + dw)), cx0_, cx1_);
     const int j0 = clampi(static_cast<int>(floorf(y0)), cy0_, cy1_), j1 = clampi(static_cast<int>(ceilf(y0 + dh)), cy0_, cy1_);
     if (i0 >= i1 || j0 >= j1 || al <= 0 || inv <= 0) return;
-    // The columns whose source pixel is inside the image, worked out once for every row.
-    int u = static_cast<int>((i0 + 0.5f - x0) * inv1 * 65536);
+    // The columns whose source pixel is inside the image, worked out once for every row. Stepped from the image's own
+    // first column, so a column takes the same source pixel whatever the clip (the handheld draws strips of columns).
+    int u = static_cast<int>((iB + 0.5f - x0) * inv1 * 65536) + (i0 - iB) * inv;
     if (u < 0) { const int k = (-u + inv - 1) / inv; i0 += k; u += k * inv; }
     const int limit = sw << 16;
     if (u >= limit || i0 >= i1) return;

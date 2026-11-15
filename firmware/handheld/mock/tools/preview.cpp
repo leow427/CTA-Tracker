@@ -5,7 +5,7 @@
 //       ../../lib/cta/src/*.cpp ../../lib/pet/src/*.cpp -lz -o /tmp/mock_preview
 //   /tmp/mock_preview <out dir> [--strips]               the mock's scenarios
 //   /tmp/mock_preview <out dir> --live <responses> <unix>   live screens from recorded responses
-// --strips draws each frame the way the device does (48-row strips in the panel's rotated, byte-swapped layout)
+// --strips draws each frame the way the device does (48-column strips in the panel's rotated, byte-swapped layout)
 // and turns it back, so the PNGs should match the plain ones exactly.
 // --live reads nearby.json (the `nearby` message; else fixtures/cta/nearby_belmont.json), then trains_<station
 // id>.json for each of its stations, buses.json, alerts.json, and weather.json (any may be missing) from
@@ -14,6 +14,7 @@
 #include <string.h>
 #include <zlib.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -67,15 +68,15 @@ void writePng(const std::string& path, const uint16_t* px, float brightness) {
 
 // Draws the frame in panel strips, as main.cpp does, and un-rotates them into fb.
 void drawStrips(uint16_t* fb, ui::App& a, const mock::Model& m, uint32_t ms, uint16_t* scratch) {
-    constexpr int kRows = 48;
-    static uint16_t strip[ui::W * kRows];
-    for (int y0 = 0; y0 < ui::W; y0 += kRows) {
-        const int rows = y0 + kRows <= ui::W ? kRows : ui::W - y0;
-        ui::Canvas cv = ui::Canvas::panelBand(strip, ui::W, y0, rows);
+    constexpr int kCols = 48;
+    static uint16_t strip[ui::W * kCols];
+    for (int x0 = 0; x0 < ui::W; x0 += kCols) {
+        const int x1 = std::min(ui::W, x0 + kCols);
+        ui::Canvas cv = ui::Canvas::panelWindow(strip, ui::W, x0, x1, 0, ui::W);
         ui::draw(cv, a, m, ms, scratch);
-        for (int x = 0; x < ui::W; ++x)
-            for (int y = y0; y < y0 + rows; ++y) {
-                const uint16_t c = strip[x * rows + (y0 + rows - 1 - y)];
+        for (int x = x0; x < x1; ++x)
+            for (int y = 0; y < ui::W; ++y) {
+                const uint16_t c = strip[(x - x0) * ui::W + (ui::W - 1 - y)];
                 fb[y * ui::W + x] = static_cast<uint16_t>(c << 8 | c >> 8);
             }
     }

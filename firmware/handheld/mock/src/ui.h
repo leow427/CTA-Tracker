@@ -43,6 +43,7 @@ struct App {
     struct {
         bool down = false, moved = false, isLong = false, wasDim = false;
         bool caught = false;   // the press stopped a moving list, so lifting it isn't a tap
+        bool vertical = false; // the press moved up or down first: it scrolls, however it drifts (todo B1)
         float x0 = 0, y0 = 0, x = 0, y = 0, s0 = 0, mx0 = 0, my0 = 0;
         uint32_t t0 = 0;
         // The last few touch samples, for the release velocity.

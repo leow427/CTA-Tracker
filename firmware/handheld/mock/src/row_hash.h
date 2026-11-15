@@ -17,11 +17,10 @@ inline uint32_t hashWords(const uint32_t* w) {
     return a ^ (b << 16 | b >> 16);
 }
 
-// Unrolled for the device's strips: 48 rows, and 34 in the last (466 = 9 * 48 + 34).
+// Unrolled for the device's panel rows: 466 pixels, the screen's height.
 inline uint32_t hashRow(const uint16_t* p, int n) {
     const uint32_t* w = reinterpret_cast<const uint32_t*>(p);
-    if (n == 48) return hashWords<24>(w);
-    if (n == 34) return hashWords<17>(w);
+    if (n == 466) return hashWords<233>(w);
     uint32_t h = 2166136261u;
     for (int i = 0; i < n / 2; ++i) h = (h ^ w[i]) * 16777619u;
     return h;

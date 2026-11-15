@@ -2,10 +2,13 @@
 // (HANDHELD_LIVE, env:live) feeds the screens real CTA data from the network task (live.*) and reads the power chip
 // (power.*); the mock build simulates arrivals (mock_data.*).
 //
-// Frames are drawn in strips of screen rows into internal RAM (fast, unlike PSRAM), already laid out the way the
-// panel wants them: the panel is mounted a quarter turn off, so a strip of screen rows is a strip of panel columns,
-// rotated 90 degrees right and byte-swapped. Each panel row of a strip is hashed, and only the rows that changed
-// since the last frame are sent, from a task on core 0 while core 1 draws the next strip. Touch is sampled on its
+// Frames are drawn in strips of screen columns into internal RAM (fast, unlike PSRAM), already laid out the way the
+// panel wants them: the panel is mounted a quarter turn off, so a strip of screen columns is a band of whole panel
+// rows, rotated 90 degrees right and byte-swapped. Each panel row is hashed, and only the rows that changed since the
+// last frame are sent, from a task on core 0 while core 1 draws the next strip. The panel scans its rows (the screen's
+// columns) in the same order, and each send waits until the scan has passed its rows (the panel's TE line, GPIO13),
+// so a whole frame shows on one scan and none is caught half written (todo B1: strips of screen rows ran across the
+// scan, and every frame showed with a slanted seam while the list moved). Touch is sampled on its
 // own task every 8 ms, so gestures get real timings; the touch panel reads a half turn from the display, so a
 // touch at (tx, ty) is screen point (W-1-ty, tx).
 #include <Arduino.h>
@@ -34,6 +37,7 @@ namespace {
 
 // Waveshare ESP32-S3-Touch-AMOLED-1.75 pins (from Waveshare's pin_config.h).
 constexpr int kLcdCs = 12, kLcdSclk = 38, kLcdD0 = 4, kLcdD1 = 5, kLcdD2 = 6, kLcdD3 = 7, kLcdRst = 39;
+constexpr int kLcdTe = 13;   // the schematic's LCD_TE; Waveshare's own examples leave it unused
 constexpr int kSda = 15, kScl = 14, kTpInt = 11, kTpRst = 40;
 constexpr int W = ui::W;
 constexpr uint8_t kFullBrightness = 220;
@@ -74,17 +78,57 @@ uint32_t buildUnix() {
 
 // ---------- sending: changed panel rows, from core 0 ----------
 
-constexpr int kStripRows = 48;                                     // screen rows per strip
-constexpr int kStrips = (W + kStripRows - 1) / kStripRows;         // 10; the last is 34 rows
+constexpr int kStripCols = 48;                                     // screen columns (panel rows) per strip
+constexpr int kStrips = (W + kStripCols - 1) / kStripCols;         // 10; the last is 34 columns
 constexpr int kMergeGap = 8;                                       // unchanged rows worth sending to save a window
 
 uint16_t* stripBuf[2];            // DMA-capable internal RAM; the bus sends straight from it
 SemaphoreHandle_t stripFree[2];
-uint32_t rowHash[kStrips][W];     // per strip, per panel row (= screen column): what the panel shows
-// Per strip, the panel rows [lo, hi) that drawMarks() has redrawn since the strip was last drawn whole: their hashes
-// no longer describe the panel, so the next whole frame sends them.
-int16_t redrawnLo[kStrips], redrawnHi[kStrips];
+uint32_t rowHash[W];              // per panel row (= screen column): what the panel shows
 bool sendAll = true;
+
+// ---------- the panel's scan (TE) ----------
+
+// TE is high while the panel is between scans (mode 0x35 00: vertical blanking only), so its falling edge starts a
+// scan of panel row 0. The interrupt keeps that time, the scan period, and how long TE stays high.
+volatile uint32_t teFall = 0, tePeriod = 0, teHigh = 0, teRise = 0;
+volatile uint32_t lateJobs = 0;   // sends that missed their scan (would tear); in the stats line
+// A moving frame starts drawing this long before a scan starts, and a frame whose first send comes this late in a scan
+// is timed against the next one: its first strips are ready when the scan passes them.
+constexpr uint32_t kLeadUs = 2500;
+
+void IRAM_ATTR onTe() {
+    const uint32_t t = static_cast<uint32_t>(esp_timer_get_time());
+    if ((REG_READ(GPIO_IN_REG) >> kLcdTe) & 1) {   // a register read: the ISR stays in IRAM
+        teRise = t;
+    } else {
+        if (teFall) tePeriod = t - teFall;
+        teHigh = t - teRise;
+        teFall = t;
+    }
+}
+
+void waitUntil(uint32_t t) {
+    for (int32_t d; (d = static_cast<int32_t>(t - micros())) > 0;) {
+        if (d > 2000) vTaskDelay(pdMS_TO_TICKS(d / 1000 - 1));   // sleep, leaving the core to other tasks
+        else delayMicroseconds(d);
+    }
+}
+
+// Holds a send of panel rows [y0, y1) until the scan has passed them, so they show on the next scan whole. The first
+// send of a frame anchors it to a scan; every later one must land before that scan's successor reaches its rows, or
+// that scan shows the frame half new (counted in lateJobs).
+void paceSend(int y0, int y1, uint32_t& anchor) {
+    constexpr int kMargin = 16;   // panel rows of slack either side of the scan
+    const uint32_t period = tePeriod, fall = teFall, now = micros();
+    if (!period || now - fall > 4 * period) { anchor = 0; return; }   // no TE: send at once, as before
+    const uint32_t high = teHigh < period / 4 ? teHigh : 0;
+    const float line = static_cast<float>(period - high) / W;        // microseconds per panel row
+    if (!anchor) anchor = now - fall >= period - kLeadUs ? fall + period : fall;
+    waitUntil(anchor + static_cast<int32_t>((y1 + kMargin) * line));
+    const int32_t over = static_cast<int32_t>(micros() - anchor - period) - static_cast<int32_t>((y0 - kMargin) * line);
+    if (over > 0) lateJobs = lateJobs + 1;
+}
 
 struct Job {
     const uint16_t* px;   // nullptr: end of frame (apply the brightness)
@@ -100,10 +144,12 @@ volatile uint32_t framesQueued = 0, framesSent = 0;
 
 void sendTask(void*) {
     uint8_t brightnessNow = 0;
+    uint32_t anchor = 0;   // the scan this frame is timed against (paceSend)
     Job j;
     for (;;) {
         xQueueReceive(jobs, &j, portMAX_DELAY);
         if (j.px) {
+            paceSend(j.y, j.y + j.h, anchor);
             const uint32_t t = micros();
             gfx->draw16bitBeRGBBitmap(j.x, j.y, const_cast<uint16_t*>(j.px), j.w, j.h);
             sendUs += micros() - t;
@@ -120,6 +166,7 @@ void sendTask(void*) {
             plog::frameDone(static_cast<uint16_t>(j.x));   // an end-of-frame job carries the frame's number in x
 #endif
             framesSent = framesSent + 1;
+            anchor = 0;
         }
         if (j.release >= 0) xSemaphoreGive(stripFree[j.release]);
     }
@@ -142,8 +189,6 @@ void queueEnd() {
     xQueueSend(jobs, &end, portMAX_DELAY);
 }
 
-static_assert(kStripRows == 48 && W - (kStrips - 1) * kStripRows == 34, "row_hash.h's unrolled cases");
-
 // Draws the frame strip by strip and queues the changed rows. Returns the microseconds spent drawing.
 uint32_t drawFrame(uint32_t ms) {
     uint32_t busy = 0;
@@ -152,33 +197,30 @@ uint32_t drawFrame(uint32_t ms) {
     const bool lit = plog::litWanted();
 #endif
     for (int s = 0; s < kStrips; ++s) {
-        const int k = s & 1, y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
+        const int k = s & 1, x0 = s * kStripCols, x1 = min(W, x0 + kStripCols);
         xSemaphoreTake(stripFree[k], portMAX_DELAY);   // its last send has finished
         const uint32_t t = micros();
         uint16_t* buf = stripBuf[k];
-        ui::Canvas cv = ui::Canvas::panelBand(buf, W, y0, rows);
+        ui::Canvas cv = ui::Canvas::panelWindow(buf, W, x0, x1, 0, W);
         ui::draw(cv, app, model, ms, scratch);
 #ifdef POWER_LOG
-        if (lit) plog::litStrip(buf, W * rows);
+        if (lit) plog::litStrip(buf, W * (x1 - x0));
 #endif
-        // Panel window: columns [W - y0 - rows, W - y0), and the panel rows (screen columns) that changed, in runs.
-        const int px = W - y0 - rows;
+        // Panel window: whole panel rows (screen columns) [x0, x1), the ones that changed, in runs.
         int runStart = -1, runEnd = -1;
         Job pending{nullptr, 0, 0, 0, 0, -1};
         auto flush = [&]() {
             if (runStart < 0) return;
             if (pending.px) xQueueSend(jobs, &pending, portMAX_DELAY);
             const int r0 = runStart & ~1, r1 = runEnd | 1;   // the CO5300 wants even windows
-            pending = {buf + r0 * rows, static_cast<int16_t>(px), static_cast<int16_t>(r0), static_cast<int16_t>(rows),
+            pending = {buf + (r0 - x0) * W, 0, static_cast<int16_t>(r0), static_cast<int16_t>(W),
                        static_cast<int16_t>(r1 - r0 + 1), -1};
             runStart = -1;
         };
-        const int lo = redrawnLo[s], hi = redrawnHi[s];
-        redrawnLo[s] = redrawnHi[s] = 0;
-        for (int x = 0; x < W; ++x) {
-            const uint32_t h = hashRow(buf + x * rows, rows);
-            if (h == rowHash[s][x] && !sendAll && (x < lo || x >= hi)) continue;
-            rowHash[s][x] = h;
+        for (int x = x0; x < x1; ++x) {
+            const uint32_t h = hashRow(buf + (x - x0) * W, W);
+            if (h == rowHash[x] && !sendAll) continue;
+            rowHash[x] = h;
             if (runStart >= 0 && x - runEnd > kMergeGap) flush();
             if (runStart < 0) runStart = x;
             runEnd = x;
@@ -213,10 +255,8 @@ uint32_t drawMarks(uint32_t ms, const ui::Mark* mk, int n) {
         const uint32_t t = micros();
         ui::Canvas cv = ui::Canvas::panelWindow(stripBuf[k], W, x0, x1, y0, rows);
         ui::draw(cv, app, model, ms, scratch);
-        for (int s = y0 / kStripRows; s <= (y1 - 1) / kStripRows; ++s) {
-            if (redrawnLo[s] == redrawnHi[s]) { redrawnLo[s] = x0; redrawnHi[s] = x1; }
-            else { redrawnLo[s] = min<int>(redrawnLo[s], x0); redrawnHi[s] = max<int>(redrawnHi[s], x1); }
-        }
+        // These panel rows' hashes no longer describe the panel: flip them so the next whole frame sends the rows.
+        for (int x = x0; x < x1; ++x) rowHash[x] = ~rowHash[x];
         busy += micros() - t;
         const Job j{stripBuf[k], static_cast<int16_t>(W - y0 - rows), static_cast<int16_t>(x0), static_cast<int16_t>(rows),
                     static_cast<int16_t>(x1 - x0), static_cast<int8_t>(k)};
@@ -329,14 +369,14 @@ void profile(uint32_t ms) {
     for (int r = 0; r < kReps; ++r) {
         ui::gfxClock = []() -> uint32_t { return ESP.getCycleCount(); };   // the strips only
         for (int s = 0; s < kStrips; ++s) {
-            const int y0 = s * kStripRows, rows = y0 + kStripRows <= W ? kStripRows : W - y0;
+            const int x0 = s * kStripCols, x1 = min(W, x0 + kStripCols);
             uint32_t t = micros();
-            ui::Canvas cv = ui::Canvas::panelBand(stripBuf[0], W, y0, rows);
+            ui::Canvas cv = ui::Canvas::panelWindow(stripBuf[0], W, x0, x1, 0, W);
             ui::draw(cv, app, model, ms, scratch);
             strip[s] += micros() - t;
             t = micros();
             volatile uint32_t sink = 0;
-            for (int x = 0; x < W; ++x) sink = sink + hashRow(stripBuf[0] + x * rows, rows);
+            for (int x = x0; x < x1; ++x) sink = sink + hashRow(stripBuf[0] + (x - x0) * W, W);
             hash += micros() - t;
         }
         ui::gfxClock = nullptr;
@@ -424,8 +464,13 @@ void setup() {
     Wire.begin(kSda, kScl);
     if (!gfx->begin(80000000)) Serial.println("display: begin failed");
     gfx->fillScreen(0);
+    bus->beginWrite();
+    bus->writeC8D8(0x35, 0x00);   // TE on, vertical blanking only (Arduino_CO5300's init leaves it off)
+    bus->endWrite();
+    pinMode(kLcdTe, INPUT);
+    attachInterrupt(kLcdTe, onTe, CHANGE);
     for (int k = 0; k < 2; ++k) {
-        stripBuf[k] = static_cast<uint16_t*>(heap_caps_malloc(W * kStripRows * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+        stripBuf[k] = static_cast<uint16_t*>(heap_caps_malloc(W * kStripCols * 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
         stripFree[k] = xSemaphoreCreateBinary();
         xSemaphoreGive(stripFree[k]);
     }
@@ -481,8 +526,13 @@ void setup() {
     if (touchOk) xTaskCreatePinnedToCore(touchTask, "touch", 4096, nullptr, 3, nullptr, 0);
 }
 
+bool inMotion = false;   // the last frame drawn was part of an animation
+
 void loop() {
     static uint32_t lastData = 0, lastFrame = 0, frames = 0, statT = 0, sumDraw = 0, sumFrame = 0;
+    // In motion, each frame starts just before a scan does, so frames show at a steady one or two scans each (a frame
+    // drawn mid-scan can miss its scan, and the next can't, which judders); before the clock is read, so motion matches.
+    if (inMotion && tePeriod && micros() - teFall < 4 * tePeriod) waitUntil(teFall + tePeriod - kLeadUs);
     if (uxQueueMessagesWaiting(touchEvents)) fullSpeed(true);   // a touch: full speed before anything answers it
     handleTouch();
     const uint32_t ms = millis();   // after the touch events, so none is stamped later than this frame
@@ -616,6 +666,7 @@ void loop() {
     aodDrawn = aod;
     if (aod) aodShown = ui::aodKey(app, model, ms);
     shownDim = app.dim;
+    inMotion = moving;
     ++frames;
 #ifdef POWER_LOG
     plog::frame(moving, ms);
@@ -625,9 +676,11 @@ void loop() {
         const uint32_t f = frames ? frames : 1;
         // One write, so the line arrives whole or not at all while the host reads (prints wait at most 5 ms; see
         // setup()).
-        static char line[384];
-        int k = snprintf(line, sizeof(line), "fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); ",
-                         frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W);
+        static char line[512];
+        int k = snprintf(line, sizeof(line), "fps %.1f; per frame: draw %u us, loop %u us, send %u us, %u px (of %u); "
+                         "scan %u us (TE high %u), late sends %u; ",
+                         frames * 1000.f / (ms - statT), sumDraw / f, sumFrame / f, sendUs / f, sentPx / f, W * W,
+                         tePeriod, teHigh, lateJobs);
         k += snprintf(line + k, sizeof(line) - k, "scenario %s, mood %d, %d trains, %d buses, internal free %u (min %u)",
                       mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
@@ -640,6 +693,7 @@ void loop() {
         frames = sumDraw = sumFrame = 0;
         sentPx = 0;
         sendUs = 0;
+        lateJobs = 0;
         statT = ms;
     }
 }
