@@ -228,3 +228,26 @@ controller's code runs from PSRAM through XIP instead of taking IRAM), the same 
 - **Gate case (c) passes** with 46 KB to spare. The gain over W5 is about 31 KB at boot and 37 KB advertising, more
   than the dock's 20 KB. Starting BLE now takes about 30 KB (125.8 → 95.5 KB).
 - **Not measured yet:** case (b), an iPhone bonded and connected while TLS polls (Leo's phone).
+
+### Wearable, relaying from the iPhone (Task W6b/W6c, 2026-11-15)
+
+Main at 4555726, Leo's iPhone 15 Pro bonded over Bluetooth, Trackie on screen, Wi-Fi joined, five nearby bus stops:
+
+| Check | Result |
+|---|---|
+| RAM, case (a): connected and relaying, Wi-Fi joined, 3 min watched | 90.7 KB free; **83.9 KB** lowest since boot (about 50 min of polling, two relay sessions and four reconnects) |
+| `CTA requests` while relaying | flat at 135 for 3 min: 6 `/relay` ticks (every 30 s), 30 `/stop` sends, no CTA polls |
+| `CTA requests` with the app away | climbing (31 → 43 in 3 min) |
+| NimBLE host stack left | 3,144 B of 6,144 |
+| Reconnect after an app relaunch | 1 s from launch to bonded and subscribed (after ea31958; before it, never) |
+| Connect → `nearby` → every stop's times | about 1 s: `nearby` 1.0 s after subscribe, five `/stop` within the next 0.6 s |
+
+- **Gate case (a) passes** with 44 KB to spare, on 3 minutes watched rather than 10 (the lowest is since boot, so it
+  covers the earlier relay sessions too).
+- **Found and fixed:** after a relaunch iOS kept the last run's pending connect, which never reached the wearable
+  (scans saw it advertising under its known identifier; the wearable never got a connection request), so every
+  relaunch meant pairing again. The app now replaces a pending connect it didn't make (ea31958). A wearable that
+  reconnected while the app was away got no `nearby`, so the relay never started; the app now sends it on coming to
+  the foreground (4555726).
+- **Not measured yet:** case (b), 10-minute windows, off/on ×3 with the phone, pin and follow latency, the HTTP
+  fallback after `b`, and the no-Wi-Fi boot.

@@ -855,8 +855,11 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
   is open (its focus clears `following` without a pan). The held offer is flushed by a one-shot 10 s task, restarted
   on each held offer.
 - A failed post still counts as sent in the throttle; the next wake asks again.
-- [ ] **Step 2: Verify:** wake the wearable → nearby stops fill (no Mac script); pan the map to the Loop → within
+- [x] **Step 2: Verify:** wake the wearable → nearby stops fill (no Mac script); pan the map to the Loop → within
   10 s the wearable shows the phone's Loop stops; recenter → back to home stops.
+  *Leo, 2026-11-15, on his iPhone: his stops fill and a pan shows on the wearable "nearly immediately" once Bluetooth
+  is connected (the earlier minute-long waits were Bluetooth not reconnecting, fixed in ea31958). Recenter not
+  checked separately.*
 - [ ] **Step 3: Commit:** `feat(ios): nearby on the wrist, mirrored from the map`.
 
 ### Task 16: Send to Trackie and Follow (Track A)

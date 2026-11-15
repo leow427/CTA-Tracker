@@ -679,6 +679,9 @@ bool relaying();                                        // a Bluetooth tick in t
   - With Wi-Fi joined, the serial stats line shows `CTA requests` flat while relaying, and climbing within 90 s of
     closing the app.
   - RAM gate case (a).
+  *2026-11-15 with Leo's iPhone (results in `docs/ecosystem/day1-link.md`): relayed cards over Bluetooth, `CTA
+  requests` flat while relaying and climbing with the app away, case (a) 83.9 KB lowest. Not done: the HTTP
+  `link_send.py` stand-in and the no-Wi-Fi boot.*
 - [ ] **Step 4:** Commit: `feat(handheld): arrivals relayed from the phone; no CTA polling while relaying`.
 
 ### Task W6c: Gates on the wearable (Track W; Leo's board and iPhone time)
