@@ -41,6 +41,7 @@ import os
     @ObservationIgnored private var links: [UUID: CBCharacteristic] = [:]
     @ObservationIgnored private var inboxes: [UUID: BLEFrames.Reassembler] = [:]
     @ObservationIgnored private var pendingWrite: [UUID: CheckedContinuation<Void, Error>] = [:]
+    @ObservationIgnored private var pended: Set<UUID> = []   // pending connects made by this run
     @ObservationIgnored private var tail: Task<Void, Error>?   // the last queued message: writes go in order
     private let log = Logger(subsystem: "io.github.leow427.CTATracker", category: "ble")
 
@@ -67,10 +68,16 @@ import os
     /// Connects to a peripheral seen in a scan or saved with a device.
     func connect(_ id: UUID) {
         guard let central, central.state == .poweredOn,
-              let p = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else { return }
+              let p = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else {
+            log.info("connect \(id, privacy: .public): not retrievable")
+            return
+        }
         peripherals[id] = p
         failed.remove(id)
-        if p.state == .disconnected { central.connect(p) }
+        let replace = Self.replacesConnect(p.state, pendedThisRun: pended.contains(id))
+        log.info("connect \(id, privacy: .public): state \(p.state.rawValue)\(replace ? ", replacing" : "", privacy: .public)")
+        if replace { central.cancelPeripheralConnection(p) }
+        if p.state == .disconnected || replace { pend(p) }
     }
 
     /// Drops a setup's connection that never became a known wearable, so iOS's passkey prompt can't pop up later.
@@ -91,6 +98,13 @@ import os
     }
 
     // MARK: - Pure parts (tested)
+
+    /// A pending connect this run didn't make is cancelled and made again: iOS keeps the last run's pending connect,
+    /// and that one never reached the wearable (seen 2026-11-15: "connecting" for minutes while scans saw it
+    /// advertising; a fresh connect landed in 1.3 s). This run's own are left alone: one may be landing right now.
+    nonisolated static func replacesConnect(_ state: CBPeripheralState, pendedThisRun: Bool) -> Bool {
+        state == .connecting && !pendedThisRun
+    }
 
     /// The framed envelope for one write, chunked at the peripheral's write length (MTU − 3). Nil when too large.
     nonisolated static func chunks(_ method: String, _ path: String, _ body: Data?, maxWrite: Int) -> [Data]? {
@@ -146,6 +160,11 @@ import os
         }
     }
 
+    private func pend(_ p: CBPeripheral) {
+        pended.insert(p.identifier)
+        central?.connect(p)
+    }
+
     private func connectKnown() {
         known.forEach(connect)
     }
@@ -174,10 +193,11 @@ import os
         inboxes[p.identifier] = nil
         pendingWrite.removeValue(forKey: p.identifier)?.resume(throwing: DeviceLink.LinkError.disconnected)
         // Pending: iOS completes it whenever the wearable comes back.
-        if after.reconnect && reconnect { central?.connect(p) }
+        if after.reconnect && reconnect { pend(p) }
         if after.addAgain { found[p.identifier] = p.name ?? "CTA-Pet" }
         // A setup connect that went nowhere, or a reset wearable's stale bond: setup stops waiting.
-        if !known.contains(p.identifier) || after.addAgain { failed.insert(p.identifier) }
+        // Not a local cancel (setup's own, a forget, a replaced connect): those report no error.
+        if (!known.contains(p.identifier) && error != nil) || after.addAgain { failed.insert(p.identifier) }
     }
 }
 
@@ -210,6 +230,7 @@ extension BLELink: @preconcurrency CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name ?? ""
+        log.info("seen \(name, privacy: .public) \(peripheral.identifier, privacy: .public) known \(self.known.contains(peripheral.identifier))")
         if known.contains(peripheral.identifier) {
             connect(peripheral.identifier)
         } else if name.hasPrefix("CTA-Pet-") {
@@ -219,16 +240,18 @@ extension BLELink: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        log.info("connected \(peripheral.identifier, privacy: .public)")
         found[peripheral.identifier] = nil
         adopt(peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        log.info("failed to connect \(peripheral.identifier, privacy: .public): \(String(describing: error), privacy: .public)")
         drop(peripheral, error: error, reconnect: false)   // a broken bond often shows up here
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        log.info("disconnected \(peripheral.identifier, privacy: .public)")
+        log.info("disconnected \(peripheral.identifier, privacy: .public): \(String(describing: error), privacy: .public)")
         drop(peripheral, error: error)
     }
 }

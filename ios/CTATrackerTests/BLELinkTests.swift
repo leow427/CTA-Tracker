@@ -127,4 +127,11 @@ struct BLELinkTests {
                        DeviceLink.Device(id: "c3d4", kind: .handheld, name: "Trackie", lastIP: nil, peripheral: p)]
         #expect(DeviceLink.peripherals(devices) == [p])
     }
+
+    @Test func replacesOnlyAnInheritedConnect() {
+        #expect(BLELink.replacesConnect(.connecting, pendedThisRun: false))   // the last run's
+        #expect(!BLELink.replacesConnect(.connecting, pendedThisRun: true))   // ours: it may be landing now
+        #expect(!BLELink.replacesConnect(.disconnected, pendedThisRun: false))
+        #expect(!BLELink.replacesConnect(.connected, pendedThisRun: false))
+    }
 }
