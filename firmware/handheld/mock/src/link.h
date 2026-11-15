@@ -1,10 +1,11 @@
 #pragma once
-// The wearable's HTTP link on the home network (ecosystem spec 4.2–4.4), the dock's (firmware/dock/src/link.*) plus
-// the wearable's endpoints: GET /info, GET/POST /config (pet, settings), POST /nearby, POST/DELETE /pin,
-// POST/DELETE /follow, POST /ble, POST /reset on port 80, announced over mDNS as _ctatracker._tcp. Handlers run on
-// the httpd task (core 0): they check the body's size (413), the token (401) and the JSON (400), then answer at once.
-// A pin or follow goes straight to the network task (live::setPin/setFollow, RAM only); writes that touch flash
-// (config, nearby) or reboot wait in an inbox for the frame loop (take). Live build only.
+// The wearable's link (ecosystem spec 4.2–4.4; docs/superpowers/plans/2026-11-14-wearable-ble-link.md): one
+// dispatcher (apply) for HTTP on the home network and Bluetooth (ble_setup.*). HTTP: GET /info, GET/POST /config (pet,
+// settings), POST /nearby, POST/DELETE /pin, POST/DELETE /follow, POST /reset on port 80, announced over mDNS as
+// _ctatracker._tcp; its handlers run on the httpd task (core 0) and check the body's size (413) and the token (401)
+// first. Bluetooth adds POST /token and POST /wifi (404 over HTTP); its link is already encrypted and bonded. A pin,
+// follow or Wi-Fi network goes straight to the network task (live::*, RAM only); writes that touch flash (config,
+// nearby, token) or reboot wait in an inbox for the frame loop (take). Live build only.
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,8 +22,15 @@ struct Inbox {
     char nearbyJson[cta::kMaxBody + 1];
     size_t nearbyLen = 0;
     bool reset = false;
-    bool openBle = false;
+    bool token = false;
+    char tokenHex[cta::kTokenLen + 1];   // wiped once the loop has saved it
 };
+
+enum class Via : uint8_t { Http, Ble };
+// The transport-neutral write: parses body (len bytes, need not end in NUL) and hands it off. Returns the HTTP
+// status: 200, 400 (bad body), 404 (no such path, or Bluetooth-only over HTTP), 413 (over kMaxBody). Runs on httpd's
+// task or NimBLE's host task, so it only parses and copies into RAM.
+int apply(bool del, const char* path, const char* body, size_t len, Via via);
 
 // Once, before anything else here: the mutex and the token writes are checked against ("" = none: every write 401).
 void begin(const char* token);
@@ -31,6 +39,8 @@ void start(const char* hostLabel);
 void setToken(const char* token);
 // The loop publishes; GET /info serves the latest copy (uptime and Wi-Fi filled in when it's served).
 void setInfo(const cta::InfoMsg& info);
+// GET /info's JSON (what the `info` characteristic carries too) into buf; its length, or 0 if it doesn't fit.
+size_t infoJson(char* buf, size_t cap);
 // What GET /config returns.
 void setConfig(const cta::ConfigMsg& c);
 // The loop drains writes into out (keep it off internal RAM: it holds a 1 KB body); false if none.

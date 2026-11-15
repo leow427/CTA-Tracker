@@ -25,6 +25,7 @@
 #include "cpu_clock.h"
 #include "json_heap.h"
 #include "cst9217.h"
+#include "device_hooks.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
@@ -455,6 +456,8 @@ cta::ConfigMsg& linkCfg = *new (heap_caps_malloc(sizeof(cta::ConfigMsg), MALLOC_
 cta::InfoMsg info = {};   // what GET /info serves
 uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
 lan::Inbox* inbox;        // the loop's copy of the link's writes (PSRAM: it holds a 1 KB body)
+bool haveToken = false;   // a household token is saved (info.paired, with a bond)
+bool infoDirty = false;   // something the app shows changed: notify `info` now, not at the heartbeat
 
 void applyPet() {
     memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
@@ -481,10 +484,13 @@ void saveBytes(const char* key, const void* v, size_t n) {
     nvs_close(h);
 }
 
-// Forgets the saved networks and the token, then boots fresh (POST /reset, serial "R", the two-finger hold).
+// Forgets the saved networks, the token and the Bluetooth bonds (with a new address, so a phone that still holds the
+// old bond sees a new device and pairs afresh), then boots fresh (POST /reset, serial "R", the two-finger hold).
 // While secrets.h has WIFI_SSID the board rejoins it after the reboot (the build-time fallback, spec 5.1).
 void resetLink(const char* why) {
-    printf("link: reset (%s): forgetting Wi-Fi and the token, rebooting\n", why);
+    printf("link: reset (%s): forgetting Wi-Fi, the token and Bluetooth bonds, rebooting\n", why);
+    ble_setup::stop();
+    ble_setup::forgetBonds();
     nvs_handle_t h;
     if (nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK) {
         nvs_erase_key(h, "wifi");
@@ -497,16 +503,17 @@ void resetLink(const char* why) {
     esp_restart();
 }
 
-// Serial "T <32 lowercase hex>": the household token until BLE setup exists, saved and used at once. Never echoed.
-void setTokenFromSerial(const char* t) {
-    bool ok = strlen(t) == cta::kTokenLen;
-    for (const char* p = t; ok && *p; ++p) ok = (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f');
-    if (!ok) { puts("link: a token is 32 lowercase hex characters; not set"); return; }
+// The household token (POST /token over Bluetooth, or serial "T <32 lowercase hex>"), saved and used at once. Never
+// echoed.
+void saveToken(const char* t) {
+    if (!cta::validToken(t)) { puts("link: a token is 32 lowercase hex characters; not set"); return; }
     nvs_handle_t h;
     const bool opened = nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK;
     if (!opened || nvs_set_str(h, "token", t) != ESP_OK || nvs_commit(h) != ESP_OK) puts("store: saving the token failed");
     if (opened) nvs_close(h);
     lan::setToken(t);
+    haveToken = true;
+    infoDirty = true;
     puts("link: token set");
 }
 
@@ -527,9 +534,36 @@ void drainLink() {
         saveBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings));
         applySettings();
     }
-    if (inbox->config) lan::setConfig(linkCfg);
-    if (inbox->openBle) puts("link: POST /ble (BLE setup comes with Task 9)");
+    if (inbox->config) { lan::setConfig(linkCfg); infoDirty = true; }
+    if (inbox->token) {
+        saveToken(inbox->tokenHex);
+        memset(inbox->tokenHex, 0, sizeof(inbox->tokenHex));
+    }
     if (inbox->reset) resetLink("POST /reset");
+}
+
+// The `info` characteristic (the plan's Status): the JSON every second for reads, and a notify on a change the app
+// shows (battery step, charging, Wi-Fi, docked, wake, settings, token or bond) or every kInfoHeartbeatSec.
+void publishInfo(uint32_t ms) {
+    static cta::InfoMsg sent = {};
+    static uint32_t sentMs = 0;
+    static char json[cta::kMaxInfo];
+    const size_t n = lan::infoJson(json, sizeof(json));
+    if (!n) return;
+    const bool wifi = live::wifiConnected();
+    const int8_t rssi = wifi ? live::wifiRssi() : 0;
+    const bool changed = infoDirty || info.battery != sent.battery || info.charging != sent.charging ||
+                         wifi != sent.wifiConnected || abs(rssi - sent.rssi) >= 5 || info.docked != sent.docked ||
+                         info.wake != sent.wake || info.paired != sent.paired || info.relaying != sent.relaying;
+    const bool notify = changed || !sentMs || ms - sentMs >= cta::kInfoHeartbeatSec * 1000;
+    ble_setup::setInfo(json, n, notify);
+    if (notify) {
+        sent = info;
+        sent.wifiConnected = wifi;
+        sent.rssi = rssi;
+        sentMs = ms;
+        infoDirty = false;
+    }
 }
 #endif
 
@@ -675,7 +709,7 @@ void writeLine(const char* s, size_t n) {
 // release did). Live build:
 // "N {json}", the `nearby` message (spec 8.3) from tools/send_nearby.py, standing in for the app; "O", the
 // board off (against burn-in on a board left plugged in); "R", the link reset (ecosystem spec 5.4); "T <32 hex>",
-// the household token until BLE setup exists (never echoed).
+// the household token, as POST /token over Bluetooth sets it (never echoed); "b", Bluetooth off or on; "P", pair again (device::pairAgain).
 void pollSerial(uint32_t ms) {
     static char line[640];
     static int n = 0;
@@ -694,21 +728,20 @@ void pollSerial(uint32_t ms) {
             else if (!power::off()) puts("power: no power chip, so no off");
             continue;
         }
-        if (line[0] == 'b' && len <= 2) {   // BLE on or off (Task W5: what it costs in internal RAM)
-            char name[20];
-            snprintf(name, sizeof(name), "CTA-Pet-%s", info.id);
+        if (line[0] == 'b' && len <= 2) {   // BLE off or on, for measurements (on from boot)
             if (ble_setup::running()) ble_setup::stop();
-            else if (!ble_setup::start(name)) puts("ble: didn't start");
+            else if (!ble_setup::start(model.pairName)) puts("ble: didn't start");
             printf("ble: %s; internal free %u (min %u)\n", ble_setup::running() ? "on" : "off",
                    static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                    static_cast<unsigned>(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)));
             continue;
         }
         if (line[0] == 'R' && len <= 2) resetLink("serial");   // "R" alone (a CR may trail it)
+        if (line[0] == 'P' && len <= 2) { device::pairAgain(); continue; }
         if (line[0] == 'T' && line[1] == ' ') {
             char* t = line + 2;
             t[strcspn(t, "\r ")] = 0;
-            setTokenFromSerial(t);
+            saveToken(t);
             memset(line, 0, sizeof(line));   // the token leaves no copy in the line buffer
             continue;
         }
@@ -743,6 +776,35 @@ void jsonFree(void* p) { heap_caps_free(p); }
 const cta::JsonHeap kJsonHeap = {jsonAlloc, jsonFree, nullptr};
 
 }  // namespace
+
+#ifdef HANDHELD_LIVE
+// The Settings page's hooks (device_hooks.h), replacing mock_data.cpp's weak defaults.
+namespace device {
+
+// Settings → Pair again, confirmed (and serial "P"): forgets the Bluetooth bond, the token and the BLE address, and
+// goes back to pairing mode without a reboot. Wi-Fi and the app's settings stay.
+void pairAgain() {
+    puts("link: pairing again: forgetting the bond and the token");
+    ble_setup::stop();
+    ble_setup::forgetBonds();
+    nvs_handle_t h;
+    if (nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_erase_key(h, "token");
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    lan::setToken("");
+    haveToken = false;
+    infoDirty = true;
+    if (!ble_setup::start(model.pairName)) puts("ble: didn't start");   // a new random address (forgetBonds)
+}
+
+bool bleConnected() { return ble_setup::connected(); }
+
+bool paired() { return haveToken || ble_setup::bonded(); }
+
+}  // namespace device
+#endif
 
 void setup() {
     cta::setJsonHeap(&kJsonHeap);   // before anything is parsed
@@ -826,6 +888,7 @@ void setup() {
         if (nvs_open("trackie", NVS_READONLY, &h) == ESP_OK) {   // Preferences' entries: a string and two blobs
             size_t n = sizeof(tok);
             if (nvs_get_str(h, "token", tok, &n) != ESP_OK) tok[0] = 0;
+            haveToken = tok[0] != 0;
             n = sizeof(linkCfg.pet);
             linkCfg.hasPet = nvs_get_blob(h, "pet", &linkCfg.pet, &n) == ESP_OK && n == sizeof(linkCfg.pet);
             n = sizeof(linkCfg.settings);
@@ -844,6 +907,8 @@ void setup() {
         esp_read_mac(mac, ESP_MAC_WIFI_STA);
         snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
         snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
+        snprintf(model.pairName, sizeof(model.pairName), "CTA-Pet-%s", info.id);
+        if (!ble_setup::start(model.pairName)) puts("ble: didn't start");   // always on (the plan's default 7)
     }
     live::start();
 #ifdef POWER_LOG
@@ -853,6 +918,9 @@ void setup() {
     mock::update(model, startUnix, startUnix);
 #endif
     ui::init(app, nowMs());
+#ifdef HANDHELD_LIVE
+    if (!device::paired()) app.view.screen = ui::Screen::Pair;   // pairing mode until paired (Leo, 2026-11-14)
+#endif
     jobs = xQueueCreate(32, sizeof(Job));
     touchEvents = xQueueCreate(64, sizeof(touchf::Event));
     // Core 0 sends (the bus driver busy-waits) and samples touch; core 1 (this loop) draws. The sender can keep
@@ -902,7 +970,19 @@ void loop() {
         info.charging = pw.charging;
         info.lastUpdate = model.fetchedAt;
         info.docked = model.docked;
+        info.paired = device::paired();
+        info.hasSettings = true;
+        info.settings = linkCfg.settings;
         lan::setInfo(info);
+        publishInfo(ms);
+        // The Bluetooth passkey (spec 10): on the Pair screen, kept lit, while iOS asks for it. The Pair screen goes
+        // Home by itself once paired (ui::tick).
+        model.passkey = ble_setup::passkey();
+        if (model.passkey) {
+            if (app.view.screen != ui::Screen::Pair) { app.view.screen = ui::Screen::Pair; app.trans.on = false; }
+            app.dim = false;
+            app.lastInput = ms;
+        }
         // The battery log (spec 8.5): every 15 min, and once at boot.
         static uint32_t lastLog = 0;
         if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {
@@ -1037,9 +1117,11 @@ void loop() {
                       mock::scenarioName(model.scenario), static_cast<int>(model.mood), model.nTrains, model.nBuses,
                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
 #ifdef HANDHELD_LIVE
-        k += snprintf(line + k, sizeof(line) - k, ", ble %d, wifi %d, CTA requests %u, httpd stack left %u%s%s",
-                      ble_setup::running(), snap->wifiUp,
+        k += snprintf(line + k, sizeof(line) - k,
+                      ", ble %d%s, wifi %d, CTA requests %u, httpd stack left %u, ble stack left %u%s%s",
+                      ble_setup::running(), ble_setup::connected() ? " paired" : "", snap->wifiUp,
                       static_cast<unsigned>(snap->requests), static_cast<unsigned>(lan::stackLeft()),
+                      static_cast<unsigned>(ble_setup::stackLeft()),
                       snap->status[0] ? ", " : "", snap->status);
         if (snap->hasPin) k += snprintf(line + k, sizeof(line) - k, ", pinned %s %s", snap->pin.rec.id, snap->pin.rec.route);
         static const char* const kFollowStates[] = {"waiting", "due", "arrived", "lost"};   // cta::FollowState

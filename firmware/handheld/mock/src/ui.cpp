@@ -618,12 +618,20 @@ void drawDetail(Canvas& cv, App& a, const Model& m, uint32_t ms, const View& v) 
     chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);   // back
 }
 
-void drawPair(Canvas& cv, uint32_t ms) {
+void drawPair(Canvas& cv, const Model& m, uint32_t ms) {
     const bool up = (ms / 500) % 2 == 0;
     drawPet(cv, cta::Mood::Happy, false, C - 48, 52 + (up ? -3 : 0), 3, nullptr, true);
-    cv.pixelText("482 913", C, 196, 7, col::white, Align::Center);
-    cv.text(F(800, 18), "Type this code on your iPhone", C, 266, col::mist, Align::Center);
-    cv.text(F(900, 15), "Trackie-3F2A", C, 298, col::headlight, Align::Center);
+    const uint32_t key = m.passkey ? m.passkey : m.scenario == Scenario::Pairing ? 482913 : 0;
+    if (key) {
+        char code[8];
+        snprintf(code, sizeof(code), "%03u %03u", static_cast<unsigned>(key / 1000 % 1000),
+                 static_cast<unsigned>(key % 1000));
+        cv.pixelText(code, C, 196, 7, col::white, Align::Center);
+        cv.text(F(800, 18), "Type this code on your iPhone", C, 266, col::mist, Align::Center);
+    } else {   // waiting for the phone: no code until iOS asks for one
+        cv.text(F(800, 18), "Pair in the app on your iPhone", C, 266, col::mist, Align::Center);
+    }
+    cv.text(F(900, 15), m.pairName, C, 298, col::headlight, Align::Center);
 }
 
 // ---------- Settings: the wearable's own page ----------
@@ -704,7 +712,7 @@ void drawView(Canvas& cv, App& a, const Model& m, const View& v, uint32_t ms, ui
         case Screen::First: drawHome(cv, a, m, ms, aod, v); break;
         case Screen::Stops: drawStops(cv, a, m, ms, v.tab, scratch); break;
         case Screen::Detail: drawDetail(cv, a, m, ms, v); break;
-        case Screen::Pair: drawPair(cv, ms); break;
+        case Screen::Pair: drawPair(cv, m, ms); break;
         case Screen::Settings: drawSettings(cv, m); break;
         case Screen::Confirm: drawConfirm(cv); break;
     }
@@ -950,8 +958,9 @@ void tick(App& a, Model& m, uint32_t ms) {
     }
     if (a.poked && ms - a.pokeT0 > 2600) a.poked = false;
     if (a.trans.on && ms - a.trans.t0 >= 220) a.trans.on = false;
-    // Pairing again ends once the phone has paired (the debug Pairing scenario stays put).
-    if (a.view.screen == Screen::Pair && m.scenario != Scenario::Pairing && device::paired()) go(a, with(a.view, Screen::Home), 0, 0, ms);
+    // Pairing again ends once the phone has paired (the debug Pairing scenario stays put); a passkey showing keeps it.
+    if (a.view.screen == Screen::Pair && m.scenario != Scenario::Pairing && !m.passkey && device::paired())
+        go(a, with(a.view, Screen::Home), 0, 0, ms);
     // The open detail's card is gone: back to the list, rather than showing some other stop.
     bool bus;
     if (a.view.screen == Screen::Detail && !a.trans.on && !findCard(m, a.view, bus)) {

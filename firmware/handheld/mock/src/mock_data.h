@@ -83,6 +83,10 @@ struct Model {
     bool bleConnected = true;                       // a bonded phone is connected over Bluetooth
     // Night hours, minutes after midnight (the app's config.settings in the live build): Sleepy, and slow polling.
     uint16_t nightStart = cta::kNightStartMin, nightEnd = cta::kNightEndMin;
+    // The Pair screen: the Bluetooth pairing code (0 = none; the debug Pairing scenario shows 482 913) and the name the
+    // phone lists (the live build sets both).
+    uint32_t passkey = 0;
+    char pairName[16] = "Trackie-3F2A";
     // Whether local minute lm is in the night hours; a span past midnight (start after end) wraps.
     bool night(int lm) const { return nightStart <= nightEnd ? lm >= nightStart && lm < nightEnd : lm >= nightStart || lm < nightEnd; }
 };

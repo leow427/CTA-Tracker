@@ -91,6 +91,8 @@ struct PendingLink {
     int8_t pin, follow;
     cta::PickedStop pinStop;
     cta::FollowMsg followMsg;
+    bool wifi;              // a network from setWifi() (its password is wiped once taken)
+    cta::WifiMsg wifiMsg;
 };
 PendingLink* pendingLink;
 
@@ -717,15 +719,57 @@ void join(const cta::SavedNet& net, const char* eapUser) {
     esp_wifi_connect();
 }
 
+bool anySaved() {
+    for (const cta::SavedNet& s : nets->nets)
+        if (s.ssid[0]) return true;
+    return false;
+}
+
+// A network written over Bluetooth (setWifi): into its slot and saved to NVS ("wifi"), here on the network task. The
+// first one replaces secrets.h's fallback network. True if one was taken. Passwords are never logged.
+bool takeWifi() {
+    static cta::WifiMsg w;   // not on the stack: wiped below either way
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const bool any = pendingLink->wifi;
+    if (any) w = pendingLink->wifiMsg;
+    pendingLink->wifi = false;
+    memset(&pendingLink->wifiMsg, 0, sizeof(pendingLink->wifiMsg));
+    xSemaphoreGive(mu);
+    if (!any) return false;
+    if (netsFromSecrets) {
+        memset(nets, 0, sizeof(cta::WifiList));
+        netsFromSecrets = false;
+    }
+    cta::SavedNet& n = nets->nets[w.slot];
+    memcpy(n.ssid, w.ssid, sizeof(n.ssid));
+    memcpy(n.pass, w.pass, sizeof(n.pass));
+    memset(&w, 0, sizeof(w));
+    nvs_handle_t h;
+    bool saved = nvs_open("trackie", NVS_READWRITE, &h) == ESP_OK;
+    if (saved) {
+        saved = nvs_set_blob(h, "wifi", nets, sizeof(cta::WifiList)) == ESP_OK && nvs_commit(h) == ESP_OK;
+        nvs_close(h);
+    }
+    printf("net: Wi-Fi slot %u set%s\n", static_cast<unsigned>(&n - nets->nets), saved ? "" : " (saving failed)");
+    return true;
+}
+
 void netTask(void*) {
-    bool anyNet = false;
-    for (const cta::SavedNet& s : nets->nets) anyNet = anyNet || s.ssid[0];
-    if (!anyNet || !CTA_TRAIN_KEY[0] || !CTA_BUS_KEY[0]) {
-        setStatus(anyNet ? "No API key" : "No Wi-Fi set up");
-        printf("net: %s; staying offline\n", anyNet ? "no CTA keys in firmware/secrets.h" : "no Wi-Fi saved");
+    if (!CTA_TRAIN_KEY[0] || !CTA_BUS_KEY[0]) {
+        setStatus("No API key");
+        puts("net: no CTA keys in firmware/secrets.h; staying offline");
         publish();
         vTaskDelete(nullptr);
         return;
+    }
+    if (!anySaved()) {   // until the app sends a network over Bluetooth; no reboot needed
+        setStatus("No Wi-Fi set up");
+        puts("net: no Wi-Fi saved; waiting for one");
+        publish();
+        while (!takeWifi()) {
+            if (takeLink()) publish();
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
     }
     // Wi-Fi in station mode, settings in RAM only (as Arduino's WiFi.persistent(false)). Nothing reconnects by itself:
     // this loop joins and backs off. Why a join or a connection ended comes from the driver's events, in its words
@@ -799,6 +843,19 @@ void netTask(void*) {
             publish();
         }
         if (takeLink()) publish();   // a pin or follow from the app: poll its stop from now on
+        if (takeWifi()) {   // a new or changed network: rejoin, strongest saved first
+            if (wifiUp) {
+                for (Conn& c : conns) closeConn(c);
+                wifiUp = false;
+            }
+            esp_wifi_disconnect();   // also ends a join under way, which would refuse the next scan or config
+            setJoining(false);
+            wasUp = false;
+            lastBegin = 0;
+            retryMs = kWifiRetryMinMs;
+            skip = 0;
+            scanned = false;
+        }
         for (Conn& c : conns)
             if (c.open && nowMs() - c.lastUsed > kIdleCloseMs) closeConn(c);
         if (woke) {
@@ -1017,6 +1074,14 @@ void setPin(const cta::PickedStop* stop) {
     xSemaphoreGive(mu);
 }
 
+void setWifi(const cta::WifiMsg& w) {
+    if (!pendingLink) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    pendingLink->wifiMsg = w;
+    pendingLink->wifi = true;
+    xSemaphoreGive(mu);
+}
+
 void setFollow(const cta::FollowMsg* f) {
     if (!pendingLink || !published) return;
     xSemaphoreTake(mu, portMAX_DELAY);
@@ -1046,6 +1111,11 @@ bool read(Snapshot& out, uint32_t& version) {
 uint32_t unixNow() { return ntpSynced() ? static_cast<uint32_t>(time(nullptr)) : 0; }
 
 bool wifiConnected() { return wifiUp; }
+
+int8_t wifiRssi() {
+    wifi_ap_record_t ap;
+    return wifiUp && esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
+}
 
 void wifiSsid(char* out, size_t cap) {
     wifi_ap_record_t ap;

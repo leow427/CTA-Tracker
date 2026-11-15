@@ -543,43 +543,63 @@ namespace lan {
 enum class Via : uint8_t { Http, Ble };
 // The transport-neutral handler: change()'s body after the size and token checks. Returns the HTTP status (200,
 // 400, 404, 413). Runs on httpd's task or NimBLE's host task: parses, then copies into RAM (Inbox, live::setPin…).
-int apply(Method m, const char* path, const char* body, size_t len, Via via);
-// Inbox gains: bool token; char tokenHex[33]; bool wifi; cta::WifiMsg wifiMsg (wiped after the loop takes it).
+int apply(bool del, const char* path, const char* body, size_t len, Via via);   // as built: del, not cta::Method
+// Inbox gains: bool token; char tokenHex[33] (wiped after the loop saves it). /wifi goes straight to
+// live::setWifi() (RAM, like setPin); the network task saves it to NVS and rejoins.
+size_t infoJson(char* buf, size_t cap);   // GET /info's JSON, also the `info` characteristic's
 }
-namespace ble_setup {
+namespace ble_setup {   // as built
 bool start(const char* name);   // as 9aa8b43, plus the link and info characteristics, pairing, bonding
 void stop();
 bool running();
-bool connected();                 // an encrypted, bonded link is up
-void notifyInfo(const char* json, size_t len);   // frames and notifies; no-op when not connected
-uint32_t passkey();               // 0 = none showing; the loop draws it in Trackie's bubble
-void forgetBonds();               // ble_store_clear() plus a new random static address in NVS (reset)
+bool connected();                 // an encrypted, authenticated, bonded link is up
+bool bonded();                    // a bond is stored (info.paired, device::paired)
+void setInfo(const char* json, size_t len, bool notify);   // the read value every second; frames and notifies when
+                                                          // notify (or after a subscribe), only on a bonded link
+uint32_t passkey();               // 0 = none showing; the loop shows it on the Pair screen
+void forgetBonds();               // erases NimBLE's "nimble_bond" NVS namespace and "ble_addr"; the next start()
+                                  // makes and saves a new static random address
+uint32_t stackLeft();             // the host task's high-water mark, in the 10 s stats line
+}
+namespace device {                // device_hooks.h (the Settings page), in main.cpp
+void pairAgain();                 // bond, token and BLE address wiped, BLE restarted: pairing mode, no reboot
+bool bleConnected();              // ble_setup::connected()
+bool paired();                    // a token or a bond
 }
 ```
 
-- [ ] **Step 1: Rebase the W5 work.** Cherry-pick `a55d8b7` and `9aa8b43` onto main and resolve `main.cpp`. Add to
+- [x] **Step 1: Rebase the W5 work.** Cherry-pick `a55d8b7` and `9aa8b43` onto main and resolve `main.cpp`. Add to
   the wearable's `sdkconfig.defaults`:
   - `CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y` (safe: `CONFIG_SPIRAM_XIP_FROM_PSRAM=y` is set);
   - `CONFIG_BT_CTRL_BLE_MASTER=n`, `CONFIG_BT_CTRL_BLE_SCAN=n`.
 
   If Kconfig names an option unknown, find its current name with menuconfig and say so in the report.
+  *Done: all four names (and `BT_NIMBLE_ATT_PREFERRED_MTU`) exist in IDF 5.4.1 and land in the built sdkconfig.*
 - [ ] **Step 2: Re-measure (board):** boot free; BLE advertising plus polling, 10 min; LightBlue connected plus
   polling, 10 min; off/on ×3. Record the rows in `docs/ecosystem/day1-link.md` under "ESP-IDF". The expected gain
   over W5 is about 20 KB, as on the dock (unverified).
-- [ ] **Step 3: The dispatcher.** Move `change()`'s per-path code into `lan::apply` (behaviour unchanged for HTTP).
+  *Done except the LightBlue row (Leo's iPhone): boot 200.1 KB (W5 168.5), BLE off 118.7 KB lowest (W5 87.5),
+  advertising 88.8 KB lowest (W5 51.4), no leak; the gain was about 31–37 KB, not 20.*
+- [x] **Step 3: The dispatcher.** Move `change()`'s per-path code into `lan::apply` (behaviour unchanged for HTTP).
   The httpd handler keeps the size, token and receive steps, then calls `apply(…, Via::Http)`. Remove `/ble` and
   `openBle`. Add `/token` and `/wifi` (Bluetooth only; 404 on HTTP), and `/relay` and `/stop`, which return 404
   until W6b. Native-testable parts go in `link_msg`; the board part is a thin switch.
-- [ ] **Step 4: GATT and frames.**
+  *As built: `apply` checks `len > kMaxBody` (413) first; W6b lifts that for `/stop` over Bluetooth. The
+  Bluetooth-only rule lives in `apply` (board code), checked on the board: `/wifi`, `/token`, `/ble` are 404 over
+  HTTP.*
+- [x] **Step 4: GATT and frames.**
   - `link` write: the host task feeds a `cta::Reassembler` over a static `kMaxBleMsg` PSRAM buffer. On `Done` it
     calls `parseEnvelope`, then `lan::apply(…, Via::Ble)`, and maps the status to the ATT answer (table above).
   - `info`: read returns the current `encodeInfo` JSON. Notify frames it with `splitFrames` at
     `ble_att_mtu(conn) − 3`.
   - Set `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=256` (unverified what iOS settles on; it picks 185 on many models).
   - The loop calls `notifyInfo` on the change rules and the 30 s heartbeat (see Status).
-- [ ] **Step 5: Pairing, token, Wi-Fi.**
+- [x] **Step 5: Pairing, token, Wi-Fi.**
   - Pairing: DISPLAY_ONLY. On `BLE_GAP_EVENT_PASSKEY_ACTION` pick the passkey, set `passkey()` for the loop to draw
     in the Pairing bubble ("Type 123 456 on your phone"), and inject it. Clear it on `ENC_CHANGE`. Never print it.
+    *As built: the Pair screen (Settings commit) shows it, kept lit while it shows; with no passkey it says "Pair in
+    the app on your iPhone" until W6d's code. An unpaired wearable boots to the Pair screen, which goes Home once
+    paired. `REPEAT_PAIRING` drops our old bond and retries.*
   - A `/token` write saves the token through `main.cpp`'s token path (NVS plus `lan::setToken`), from the loop.
   - A `/wifi` write saves the slot into NVS `wifi` (`cta::WifiList`), from the loop. The network task re-reads the
     list and rejoins strongest-first.
@@ -592,7 +612,10 @@ void forgetBonds();               // ble_store_clear() plus a new random static 
     measurements.
 - [ ] **Step 6: Reset and re-pair.** `resetLink` (serial `R`, `POST /reset`, the two-finger hold) also calls
   `forgetBonds()`: `ble_store_clear()`, a new static random address from `ble_hs_id_gen_rnd(0, …)` saved in NVS, and
-  `ble_hs_id_set_rnd` at every start. **Verify on the board:** after a reset, the iPhone that held the old bond
+  `ble_hs_id_set_rnd` at every start. *Built (Leo's iPhone check pending): `forgetBonds()` erases the NVS bond
+  store, since the host may be off; the address comes from `esp_fill_random` with the static bits set (no host
+  needed), saved as `ble_addr`. Settings' Pair again (and serial `P`) does the same without the Wi-Fi wipe or a
+  reboot.* **Verify on the board:** after a reset, the iPhone that held the old bond
   pairs again with a fresh passkey prompt and no Forget in iOS Settings (decision 3). If not, report it, and
   X2's demo script adds the Forget step.
 - [ ] **Step 7: Verify (board plus LightBlue; app checks come with AB1):**

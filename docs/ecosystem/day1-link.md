@@ -211,3 +211,20 @@ kept-open, resumed TLS connection; buses, alerts, weather):
 - Repeated on the follow-up fix commit (TCP_NODELAY, 16 KB outgoing TLS record): BLE off 87.1 KB over 5 min, BLE on
   **50.6 KB** over 10 min, free back to 93,724 B after each off, no TLS errors. That commit with BLE compiled out
   polls at a 114 KB minimum.
+
+### Wearable, controller in flash (Task W6a, 2026-11-14)
+
+The W5 setup plus `CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y`, `BT_CTRL_BLE_MASTER=n` and `BT_CTRL_BLE_SCAN=n` (the
+controller's code runs from PSRAM through XIP instead of taking IRAM), the same polls:
+
+| State | Free | Lowest over the window |
+|---|---|---|
+| Boot (BLE compiled in, off) | 200.1 KB (W5: 168.5; compiled out: 195.6) | – |
+| BLE off, polling, 10 min | 125.8 KB | 118.7 KB (W5: 87.5) |
+| BLE on, advertising, polling, 10 min | 95.5 KB | **88.8 KB** (W5: 51.4) |
+| Off, then on/off ×3 | 125,756 B after each off, about 95.6 KB after each on (no leak) | – |
+| The W6a link build (GATT `link` and `info`, pairing, BLE on from boot), advertising, polling, 11 min | 93.7 KB | **86.4 KB** |
+
+- **Gate case (c) passes** with 46 KB to spare. The gain over W5 is about 31 KB at boot and 37 KB advertising, more
+  than the dock's 20 KB. Starting BLE now takes about 30 KB (125.8 → 95.5 KB).
+- **Not measured yet:** case (b), an iPhone bonded and connected while TLS polls (Leo's phone).

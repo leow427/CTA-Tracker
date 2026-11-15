@@ -10,6 +10,7 @@
 #include "cta_config.h"
 #include "cta_types.h"
 #include "follow.h"
+#include "link_msg.h"
 #include "nearby_msg.h"
 #include "picks.h"
 
@@ -52,7 +53,8 @@ struct Snapshot {
 // Empties s in place. A Snapshot is about 16 KB: never build one as a temporary on a task's stack.
 inline void clear(Snapshot& s) { memset(&s, 0, sizeof(s)); }
 
-// Starts the network task. Without Wi-Fi in secrets.h it only reports "No Wi-Fi set up".
+// Starts the network task. With no network saved (NVS or secrets.h) it reports "No Wi-Fi set up" and waits for
+// setWifi().
 void start();
 // Docked or night hours: everything polls every cta::kSlowPollSec (spec 6.6).
 void setSlow(bool slow);
@@ -66,6 +68,9 @@ void wake();
 void setPin(const cta::PickedStop* stop);
 // The followed vehicle (spec 5.7): also pins f->stop. nullptr clears the follow and keeps the pin.
 void setFollow(const cta::FollowMsg* f);
+// A Wi-Fi network for slot w.slot (written over Bluetooth; RAM only, any task): the network task saves it to NVS and
+// rejoins, strongest saved network first. The first replaces secrets.h's fallback network.
+void setWifi(const cta::WifiMsg& w);
 #ifdef POWER_LOG
 // The stress test's network burst (test only): fetch the next stop, the alerts, or the weather every 2 s,
 // at most 180 per run; resetBurstCount() starts a run's count over.
@@ -78,6 +83,8 @@ bool read(Snapshot& out, uint32_t& version);
 uint32_t unixNow();
 // Joined and holding an IP address. Any task may ask.
 bool wifiConnected();
+// The joined network's signal in dBm (0 if none). Any task may ask.
+int8_t wifiRssi();
 // The joined network's name into out ("" if none). Any task may ask.
 void wifiSsid(char* out, size_t cap);
 

@@ -49,15 +49,8 @@ esp_err_t reply(httpd_req_t* r, const char* status, const char* body) {
 }
 
 esp_err_t getInfo(httpd_req_t* r) {
-    cta::InfoMsg m;
-    xSemaphoreTake(mu, portMAX_DELAY);
-    m = sh->info;
-    xSemaphoreGive(mu);
-    m.uptime = nowMs() / 1000;
-    m.wifiConnected = live::wifiConnected();
-    live::wifiSsid(m.ssid, sizeof(m.ssid));
-    char buf[384];
-    return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
+    char buf[cta::kMaxInfo];
+    return infoJson(buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
 
 esp_err_t getConfig(httpd_req_t* r) {
@@ -69,10 +62,8 @@ esp_err_t getConfig(httpd_req_t* r) {
     return cta::encodeConfig(c, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
 
-esp_err_t bad(httpd_req_t* r) { return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}"); }
-
-// Every write, in the order the fake board (tools/link_send.py --serve) checks: size before reading, token, JSON.
-// POST /config, /nearby, /pin and /follow need a body; any other write's body, if it has one, must parse.
+// Every write, in the order the fake board (tools/link_send.py --serve) checks: size before reading, token, then
+// apply's JSON checks.
 esp_err_t change(httpd_req_t* r) {
     if (r->content_len > cta::kMaxBody) return reply(r, "413 Payload Too Large", "{\"error\":\"too large\"}");
     char auth[8 + cta::kTokenLen + 1];   // "Bearer " + the token + NUL, plus one so a longer header shows as too long
@@ -91,52 +82,90 @@ esp_err_t change(httpd_req_t* r) {
         if (n <= 0) return ESP_FAIL;   // closed, or stalled past httpd's 5 s timeout: drop it, don't hold the task
         len += n;
     }
-    body[len] = 0;
-    const char* uri = r->uri;
-    const bool del = r->method == HTTP_DELETE;
-    const bool pin = strcmp(uri, "/pin") == 0, follow = strcmp(uri, "/follow") == 0;
+    switch (apply(r->method == HTTP_DELETE, r->uri, body, len, Via::Http)) {
+        case 200: return reply(r, "200 OK", "{}");
+        case 404: return reply(r, "404 Not Found", "{\"error\":\"not found\"}");
+        case 413: return reply(r, "413 Payload Too Large", "{\"error\":\"too large\"}");
+        default: return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}");
+    }
+}
+
+}  // namespace
+
+// POST /config, /nearby, /pin, /follow, /token and /wifi need a body; any other write's body, if it has one, must parse.
+int apply(bool del, const char* path, const char* body, size_t len, Via via) {
+    if (!mu) return 404;
+    if (len > cta::kMaxBody) return 413;
+    const bool pin = strcmp(path, "/pin") == 0, follow = strcmp(path, "/follow") == 0;
+    const bool ble = via == Via::Ble;
     if (!del && pin) {
         cta::PickedStop s;
-        if (!cta::parseStop(body, len, s)) return bad(r);
+        if (!cta::parseStop(body, len, s)) return 400;
         live::setPin(&s);
     } else if (!del && follow) {
         cta::FollowMsg f;
-        if (!cta::parseFollow(body, len, f)) return bad(r);
+        if (!cta::parseFollow(body, len, f)) return 400;
         live::setFollow(&f);
-    } else if (!del && strcmp(uri, "/nearby") == 0) {
+    } else if (!del && strcmp(path, "/nearby") == 0) {
         cta::Nearby n;
-        if (!cta::parseNearby(body, len, n)) return bad(r);   // checked here; the loop saves and applies it
+        if (!cta::parseNearby(body, len, n)) return 400;   // checked here; the loop saves and applies it
         xSemaphoreTake(mu, portMAX_DELAY);
-        memcpy(sh->inbox.nearbyJson, body, len + 1);
+        memcpy(sh->inbox.nearbyJson, body, len);
+        sh->inbox.nearbyJson[len] = 0;
         sh->inbox.nearbyLen = len;
         sh->inbox.nearby = true;
         xSemaphoreGive(mu);
-    } else if (!del && strcmp(uri, "/config") == 0) {
+    } else if (!del && strcmp(path, "/config") == 0) {
         cta::ConfigMsg c;
-        if (!len || !cta::parseConfig(body, len, c)) return bad(r);
+        if (!len || !cta::parseConfig(body, len, c)) return 400;
         xSemaphoreTake(mu, portMAX_DELAY);
         sh->inbox.config = true;   // stops are the dock's: ignored here
         if (c.hasPet) { sh->inbox.cfg.pet = c.pet; sh->inbox.cfg.hasPet = true; }
         if (c.hasSettings) { sh->inbox.cfg.settings = c.settings; sh->inbox.cfg.hasSettings = true; }
         xSemaphoreGive(mu);
-    } else {   // DELETE /pin, DELETE /follow, POST /ble, POST /reset
+    } else if (!del && ble && strcmp(path, "/token") == 0) {   // never logged
+        char t[cta::kTokenLen + 1];
+        if (!cta::parseToken(body, len, t)) return 400;
+        xSemaphoreTake(mu, portMAX_DELAY);
+        memcpy(sh->inbox.tokenHex, t, sizeof(t));
+        sh->inbox.token = true;
+        xSemaphoreGive(mu);
+        memset(t, 0, sizeof(t));
+    } else if (!del && ble && strcmp(path, "/wifi") == 0) {   // the password is never logged
+        cta::WifiMsg w;
+        if (!cta::parseWifi(body, len, cta::kWifiSlots, w)) return 400;
+        live::setWifi(w);
+        memset(&w, 0, sizeof(w));
+    } else if ((del && (pin || follow)) || (!del && strcmp(path, "/reset") == 0)) {
         cta::ConfigMsg c;
-        if (len && !cta::parseConfig(body, len, c)) return bad(r);   // parseConfig takes {}
+        if (len && !cta::parseConfig(body, len, c)) return 400;   // parseConfig takes {}
         if (pin) {
             live::setPin(nullptr);
         } else if (follow) {
             live::setFollow(nullptr);
         } else {
             xSemaphoreTake(mu, portMAX_DELAY);
-            if (strcmp(uri, "/reset") == 0) sh->inbox.reset = true;
-            else sh->inbox.openBle = true;
+            sh->inbox.reset = true;
             xSemaphoreGive(mu);
         }
+    } else {
+        return 404;   // /relay and /stop come with W6b
     }
-    return reply(r, "200 OK", "{}");
+    return 200;
 }
 
-}  // namespace
+size_t infoJson(char* buf, size_t cap) {
+    if (!mu) return 0;
+    cta::InfoMsg m;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    m = sh->info;
+    xSemaphoreGive(mu);
+    m.uptime = nowMs() / 1000;
+    m.wifiConnected = live::wifiConnected();
+    live::wifiSsid(m.ssid, sizeof(m.ssid));
+    m.rssi = m.wifiConnected ? live::wifiRssi() : 0;
+    return cta::encodeInfo(m, buf, cap);
+}
 
 void begin(const char* t) {
     void* p = heap_caps_malloc(sizeof(Shared), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -174,7 +203,7 @@ void start(const char* hostLabel) {
         {"/config", HTTP_POST, change, nullptr},    {"/nearby", HTTP_POST, change, nullptr},
         {"/pin", HTTP_POST, change, nullptr},       {"/pin", HTTP_DELETE, change, nullptr},
         {"/follow", HTTP_POST, change, nullptr},    {"/follow", HTTP_DELETE, change, nullptr},
-        {"/ble", HTTP_POST, change, nullptr},       {"/reset", HTTP_POST, change, nullptr},
+        {"/reset", HTTP_POST, change, nullptr},
     };
     for (const httpd_uri_t& u : uris) httpd_register_uri_handler(server, &u);
     const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx", as in the BLE name
@@ -214,11 +243,12 @@ void setConfig(const cta::ConfigMsg& c) {
 bool take(Inbox& out) {
     if (!mu) return false;
     xSemaphoreTake(mu, portMAX_DELAY);
-    const bool any = sh->inbox.config || sh->inbox.nearby || sh->inbox.reset || sh->inbox.openBle;
+    const bool any = sh->inbox.config || sh->inbox.nearby || sh->inbox.reset || sh->inbox.token;
     if (any) {
         out = sh->inbox;
-        sh->inbox.config = sh->inbox.nearby = sh->inbox.reset = sh->inbox.openBle = false;
+        sh->inbox.config = sh->inbox.nearby = sh->inbox.reset = sh->inbox.token = false;
         sh->inbox.cfg = cta::ConfigMsg();
+        memset(sh->inbox.tokenHex, 0, sizeof(sh->inbox.tokenHex));
     }
     xSemaphoreGive(mu);
     return any;
