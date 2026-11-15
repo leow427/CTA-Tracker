@@ -47,9 +47,9 @@ From the top:
 - Trackie with his speech bubble
 - one card for the most urgent stop, so "should I hurry?" needs no swipe, or the pinned stop (below)
 
-Swipe up for Stops. Swipe left for the Map (a stretch goal). A swipe left that starts on a pinned card unpins it
-instead (an "Unpinned" toast, and the card falls back to the most urgent stop); everywhere else on Home it still opens
-the Map.
+Swipe up for Stops. Swipe left for Settings (it took the Map placeholder's place, Leo 2026-11-14). A swipe left that
+starts on a pinned card unpins it instead (an "Unpinned" toast, and the card falls back to the most urgent stop);
+everywhere else on Home it still opens Settings.
 
 #### Pinned and followed (ecosystem spec 5.6, 5.7)
 
@@ -104,15 +104,26 @@ On the dock and home Wi-Fi, Trackie is Asleep. The screen is extra dim, with a c
 - **First run,** before the first nearby list: "Open Trackie on your iPhone".
 - **Pairing:** Trackie with the 6-digit pairing code in pixel digits, to type into the iPhone app (ecosystem spec 4.3).
 
-### Map (stretch goal)
+### Settings
 
-Swipe left from Home. It shows:
-- the L lines drawn on the device from `data/train_shapes.json`
-- nearby stops and live trains
-- a recenter button
-- Trackie saying the nearest station
+Swipe left from Home (or tap its right edge). Swipe right, or tap the left edge, to go back. From the top:
+- "SETTINGS", then the device's name: Trackie's name from the app if set, else `CTA-Pet-xxxx` (its Bluetooth name)
+- **Wi-Fi:** the joined network's name and four signal bars; "Not connected" when a network is saved but not joined;
+  "Not set up" when none is saved
+- **Battery:** a pixel battery filled to the level (green while charging, amber at 20% or less) and "Charging · 64%"
+  or "64%"; "On USB power" with no battery
+- **Bluetooth:** "Connected" (green) or "Not connected"
+- **Pair again,** a yellow button. It asks first: "Pair again?" / "Your phone will need to pair again." with Pair again
+  and Cancel (Cancel or a swipe right goes back). Confirming calls `device::pairAgain()` (`src/device_hooks.h`: the
+  Bluetooth link wipes the bond and token, picks a new address, and enters pairing mode) and shows Pairing. An unpaired
+  device stays in pairing mode until it's paired (Leo, 2026-11-14): the Pairing screen goes Home once
+  `device::paired()` says so.
 
-It needs BLE additions first (stop coordinates and train positions); see Plan 3 milestone 10.
+Rows are 320 × 56 and buttons 240 × 60, inside the circle. The code: `drawSettings` and `drawConfirm` in
+`firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `petName`, `deviceId`, `ssid`, `rssi`, `wifiSetUp`, `battery`,
+`charging`, `bleConnected`. Renders: `tools/preview.cpp` writes `settings*`.
+
+The Map placeholder that sat here is gone (Leo, 2026-11-14); a map would need another way in.
 
 ## Where the code is
 

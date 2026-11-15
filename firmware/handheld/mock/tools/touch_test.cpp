@@ -1,13 +1,19 @@
 // Checks src/touch_filter.h on a laptop: presses survive the CST9217's empty reads, real lifts still end them, and
-// the two-finger hold still fires. Optionally replays a touch log recorded with the device's serial "t" command
-// ("T d|m|u x y ms" lines) and counts the presses with and without the lift delay.
+// the two-finger hold still fires; and, through the UI, that a swipe left on Home opens Settings and Pair again
+// confirms before it calls device::pairAgain(). Optionally replays a touch log recorded with the device's serial "t"
+// command ("T d|m|u x y ms" lines) and counts the presses with and without the lift delay.
 // Build and run (from firmware/handheld/mock):
-//   c++ -std=c++17 -Isrc tools/touch_test.cpp -o /tmp/touch_test && /tmp/touch_test [touch log]
+//   cc -O2 -c ../../native/lib/cJSON/cJSON.c -o /tmp/cJSON.o
+//   c++ -std=c++17 -O2 -Isrc -I../../lib/gfx/src -I../../lib/cta/src -I../../lib/pet/src -I../../native/lib/cJSON \
+//       tools/touch_test.cpp ../../lib/gfx/src/*.cpp src/ui.cpp src/mock_data.cpp ../../lib/cta/src/*.cpp \
+//       ../../lib/pet/src/*.cpp /tmp/cJSON.o -o /tmp/touch_test && /tmp/touch_test [touch log]
 #include <stdio.h>
 
 #include <vector>
 
+#include "device_hooks.h"
 #include "touch_filter.h"
+#include "ui.h"
 
 namespace {
 
@@ -55,7 +61,29 @@ std::vector<Read> join(std::initializer_list<std::vector<Read>> parts) {
     return all;
 }
 
+// A horizontal drag: reads every 8 ms with x stepping dx, no dropouts.
+std::vector<Read> swipeX(uint32_t t0, uint32_t ms, int16_t x0, int16_t y, int16_t dx) {
+    std::vector<Read> r;
+    for (uint32_t t = 0, i = 0; t < ms; t += 8, ++i) r.push_back({t0 + t, 1, static_cast<int16_t>(x0 + dx * static_cast<int>(i)), y});
+    return r;
+}
+
+// The filter's events into the UI, as main.cpp's handleTouch does.
+void toUi(ui::App& a, mock::Model& m, const std::vector<Event>& evs) {
+    for (const Event& e : evs) {
+        if (e.kind == Kind::Down) ui::pointerDown(a, m, e.x, e.y, e.ms);
+        else if (e.kind == Kind::Move) ui::pointerMove(a, m, e.x, e.y, e.ms);
+        else if (e.kind == Kind::Up) ui::pointerUp(a, m, e.x, e.y, e.ms);
+    }
+}
+
 }  // namespace
+
+int gPairAgain = 0;
+bool gPaired = true;
+// These replace mock_data.cpp's weak defaults: pairing again unpairs until the test says the phone paired.
+void device::pairAgain() { ++gPairAgain; gPaired = false; }
+bool device::paired() { return gPaired; }
 
 int main(int argc, char** argv) {
     {   // one swipe up, with the controller's empty reads all through it
@@ -83,6 +111,40 @@ int main(int argc, char** argv) {
                                              idle(1900, 100)}));
         check(count(evs, Kind::Cancel) == 1 && count(evs, Kind::Cycle) == 1 && count(evs, Kind::Up) == 0,
               "a second finger cancels the first press, then the hold fires");
+    }
+    {   // through the UI: swipe left from Home opens Settings; Pair again asks first, and only "Pair again" calls the hook
+        static mock::Model m;
+        mock::update(m, 1794019260, 1794019260);
+        ui::App a;
+        ui::init(a, 1000);
+        static uint16_t fb[ui::W * ui::W], scratch[ui::kScratchPixels];
+        ui::Canvas cv(fb, ui::W, ui::W);
+        uint32_t t = 1000;
+        auto settle = [&] { t += 400; ui::tick(a, m, t); ui::draw(cv, a, m, t, scratch); };
+        settle();
+        toUi(a, m, run(Filter(), join({swipeX(t, 200, 330, 395, -8), idle(t + 200, 100)})));
+        settle();
+        check(a.view.screen == ui::Screen::Settings, "a swipe left on Home (off the card) opens Settings");
+        auto tapAt = [&](int16_t x, int16_t y) { toUi(a, m, run(Filter(), join({reads(t, 40, 1, true, x, y, 0), idle(t + 40, 100)}))); settle(); };
+        tapAt(ui::C, 356);
+        check(a.view.screen == ui::Screen::Confirm && gPairAgain == 0, "Pair again asks first");
+        tapAt(ui::C, 340);
+        check(a.view.screen == ui::Screen::Settings && gPairAgain == 0, "Cancel goes back to Settings");
+        tapAt(ui::C, 356);
+        tapAt(ui::C, 266);
+        check(a.view.screen == ui::Screen::Pair && gPairAgain == 1, "confirming calls pairAgain() once and shows pairing");
+        settle();
+        check(a.view.screen == ui::Screen::Pair, "an unpaired device stays on the pairing screen");
+        gPaired = true;
+        settle();
+        check(a.view.screen == ui::Screen::Home, "once paired, it goes Home");
+        a.view.screen = ui::Screen::Settings;
+        toUi(a, m, run(Filter(), join({swipeX(t, 200, 130, 300, 8), idle(t + 200, 100)})));
+        settle();
+        check(a.view.screen == ui::Screen::Home, "a swipe right on Settings goes Home");
+        check(ui::wifiBars(-50) == 4 && ui::wifiBars(-60) == 3 && ui::wifiBars(-70) == 2 && ui::wifiBars(-90) == 1 &&
+                  ui::wifiBars(0) == 0,
+              "Wi-Fi bars from RSSI");
     }
     if (argc > 1) {   // replay a recorded log: rebuild the 8 ms reads, empty between an up and the next down
         std::vector<Read> log;

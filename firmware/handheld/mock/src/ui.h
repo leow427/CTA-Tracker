@@ -13,7 +13,8 @@ namespace ui {
 
 constexpr int W = 466, C = 233;   // the round screen: its width and height, and its center
 
-enum class Screen : uint8_t { Home, Stops, Detail, Map, Pair, First };
+// Settings is the wearable's own page (swipe left from Home); Confirm is its "Pair again?" step.
+enum class Screen : uint8_t { Home, Stops, Detail, Settings, Pair, First, Confirm };
 constexpr int kRow = 112;   // the Stops list's card pitch: a list at rest sits on a multiple of it
 enum class Tab : uint8_t { Trains = 0, Buses = 1 };
 
@@ -44,14 +45,12 @@ struct App {
         bool down = false, moved = false, isLong = false, wasDim = false;
         bool caught = false;   // the press stopped a moving list, so lifting it isn't a tap
         bool vertical = false; // the press moved up or down first: it scrolls, however it drifts (todo B1)
-        float x0 = 0, y0 = 0, x = 0, y = 0, s0 = 0, mx0 = 0, my0 = 0;
+        float x0 = 0, y0 = 0, x = 0, y = 0, s0 = 0;
         uint32_t t0 = 0;
         // The last few touch samples, for the release velocity.
         struct Sample { float x, y; uint32_t t; } hist[8];
         uint32_t nHist = 0;   // samples seen this press; hist is a ring of the last 8
     } drag;
-    float mapX = 0, mapY = 0;
-    bool mapFollow = true;
     char toast[40] = "";
     char gesture[128] = "";   // what the last release did, for the serial gesture log; the reader clears it
     uint32_t toastT0 = 0;
@@ -107,5 +106,7 @@ void pointerMove(App& a, mock::Model& m, float x, float y, uint32_t ms);
 void pointerUp(App& a, mock::Model& m, float x, float y, uint32_t ms);
 void cycleScenario(App& a, mock::Model& m, uint32_t ms);   // the debug gesture
 void cycleWeather(App& a, mock::Model& m, uint32_t ms);
+// Settings' Wi-Fi bars (1–4) for a signal in dBm, as a phone draws them; 0 when unknown (rssi 0).
+int wifiBars(int rssi);
 
 }  // namespace ui

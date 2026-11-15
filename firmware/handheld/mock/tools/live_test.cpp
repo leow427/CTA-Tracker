@@ -154,6 +154,10 @@ int main() {
     mock::fromLive(m, snap, bench, t0, false);
     CHECK(m.offline && !m.clockKnown);
     CHECK(strcmp(m.reason, "Connecting to Wi-Fi") == 0);
+    CHECK(m.wifiSetUp && !m.bleConnected);   // Settings: a saved network, out of reach; no phone (the weak hook)
+    snprintf(snap.status, sizeof(snap.status), "No Wi-Fi set up");
+    mock::fromLive(m, snap, bench, t0, false);
+    CHECK(!m.wifiSetUp);                     // Settings says "Not set up"
     snap.status[0] = 0;
 
     // Docked: USB, a battery, and home Wi-Fi; never without a battery.

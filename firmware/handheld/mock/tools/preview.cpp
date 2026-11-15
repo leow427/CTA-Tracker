@@ -238,5 +238,29 @@ int main(int argc, char** argv) {
         writePng(out + "/" + p.name + ".png", fb, ui::brightness(a, m));
         printf("%s: pinned %s %s\n", p.name, m.pin.rec.route, m.pin.rec.name);
     }
+    // Settings (swipe left from Home) and its confirm step. Placeholder network names only, never a real one.
+    struct SetShot { const char* name; ui::Screen screen; const char* pet; const char* ssid; int8_t rssi; bool setUp; int battery; bool charging; bool ble; };
+    const SetShot sets[] = {
+        {"settings", ui::Screen::Settings, "", "Home Wi-Fi", -58, true, 64, true, true},
+        {"settings_named", ui::Screen::Settings, "Trackie", "A Very Long Network Name Here", -80, true, 15, false, false},
+        {"settings_no_wifi", ui::Screen::Settings, "", "", 0, false, 100, false, true},
+        {"settings_wifi_away", ui::Screen::Settings, "", "", 0, true, -1, false, false},
+        {"settings_confirm", ui::Screen::Confirm, "", "Home Wi-Fi", -58, true, 64, true, true},
+    };
+    for (const SetShot& s : sets) {
+        static mock::Model m;
+        m = mock::Model();
+        mock::update(m, start, start);
+        snprintf(m.petName, sizeof(m.petName), "%s", s.pet);
+        snprintf(m.ssid, sizeof(m.ssid), "%s", s.ssid);
+        m.rssi = s.rssi; m.wifiSetUp = s.setUp; m.battery = s.battery; m.charging = s.charging; m.bleConnected = s.ble;
+        ui::App a;
+        ui::init(a, 1000);
+        a.view.screen = s.screen;
+        if (strips) drawStrips(fb, a, m, 1000, scratch);
+        else ui::draw(cv, a, m, 1000, scratch);
+        writePng(out + "/" + s.name + ".png", fb, ui::brightness(a, m));
+        printf("%s\n", s.name);
+    }
     return 0;
 }

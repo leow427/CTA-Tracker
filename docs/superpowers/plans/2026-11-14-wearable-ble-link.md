@@ -48,7 +48,7 @@ The plan's three open questions, settled as recommended, plus Leo's one change.
    any Wi-Fi network is saved*. A wearable with no Wi-Fi docks on power alone, so Trackie sleeps on the dock
    (showcase step 8) over Bluetooth only. One line in `main.cpp` (Task W6b) and a base spec 8.4 edit (Task X1).
 2. **Showcase step 7 ("No Wi-Fi") comes back** if Task W6c's gates pass by **11/20 18:00**. It's shown with serial
-   `W` (Wi-Fi off until reboot), or with F3's switch if F3 lands. If the gates miss, step 7 stays cut and Bluetooth
+   `W` (Wi-Fi off until reboot); F3's Settings page (Task S-W) has no Wi-Fi switch. If the gates miss, step 7 stays cut and Bluetooth
    still carries steps 4–6.
 3. **Pairing again in the demo.** On reset the wearable makes a new random static address (kept in NVS), so the
    iPhone that still holds the old bond sees a new device and shows the passkey prompt again. Stale `CTA-Pet-xxxx`
@@ -332,8 +332,8 @@ No power gate: Leo dropped battery tests for this work (2026-11-14).
   are A's. AB adds the wearable's Bluetooth branch (`WearableSetup.swift`). A's code-pairing branch (`POST /pair`)
   serves the dock, and the wearable when Bluetooth isn't available (AB2 picks the branch).
 - **W and H-UI share `ui.cpp`.** W touches only the Pairing state's text (the code from W6d, the passkey from W6a)
-  and adds a "Joining Wi-Fi…" bubble. F3's settings page, if it lands, shows "Phone: connected" and holds the Wi-Fi
-  off switch (decision 2).
+  and adds a "Joining Wi-Fi…" bubble. F3's Settings page is Task S-W: it shows "Bluetooth: Connected" (no Wi-Fi
+  switch; step 7 uses serial `W`) and Pair again, through the hooks in `src/device_hooks.h` that W supplies.
 
 ### Order, day by day
 
@@ -691,6 +691,39 @@ through the serial `T` path), `ui.cpp` (the Pairing state's text only: the code,
   gives 403, the sixth try 423, a second pair 409; `--garbage` still gives 400/413/401/401; the code never appears on
   serial. Then Task 12's setup pairs the wearable from the app with the code, if Task 12 has landed.
 - [ ] **Step 4:** Commit: `feat(handheld): pair over the network with the code on screen (the Wi-Fi fallback)`.
+
+### Task S-W: wearable Settings page (H-UI; todo F3)
+
+**Leo's decisions (2026-11-14):** a swipe left from Home opens Settings where the Map placeholder was (the
+placeholder is gone); an unpaired device stays in pairing mode until it's paired; pairing again is done from the
+device's own Settings page.
+
+**Files:** `firmware/handheld/mock/src/ui.*` (`Screen::Settings`, `Screen::Confirm`, `drawSettings`, `drawConfirm`,
+`wifiBars`), `src/device_hooks.h` (new), `src/mock_data.*` (Model fields, weak hooks), `src/live_model.cpp`,
+`src/main.cpp` (one line in `applyPet`: the pet's name into the model), `tools/preview.cpp`, `tools/touch_test.cpp`,
+`tools/live_test.cpp`, `docs/handheld-ui.md`, the README's "Using it".
+
+**Interfaces (Track W supplies the real ones; `mock_data.cpp` has weak defaults so the UI builds alone):**
+
+```cpp
+namespace device {
+void pairAgain();      // Settings → Pair again, confirmed: wipe bond and token, new BLE address, pairing mode
+bool bleConnected();   // a bonded phone is connected (fromLive copies it into Model::bleConnected)
+bool paired();         // a bond or token exists: the Pair screen shown after Pair again goes Home once true
+}
+```
+
+- [x] **Step 1:** Settings shows the device's name (Trackie's name if set, else `CTA-Pet-xxxx`), Wi-Fi (network and
+  bars, "Not connected", or "Not set up"), battery and charging, Bluetooth ("Connected" / "Not connected"), and a
+  Pair again button behind a confirm step ("Pair again?" / "Your phone will need to pair again.", Pair again /
+  Cancel). Swipe right for Home; confirming calls `device::pairAgain()` and shows Pairing until `device::paired()`.
+- [x] **Step 2:** Model fields `deviceId`, `petName`, `ssid`, `rssi`, `wifiSetUp`, `bleConnected`; the live build
+  fills them in `fromLive` (Wi-Fi from `live::wifiSsid` and `esp_wifi_sta_get_ap_info`, the MAC's end, the hook) and
+  `applyPet`. Fixtures use placeholder network names only ("Home Wi-Fi").
+- [x] **Step 3:** Previews (`settings*`), touch_test's swipe-left → Settings and confirm cases, live_test's
+  `wifiSetUp` checks; every other preview byte-identical; `pio test -e native`; `pio run` for mock, live, power.
+- [ ] **Step 4 (board, later):** swipe left on Home, check the rows against the real Wi-Fi, battery and phone; Pair
+  again → Cancel, then Pair again → confirm enters pairing mode once Track W's hook is in.
 
 ### Task AB1: The Bluetooth transport in the app (Track AB)
 

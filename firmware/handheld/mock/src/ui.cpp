@@ -7,6 +7,7 @@
 #include "alerts_weather.h"
 #include "card_theme.h"
 #include "cta_config.h"
+#include "device_hooks.h"
 #include "fonts.h"
 #include "line_colors.h"
 #include "mood.h"
@@ -319,7 +320,7 @@ void drawHome(Canvas& cv, const App& a, const Model& m, uint32_t ms, bool aod, c
         routeCard(cv, C - 160, 290, 320, CARD_H, cvw, ms);
     }
     if (v.screen != Screen::Home) return;
-    chevron(cv, 436, C - 12, 446, C, 436, C + 12, col::mist);   // swipe left: the map
+    chevron(cv, 436, C - 12, 446, C, 436, C + 12, col::mist);   // swipe left: Settings
     if (stale) {
         char s[40];
         staleText(m, s, sizeof(s));
@@ -625,13 +626,73 @@ void drawPair(Canvas& cv, uint32_t ms) {
     cv.text(F(900, 15), "Trackie-3F2A", C, 298, col::headlight, Align::Center);
 }
 
-void drawMapSoon(Canvas& cv, const Model& m, uint32_t ms) {
-    const bool up = (ms / 500) % 2 == 0;
-    const mock::WeatherView wx = mock::weatherView(m);
-    drawPet(cv, m.mood, m.docked, C - 64, 120 + (up ? -4 : 0), 4, &wx, true);
-    cv.text(F(900, 20), "The map comes next", C, 300, col::white, Align::Center);
-    cv.text(F(800, 15), "Swipe right for Home", C, 330, col::mist, Align::Center);
-    chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);
+// ---------- Settings: the wearable's own page ----------
+// Rows of 320 × 56 inside the circle, then the Pair again button; the confirm step's two buttons. All at least 56 px
+// tall, so they're easy to hit.
+constexpr int kRowX = C - 160, kRowW = 320, kRowH = 56;
+constexpr Rect kPairBtn{C - 120, 326, 240, 60}, kYesBtn{C - 120, 236, 240, 60}, kNoBtn{C - 120, 310, 240, 60};
+
+void button(Canvas& cv, const Rect& r, const char* label, bool primary) {
+    PlateStyle ps;
+    if (primary) { ps.fill = ps.fill2 = col::headlight; ps.rim = col::navy; ps.rimAlpha = 1; }   // the active control
+    cv.plate(r.x, r.y, r.w, r.h, ps);
+    cv.text(F(900, 20), label, C, r.y + r.h / 2.f + 1, primary ? col::navy : col::white, Align::Center, Base::Middle);
+}
+
+// A row: its label on the left; returns the value's vertical centre.
+float settingsRow(Canvas& cv, int y, const char* label) {
+    cv.plate(kRowX, y, kRowW, kRowH, PlateStyle());
+    const float cy = y + kRowH / 2.f;
+    cv.text(F(800, 16), label, kRowX + 18, cy, col::mist, Align::Left, Base::Middle);
+    return cy;
+}
+
+void drawSettings(Canvas& cv, const Model& m) {
+    char buf[48], name[32];
+    if (m.petName[0]) snprintf(name, sizeof(name), "%s", m.petName);
+    else snprintf(name, sizeof(name), "CTA-Pet-%s", m.deviceId);
+    cv.text(F(900, 12), "SETTINGS", C, 34, col::mist, Align::Center);
+    cv.text(F(900, 24), Canvas::fit(F(900, 24), name, 280, buf, sizeof(buf)), C, 54, col::white, Align::Center);
+    const int R = kRowX + kRowW - 18;
+    const Font* fv = F(900, 19);
+    // Wi-Fi: the network and its bars, or why there's none.
+    float cy = settingsRow(cv, 112, "Wi-Fi");
+    if (m.ssid[0]) {
+        const int bars = wifiBars(m.rssi);
+        for (int i = 0; i < 4; ++i) {   // 5 px bars, 6 to 18 px tall, on the row's baseline
+            const int h = 6 + 4 * i;
+            cv.fillRect(R - 29 + i * 8, cy + 9 - h, 5, h, i < bars ? col::white : col::dimInk);
+        }
+        cv.text(fv, Canvas::fit(fv, m.ssid, kRowW - 36 - 60 - 39, buf, sizeof(buf)), R - 39, cy + 1, col::white, Align::Right, Base::Middle);
+    } else {
+        cv.text(fv, m.wifiSetUp ? "Not connected" : "Not set up", R, cy + 1, col::mist, Align::Right, Base::Middle);
+    }
+    // Battery: a pixel battery filled to the level (green while charging, amber when low), then the words.
+    cy = settingsRow(cv, 180, "Battery");
+    if (m.battery < 0) {
+        cv.text(fv, "On USB power", R, cy + 1, col::white, Align::Right, Base::Middle);
+    } else {
+        const int bx = R - 34, by = static_cast<int>(cy) - 8;
+        const uint32_t ink = m.charging ? col::signal : m.battery <= 20 ? col::amber : col::white;
+        cv.fillRect(bx, by, 30, 2, col::white); cv.fillRect(bx, by + 14, 30, 2, col::white);
+        cv.fillRect(bx, by, 2, 16, col::white); cv.fillRect(bx + 28, by, 2, 16, col::white);
+        cv.fillRect(bx + 30, by + 5, 4, 6, col::white);
+        cv.fillRect(bx + 4, by + 4, 22 * (m.battery > 100 ? 100 : m.battery) / 100, 8, ink);
+        snprintf(buf, sizeof(buf), m.charging ? "Charging \xC2\xB7 %d%%" : "%d%%", m.battery);
+        cv.text(fv, buf, R - 46, cy + 1, m.charging ? col::signal : col::white, Align::Right, Base::Middle);
+    }
+    cy = settingsRow(cv, 248, "Bluetooth");
+    cv.text(fv, m.bleConnected ? "Connected" : "Not connected", R, cy + 1, m.bleConnected ? col::signal : col::mist,
+            Align::Right, Base::Middle);
+    button(cv, kPairBtn, "Pair again", true);
+    chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);   // swipe right: Home
+}
+
+void drawConfirm(Canvas& cv) {
+    cv.text(F(900, 34), "Pair again?", C, 112, col::white, Align::Center);
+    cv.text(F(800, 18), "Your phone will need to pair again.", C, 176, col::mist, Align::Center);
+    button(cv, kYesBtn, "Pair again", true);
+    button(cv, kNoBtn, "Cancel", false);
 }
 
 bool isAod(const App& a, const View& v) { return a.dim && (v.screen == Screen::Home || v.screen == Screen::First); }
@@ -644,7 +705,8 @@ void drawView(Canvas& cv, App& a, const Model& m, const View& v, uint32_t ms, ui
         case Screen::Stops: drawStops(cv, a, m, ms, v.tab, scratch); break;
         case Screen::Detail: drawDetail(cv, a, m, ms, v); break;
         case Screen::Pair: drawPair(cv, ms); break;
-        case Screen::Map: drawMapSoon(cv, m, ms); break;
+        case Screen::Settings: drawSettings(cv, m); break;
+        case Screen::Confirm: drawConfirm(cv); break;
     }
 }
 
@@ -710,7 +772,7 @@ void tap(App& a, Model& m, float x, float y, uint32_t ms) {
     const Screen sc = a.view.screen;
     if (sc == Screen::Home) {
         if (inRect(x, y, gPetTile)) { a.poked = true; a.pokeT0 = ms; }
-        else if (x > 410 && fabsf(y - C) < 60) go(a, with(a.view, Screen::Map), 1, 1, ms);
+        else if (x > 410 && fabsf(y - C) < 60) go(a, with(a.view, Screen::Settings), 1, 1, ms);
         else if (inRect(x, y, gHomeCard) || y > 400) go(a, with(a.view, Screen::Stops), 2, 1, ms);
     } else if (sc == Screen::Stops) {
         if (y < 86) {
@@ -725,7 +787,12 @@ void tap(App& a, Model& m, float x, float y, uint32_t ms) {
             openDetail(a, t == Tab::Trains ? m.trains[i] : m.buses[i], t, Screen::Stops, ms);
         }
     } else if (sc == Screen::Detail && x < 80) back(a, ms);
-    else if (sc == Screen::Map && x < 80) go(a, with(a.view, Screen::Home), 1, -1, ms);
+    else if (sc == Screen::Settings && x < 80) go(a, with(a.view, Screen::Home), 1, -1, ms);
+    else if (sc == Screen::Settings && inRect(x, y, kPairBtn)) go(a, with(a.view, Screen::Confirm), 0, 0, ms);
+    else if (sc == Screen::Confirm && inRect(x, y, kYesBtn)) {
+        device::pairAgain();   // wipes the bond and token and enters pairing mode (Track W)
+        go(a, with(a.view, Screen::Pair), 0, 0, ms);
+    } else if (sc == Screen::Confirm && inRect(x, y, kNoBtn)) go(a, with(a.view, Screen::Settings), 0, 0, ms);
 }
 
 }  // namespace
@@ -746,6 +813,8 @@ void setCardCache(void* mem, int entries) {
 }
 
 uint32_t cardRenders() { return gCardRenders; }
+
+int wifiBars(int rssi) { return rssi == 0 ? 0 : rssi >= -55 ? 4 : rssi >= -66 ? 3 : rssi >= -77 ? 2 : 1; }
 
 void init(App& a, uint32_t ms) { a = App(); a.lastInput = ms; a.lastTick = ms; }
 
@@ -881,6 +950,8 @@ void tick(App& a, Model& m, uint32_t ms) {
     }
     if (a.poked && ms - a.pokeT0 > 2600) a.poked = false;
     if (a.trans.on && ms - a.trans.t0 >= 220) a.trans.on = false;
+    // Pairing again ends once the phone has paired (the debug Pairing scenario stays put).
+    if (a.view.screen == Screen::Pair && m.scenario != Scenario::Pairing && device::paired()) go(a, with(a.view, Screen::Home), 0, 0, ms);
     // The open detail's card is gone: back to the list, rather than showing some other stop.
     bool bus;
     if (a.view.screen == Screen::Detail && !a.trans.on && !findCard(m, a.view, bus)) {
@@ -933,7 +1004,6 @@ void pointerDown(App& a, Model& m, float x, float y, uint32_t ms) {
     d.down = true; d.moved = false; d.isLong = false; d.wasDim = a.dim; d.vertical = false;
     d.x0 = d.x = x; d.y0 = d.y = y; d.t0 = ms;
     d.s0 = sc == Screen::Stops ? a.scroll[t] : a.detailScroll;
-    d.mx0 = a.mapX; d.my0 = a.mapY;
     d.nHist = 0;
     addSample(a, x, y, ms);
 }
@@ -968,7 +1038,7 @@ struct UpLog {
     char what[48] = "nothing";
     explicit UpLog(App& app) : a(app), on(app.view.screen) {}
     ~UpLog() {
-        static const char* const kScreens[] = {"home", "stops", "detail", "map", "pair", "first"};
+        static const char* const kScreens[] = {"home", "stops", "detail", "settings", "pair", "first", "confirm"};
         snprintf(a.gesture, sizeof(a.gesture), "up on %s: moved %+.0f,%+.0f in %u ms (%u samples), v %+.2f,%+.2f px/ms -> %s",
                  kScreens[static_cast<int>(on)], dx, dy, static_cast<unsigned>(held),
                  static_cast<unsigned>(samples), vx, vy, what);
@@ -1033,8 +1103,9 @@ void pointerUp(App& a, Model& m, float x, float y, uint32_t ms) {
             m.hasPin = m.hasFollow = false;
             toast(a, "Unpinned", ms);
             snprintf(log.what, sizeof(log.what), "unpin");
-        } else if (sc == Screen::Home && dx < 0) go(a, with(a.view, Screen::Map), 1, 1, ms);
-        else if (sc == Screen::Map && dx > 0) go(a, with(a.view, Screen::Home), 1, -1, ms);
+        } else if (sc == Screen::Home && dx < 0) go(a, with(a.view, Screen::Settings), 1, 1, ms);
+        else if (sc == Screen::Settings && dx > 0) go(a, with(a.view, Screen::Home), 1, -1, ms);
+        else if (sc == Screen::Confirm && dx > 0) go(a, with(a.view, Screen::Settings), 1, -1, ms);   // cancel
         else settle(false);
         return;
     }

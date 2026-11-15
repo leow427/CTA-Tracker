@@ -7,6 +7,7 @@
 
 #include "cta_types.h"
 #include "follow.h"
+#include "link_msg.h"
 // live::setPin and live::setFollow: the real ones are live.cpp's; mock_data.cpp has weak stubs for env:mock and the
 // laptop tools, where setPin stops the mock's pin.
 #include "live.h"
@@ -72,6 +73,14 @@ struct Model {
     Card pin{};            // a bus or train card by pin.rec.type
     bool hasFollow = false;
     cta::FollowView follow{};
+    // The Settings page. The live build fills these (fromLive; main.cpp's applyPet sets petName); the mock shows
+    // placeholders. Never a real network name in the repo: "Home Wi-Fi" stands in.
+    char deviceId[5] = "3f2a";                      // the MAC's end, as Bluetooth advertises it: "CTA-Pet-3f2a"
+    char petName[cta::kPetNameLen + 1] = "";        // Trackie's name from the app; "" = none: CTA-Pet-xxxx
+    char ssid[cta::kSsidLen + 1] = "Home Wi-Fi";    // the joined network; "" = not joined
+    int8_t rssi = -58;                              // its signal in dBm; 0 = unknown
+    bool wifiSetUp = true;                          // a network is saved, joined or not
+    bool bleConnected = true;                       // a bonded phone is connected over Bluetooth
     // Night hours, minutes after midnight (the app's config.settings in the live build): Sleepy, and slow polling.
     uint16_t nightStart = cta::kNightStartMin, nightEnd = cta::kNightEndMin;
     // Whether local minute lm is in the night hours; a span past midnight (start after end) wraps.

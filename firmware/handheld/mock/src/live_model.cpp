@@ -5,8 +5,13 @@
 #include <string.h>
 
 #include "compass.h"
-
+#include "device_hooks.h"
 #include "mood.h"
+
+#ifdef ESP_PLATFORM
+#include <esp_mac.h>
+#include <esp_wifi.h>
+#endif
 
 namespace mock {
 
@@ -149,6 +154,16 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
     m.wmo = s.wmo;
     m.tempC = s.tempC;
     if (s.hasWeather && !m.weatherForced) m.weather = weatherFor(s.wmo);
+    // The Settings page. live.cpp says "No Wi-Fi set up" when no network is saved; any other state has one.
+    m.wifiSetUp = s.wifiUp || strcmp(s.status, "No Wi-Fi set up") != 0;
+    m.bleConnected = device::bleConnected();
+#ifdef ESP_PLATFORM   // the laptop tools keep the model's placeholders
+    live::wifiSsid(m.ssid, sizeof(m.ssid));
+    wifi_ap_record_t ap;
+    m.rssi = m.ssid[0] && esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
+    uint8_t mac[6];   // the MAC's end, as main.cpp's info.id and the Bluetooth name
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) snprintf(m.deviceId, sizeof(m.deviceId), "%02x%02x", mac[4], mac[5]);
+#endif
     finish(m);
 }
 

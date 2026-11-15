@@ -6,6 +6,7 @@
 
 #include "compass.h"
 #include "cta_config.h"
+#include "device_hooks.h"
 #include "mood.h"
 #ifdef POWER_LOG
 #include "stress.h"
@@ -426,3 +427,7 @@ void finish(Model& m) {
 // no live.cpp.
 __attribute__((weak)) void live::setPin(const cta::PickedStop* stop) { mock::gUnpinned = !stop; }
 __attribute__((weak)) void live::setFollow(const cta::FollowMsg*) {}
+// The Settings page's hooks (device_hooks.h): the Bluetooth link's real ones replace these.
+__attribute__((weak)) void device::pairAgain() {}
+__attribute__((weak)) bool device::bleConnected() { return false; }
+__attribute__((weak)) bool device::paired() { return true; }

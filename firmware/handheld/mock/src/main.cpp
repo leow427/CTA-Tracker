@@ -458,6 +458,7 @@ lan::Inbox* inbox;        // the loop's copy of the link's writes (PSRAM: it hol
 void applyPet() {
     memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
     if (linkCfg.hasPet) pet::applyColors(petPalette, linkCfg.pet.colors);
+    snprintf(model.petName, sizeof(model.petName), "%s", linkCfg.hasPet ? linkCfg.pet.name : "");   // Settings' name
     // shortcut: Trackie keeps the default colors until the dock's Task 6 adds ui::petPalette565 to card_theme; then:
     // ui::petPalette565 = petPalette;
 }
