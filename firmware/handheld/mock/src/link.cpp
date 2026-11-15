@@ -2,6 +2,7 @@
 #include "link.h"
 
 #include <esp_heap_caps.h>
+#include <esp_random.h>
 #include <esp_http_server.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -12,6 +13,7 @@
 
 #include <new>
 
+#include "ble_setup.h"
 #include "clock_ms.h"
 #include "live.h"
 #include "nearby_msg.h"
@@ -26,6 +28,7 @@ constexpr size_t kStack = 8192;
 
 SemaphoreHandle_t mu;
 char token[cta::kTokenLen + 1] = "";
+cta::PairGate gate;   // under mu, with token
 struct Shared {
     Inbox inbox;
     cta::InfoMsg info = {};
@@ -62,6 +65,49 @@ esp_err_t getConfig(httpd_req_t* r) {
     return cta::encodeConfig(c, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
 }
 
+// Reads the whole body into buf (cta::kMaxBody + 1, NUL-terminated); false if the client closed or stalled.
+bool readBody(httpd_req_t* r, char* buf, size_t& len) {
+    len = 0;
+    while (len < r->content_len) {
+        const int n = httpd_req_recv(r, buf + len, r->content_len - len);
+        if (n <= 0) return false;   // closed, or stalled past httpd's 5 s timeout: drop it, don't hold the task
+        len += n;
+    }
+    buf[len] = 0;
+    return true;
+}
+
+// POST /pair (ecosystem spec 4.3), as the dock's: no bearer token. Size (413), then the body (400), then the gate. A
+// token or a Bluetooth bond counts as paired (409).
+esp_err_t postPair(httpd_req_t* r) {
+    if (r->content_len > cta::kMaxBody) return reply(r, "413 Payload Too Large", "{\"error\":\"too large\"}");
+    char body[cta::kMaxBody + 1];
+    size_t len;
+    if (!readBody(r, body, len)) return ESP_FAIL;
+    cta::PairMsg m;
+    if (!cta::parsePair(body, len, m)) return reply(r, "400 Bad Request", "{\"error\":\"bad body\"}");
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const uint32_t now = nowMs();
+    const cta::PairResult res = gate.check(m.code, now, token[0] != 0 || ble_setup::bonded());
+    const unsigned retry = static_cast<unsigned>(gate.retryAfterSec(now));
+    if (res == cta::PairResult::Ok) {   // in use at once; the loop saves it (no flash from this PSRAM stack)
+        memcpy(token, m.token, sizeof(token));
+        memcpy(sh->inbox.tokenHex, m.token, sizeof(sh->inbox.tokenHex));
+        sh->inbox.token = true;
+    }
+    xSemaphoreGive(mu);
+    memset(&m, 0, sizeof(m));
+    switch (res) {
+        case cta::PairResult::Ok: return reply(r, "200 OK", "{}");
+        case cta::PairResult::WrongCode: return reply(r, "403 Forbidden", "{\"error\":\"wrong code\"}");
+        case cta::PairResult::AlreadyPaired: return reply(r, "409 Conflict", "{\"error\":\"already paired\"}");
+        case cta::PairResult::CoolingDown: break;
+    }
+    char cool[48];
+    snprintf(cool, sizeof(cool), "{\"error\":\"cooling down\",\"retry_after\":%u}", retry);
+    return reply(r, "423 Locked", cool);
+}
+
 // Every write, in the order the fake board (tools/link_send.py --serve) checks: size before reading, token, then
 // apply's JSON checks.
 esp_err_t change(httpd_req_t* r) {
@@ -76,12 +122,8 @@ esp_err_t change(httpd_req_t* r) {
         !cta::tokenMatches(auth, saved))
         return reply(r, "401 Unauthorized", "{\"error\":\"unauthorized\"}");
     char body[cta::kMaxBody + 1];
-    size_t len = 0;
-    while (len < r->content_len) {
-        const int n = httpd_req_recv(r, body + len, r->content_len - len);
-        if (n <= 0) return ESP_FAIL;   // closed, or stalled past httpd's 5 s timeout: drop it, don't hold the task
-        len += n;
-    }
+    size_t len;
+    if (!readBody(r, body, len)) return ESP_FAIL;
     switch (apply(r->method == HTTP_DELETE, r->uri, body, len, Via::Http)) {
         case 200: return reply(r, "200 OK", "{}");
         case 404: return reply(r, "404 Not Found", "{\"error\":\"not found\"}");
@@ -189,7 +231,7 @@ void start(const char* hostLabel) {
     // answer; saving is the loop's job.
     cfg.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     cfg.max_open_sockets = 3;   // the app and a tool at once; each socket costs internal RAM in lwIP
-    cfg.max_uri_handlers = 10;
+    cfg.max_uri_handlers = 12;   // 10 now, W6b's /relay and /stop next
     cfg.lru_purge_enable = true;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         puts("link: httpd didn't start");
@@ -203,9 +245,10 @@ void start(const char* hostLabel) {
         {"/config", HTTP_POST, change, nullptr},    {"/nearby", HTTP_POST, change, nullptr},
         {"/pin", HTTP_POST, change, nullptr},       {"/pin", HTTP_DELETE, change, nullptr},
         {"/follow", HTTP_POST, change, nullptr},    {"/follow", HTTP_DELETE, change, nullptr},
-        {"/reset", HTTP_POST, change, nullptr},
+        {"/reset", HTTP_POST, change, nullptr},     {"/pair", HTTP_POST, postPair, nullptr},
     };
-    for (const httpd_uri_t& u : uris) httpd_register_uri_handler(server, &u);
+    for (const httpd_uri_t& u : uris)
+        if (httpd_register_uri_handler(server, &u) != ESP_OK) printf("link: no route for %s\n", u.uri);
     const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx", as in the BLE name
     // The service's full names: Arduino's addService("ctatracker", "tcp") added the underscores.
     mdns_txt_item_t txt[] = {{"type", "handheld"}, {"id", id}};
@@ -252,6 +295,38 @@ bool take(Inbox& out) {
     }
     xSemaphoreGive(mu);
     return any;
+}
+
+PairShow pairShow(char code[cta::kPairCodeLen + 1], uint8_t& waitS) {
+    waitS = 0;
+    if (!mu) return PairShow::None;
+    const bool bond = ble_setup::bonded();
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const uint32_t now = nowMs();
+    const bool paired = token[0] || bond;
+    // A code once httpd is up, so there's a way to pair and esp_random is a true RNG (the radio runs); again after a
+    // cooldown or pairAgain. Never 000000, which the Pair screen reads as no code; the modulo's bias is under 0.03%.
+    if (!paired && server && gate.needsCode(now)) {
+        char c[cta::kPairCodeLen + 1];
+        snprintf(c, sizeof(c), "%06u", static_cast<unsigned>(esp_random() % 999999 + 1));
+        gate.setCode(c);
+    }
+    const uint32_t wait = paired ? 0 : gate.retryAfterSec(now);
+    // On Wi-Fi only (spec 4.3): the same code comes back when Wi-Fi does.
+    const bool on = !paired && live::wifiConnected();
+    const PairShow show = !on ? PairShow::None : wait ? PairShow::Wait : gate.code[0] ? PairShow::Code : PairShow::None;
+    if (show == PairShow::Code) memcpy(code, gate.code, sizeof(gate.code));
+    waitS = static_cast<uint8_t>(wait);
+    xSemaphoreGive(mu);
+    return show;
+}
+
+void pairAgain() {
+    if (!mu) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    token[0] = 0;
+    gate.reset();   // pairShow picks the fresh code
+    xSemaphoreGive(mu);
 }
 
 uint32_t stackLeft() { return minStack; }

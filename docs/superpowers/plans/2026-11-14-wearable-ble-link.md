@@ -696,7 +696,13 @@ through the serial `T` path), `ui.cpp` (the Pairing state's text only: the code,
 **Interfaces:** consumes `cta::parsePair`, `cta::PairGate`, `kPairWindowMs`, `kPairMaxWrong`
 (`firmware/lib/cta/src/pair.*`, tested in `test_pair`) and `InfoMsg.paired`. No shared-library change.
 
-- [ ] **Step 1:** Implement as the dock's `firmware/dock/src/link.cpp` does (`9735f8e`):
+- [x] **Step 1:** Implement as the dock's `firmware/dock/src/link.cpp` does (`9735f8e`):
+  *As built, on the new gate (`49802c2`, as the dock's `af0ec83`): no window; the code is picked once httpd is up
+  (`lan::pairShow`) and again after the 30 s cooldown or Pair again; 423 carries `retry_after`. The Pair screen
+  shows the code only while unpaired and on Wi-Fi, captioned "Type this code in the app" (the Bluetooth passkey,
+  which wins while iOS asks, keeps "Type this code on your iPhone"); in the cooldown, "Too many tries, new code in
+  N s". A token or a bond closes the gate (409). Pair again = the token and bond wiped, then `gate.reset()`. Codes
+  never 000000 (the screen's "none").*
   - At boot, with no token saved, fill `gate.code` from `esp_random()` (6 digits; never logged).
   - `POST /pair`: no bearer token. Size (413), then `parsePair` (400), then `gate.check(code, nowMs, paired)`. Map
     the result to HTTP as the dock does: Ok 200, WrongCode 403, AlreadyPaired 409, Locked and Closed 423.
@@ -707,12 +713,14 @@ through the serial `T` path), `ui.cpp` (the Pairing state's text only: the code,
   - `POST /reset` (and `R`, the two-finger hold) wipes the token, so the reboot shows a new code.
   - The window counts from boot, as on the dock: a wearable that joins Wi-Fi late (after a `/wifi` write over
     Bluetooth) pairs over Bluetooth instead, or is restarted.
-- [ ] **Step 2:** Run the native suite (`pio test -e native`; `test_pair` already covers the gate) and build the
+- [x] **Step 2:** Run the native suite (`pio test -e native`; `test_pair` already covers the gate) and build the
   wearable.
 - [ ] **Step 3: Verify (board):** after `R`, the bubble shows the code;
   `python3 tools/link_send.py cta-pet-xxxx.local pair <code>` gives 200 and `--token` writes then work; a wrong code
   gives 403, the sixth try 423, a second pair 409; `--garbage` still gives 400/413/401/401; the code never appears on
   serial. Then Task 12's setup pairs the wearable from the app with the code, if Task 12 has landed.
+  *Done on the board except the correct code (Leo reads it off the screen): 409 while a token was held, 400, 413;
+  after serial `P`, 403 ×5 and 423 `retry_after` 30; no code on serial; frame hashes unchanged.*
 - [ ] **Step 4:** Commit: `feat(handheld): pair over the network with the code on screen (the Wi-Fi fallback)`.
 
 ### Task S-W: wearable Settings page (H-UI; todo F3)

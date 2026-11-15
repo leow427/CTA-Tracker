@@ -628,6 +628,16 @@ void drawPair(Canvas& cv, const Model& m, uint32_t ms) {
                  static_cast<unsigned>(key % 1000));
         cv.pixelText(code, C, 196, 7, col::white, Align::Center);
         cv.text(F(800, 18), "Type this code on your iPhone", C, 266, col::mist, Align::Center);
+    } else if (m.pairCode) {   // the Wi-Fi fallback's code, typed into the app (not iOS's prompt)
+        char code[8];
+        snprintf(code, sizeof(code), "%03u %03u", static_cast<unsigned>(m.pairCode / 1000 % 1000),
+                 static_cast<unsigned>(m.pairCode % 1000));
+        cv.pixelText(code, C, 196, 7, col::white, Align::Center);
+        cv.text(F(800, 18), "Type this code in the app", C, 266, col::mist, Align::Center);
+    } else if (m.pairWaitS) {
+        char wait[40];
+        snprintf(wait, sizeof(wait), "Too many tries, new code in %u s", static_cast<unsigned>(m.pairWaitS));
+        cv.text(F(800, 18), wait, C, 266, col::mist, Align::Center);
     } else {   // waiting for the phone: no code until iOS asks for one
         cv.text(F(800, 18), "Pair in the app on your iPhone", C, 266, col::mist, Align::Center);
     }

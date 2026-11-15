@@ -86,6 +86,9 @@ struct Model {
     // The Pair screen: the Bluetooth pairing code (0 = none; the debug Pairing scenario shows 482 913) and the name the
     // phone lists (the live build sets both).
     uint32_t passkey = 0;
+    // The Wi-Fi fallback's pairing code (0 = none) and its cooldown after 5 wrong codes (seconds left), as the dock's.
+    uint32_t pairCode = 0;
+    uint8_t pairWaitS = 0;
     char pairName[16] = "Trackie-3F2A";
     // Whether local minute lm is in the night hours; a span past midnight (start after end) wraps.
     bool night(int lm) const { return nightStart <= nightEnd ? lm >= nightStart && lm < nightEnd : lm >= nightStart || lm < nightEnd; }

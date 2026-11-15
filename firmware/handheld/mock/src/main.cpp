@@ -793,7 +793,7 @@ void pairAgain() {
         nvs_commit(h);
         nvs_close(h);
     }
-    lan::setToken("");
+    lan::pairAgain();   // the token out of use, and a fresh Wi-Fi code
     haveToken = false;
     infoDirty = true;
     if (!ble_setup::start(model.pairName)) puts("ble: didn't start");   // a new random address (forgetBonds)
@@ -975,14 +975,12 @@ void loop() {
         info.settings = linkCfg.settings;
         lan::setInfo(info);
         publishInfo(ms);
-        // The Bluetooth passkey (spec 10): on the Pair screen, kept lit, while iOS asks for it. The Pair screen goes
-        // Home by itself once paired (ui::tick).
-        model.passkey = ble_setup::passkey();
-        if (model.passkey) {
-            if (app.view.screen != ui::Screen::Pair) { app.view.screen = ui::Screen::Pair; app.trans.on = false; }
-            app.dim = false;
-            app.lastInput = ms;
-        }
+        // Unpaired with Wi-Fi: the code for pairing over the network (W6d), or its cooldown.
+        char code[cta::kPairCodeLen + 1];
+        uint8_t waitS;
+        const lan::PairShow show = lan::pairShow(code, waitS);
+        model.pairCode = show == lan::PairShow::Code ? static_cast<uint32_t>(atoi(code)) : 0;
+        model.pairWaitS = show == lan::PairShow::Wait ? waitS : 0;
         // The battery log (spec 8.5): every 15 min, and once at boot.
         static uint32_t lastLog = 0;
         if (lastLog == 0 || ms - lastLog >= 15 * 60 * 1000) {
@@ -1007,6 +1005,16 @@ void loop() {
     }
 #ifdef POWER_LOG
     stress::tick(app, model, ms, snap->loaded);
+#endif
+#ifdef HANDHELD_LIVE
+    // The Bluetooth passkey (spec 10), read every pass so it's on screen the moment iOS asks: the Pair screen, kept
+    // lit. The Pair screen goes Home once paired and no passkey shows (ui::tick).
+    model.passkey = ble_setup::passkey();
+    if (model.passkey) {
+        if (app.view.screen != ui::Screen::Pair) { app.view.screen = ui::Screen::Pair; app.trans.on = false; }
+        app.dim = false;
+        app.lastInput = ms;
+    }
 #endif
     ui::tick(app, model, ms);
 #ifdef HANDHELD_LIVE

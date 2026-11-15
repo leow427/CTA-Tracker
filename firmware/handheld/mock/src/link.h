@@ -3,13 +3,16 @@
 // dispatcher (apply) for HTTP on the home network and Bluetooth (ble_setup.*). HTTP: GET /info, GET/POST /config (pet,
 // settings), POST /nearby, POST/DELETE /pin, POST/DELETE /follow, POST /reset on port 80, announced over mDNS as
 // _ctatracker._tcp; its handlers run on the httpd task (core 0) and check the body's size (413) and the token (401)
-// first. Bluetooth adds POST /token and POST /wifi (404 over HTTP); its link is already encrypted and bonded. A pin,
+// first. Bluetooth adds POST /token and POST /wifi (404 over HTTP); its link is already encrypted and bonded. HTTP
+// adds POST /pair (no token; 404 over Bluetooth): the Wi-Fi fallback's pairing with the code on the screen, through
+// the dock's cta::PairGate (200, 400, 403, 409, 413, 423). A pin,
 // follow or Wi-Fi network goes straight to the network task (live::*, RAM only); writes that touch flash (config,
 // nearby, token) or reboot wait in an inbox for the frame loop (take). Live build only.
 #include <stddef.h>
 #include <stdint.h>
 
 #include "link_msg.h"
+#include "pair.h"
 
 namespace lan {   // not `link`: newlib declares POSIX link(), and a namespace can't share its name
 
@@ -45,6 +48,12 @@ size_t infoJson(char* buf, size_t cap);
 void setConfig(const cta::ConfigMsg& c);
 // The loop drains writes into out (keep it off internal RAM: it holds a 1 KB body); false if none.
 bool take(Inbox& out);
+// The Pair screen's Wi-Fi code: Code (copied into code; picked here once httpd is up, again after a cooldown or
+// pairAgain), Wait (a cooldown after 5 wrong codes; waitS seconds left) or None (paired, or no Wi-Fi yet). Never logged.
+enum class PairShow : uint8_t { None, Code, Wait };
+PairShow pairShow(char code[cta::kPairCodeLen + 1], uint8_t& waitS);
+// Settings' "Pair again": the token is forgotten (the caller wipes it from NVS) and the gate starts over.
+void pairAgain();
 // The httpd task's least free stack seen after a request, in bytes (0 = no request yet).
 uint32_t stackLeft();
 
