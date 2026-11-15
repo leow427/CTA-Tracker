@@ -83,13 +83,8 @@ The plan's three open questions, settled as recommended, plus Leo's one change.
 4. **iOS.** CoreBluetooth central with the `bluetooth-central` background mode and state
    restoration. The relay runs **in the foreground only** for the showcase. The background keeps the connection and
    the status, nothing more (see "iOS: what really works in the background").
-5. **Battery gate.** A power A/B on the wearable is required (Task W6c):
-   - relaying over Bluetooth must project **no worse than Wi-Fi polling in the same session**, with an absolute
-     floor of **44.7 h**;
-   - Bluetooth on with no phone (advertising, Wi-Fi polling) must project **≥ 43.6 h**, which is 5% under today's
-     45.9 h.
-
-   See Gates.
+5. **No battery tests (Leo, 2026-11-14: "NO Battery tests, get rid of that").** No power A/B runs and no
+   battery gate for this work. RAM, latency and frames are the gates.
 
 Smaller calls, also accepted:
 
@@ -292,21 +287,10 @@ background the wearable stays connected, and if it has Wi-Fi it polls for itself
 | Gate | Measure | Pass |
 |---|---|---|
 | **RAM** | lowest internal free over 10 min, three cases: (a) Bluetooth connected and relaying, Wi-Fi joined, CTA polling stopped; (b) Bluetooth connected, phone not relaying, Wi-Fi TLS polling plus `link_send.py --burst`; (c) Bluetooth advertising, Wi-Fi polling | **≥ 40 KB** in every case (expected ≥ 60 KB with the controller in flash); no leak across 3 off/on cycles of serial `b` |
-| **Power P1** (phone away) | `power_run.py` interleaved A/B: A = main (Wi-Fi polling, BT compiled out), B = this build, BLE advertising | projected **≥ 43.6 h** (5% under 45.9 h), dim idle within 5% of A |
-| **Power P2** (relaying) | the same session: B = this build, the iPhone app connected and relaying in the foreground | projected **≥ A's projection in the same session** (within A's noise), floor **44.7 h** |
 | **Latency** | app action to the wearable's screen, over Bluetooth | pin or follow ≤ 1 s; a fresh `nearby` fills its first cards ≤ 10 s; relayed cards never older than 60 s while connected; foreground reconnect after a wearable reboot ≤ 10 s; the HTTP fallback takes over ≤ 6 s after Bluetooth drops |
-| **Frames** | Stops scroll fps and tap→screen in the power run's churn and scroll phases | no worse than W4 (about 70 fps while moving, tap→screen 17–21 ms) |
+| **Frames** | Stops scroll fps and tap→screen measured with the serial profile while scrolling | no worse than W4 (about 70 fps while moving, tap→screen 17–21 ms) |
 
-Why the power gate is set this way: relaying replaces 5–6 TLS requests a minute with a few Bluetooth writes, so it
-should come in at or under Wi-Fi polling. Requiring "no worse than A" catches a design that costs more than it
-saves. The 44.7 h floor is the gate the ESP-IDF port already passed. P1 is the everyday case, the phone left at home.
-It may cost a little (advertising, coexistence), so it gets the 5% allowance and no more.
-
-**Power model caveat:** `tools/power_model.json` has `ble.advertising_ma` and `ble.connected_ma` at 0 ("zero until
-BLE exists"), and the board has no current sensor. Task W6c fills them from Espressif's datasheet figures and logs the
-Bluetooth state per sample. So P1 and P2 measure the saving (fewer requests, CPU time) and *model* Bluetooth's radio
-cost. That part is an estimate, not a measurement. A battery discharge run per mode (AXP2101 percent over 4 h) is the
-real check; it's recommended after the showcase and is not a gate.
+No power gate: Leo dropped battery tests for this work (2026-11-14).
 
 ---
 
@@ -358,7 +342,7 @@ real check; it's recommended after the showcase and is not a gate.
 | **11/15** | X1 spec diff, morning → Leo sees it | L1 | K1 | **W6d** (pairing by code, the fallback), then W6a Steps 1–2 (rebase `9aa8b43`, controller in flash, RAM re-measure) | — | Tasks 11–12 as planned (Task 12's code pairing on the dock, then the wearable with W6d) |
 | **11/16** | — | `link_send.py` relay commands | — | W6a Steps 3–6 (GATT, frames, dispatcher, pairing, token/Wi-Fi) | AB1 (transport) | 12, 13 |
 | **11/17** | — | — | — | W6b (relay intake, polling switch, no-Wi-Fi boot) | AB1 on the board; AB2 (setup, with the code fallback) | 13, 14 |
-| **11/18** | — | — | — | W6c RAM gates (morning), power A/B (afternoon, needs the iPhone) | AB2, AB3 (relay) | 15, 16 |
+| **11/18** | — | — | — | W6c RAM and latency gates | AB2, AB3 (relay) | 15, 16 |
 | **11/19** | — | — | — | fixes from the gates | AB3 on the board | 16, 17 |
 | **11/20** | — | — | — | full showcase run over Bluetooth, home network and no Wi-Fi; **18:00: step 7 go/no-go** | fixes | fixes |
 | **11/21** | X2 docs and demo script | | | | | freeze 18:00 |
@@ -387,7 +371,7 @@ AB is a separate session.
   since 11/16. The wearable stops starting Bluetooth at boot (one line), takes its networks from `secrets.h` and NVS,
   and the app's Bluetooth stays in the code, switched off by a flag, so AB2's setup goes straight to the code. Step 7
   stays cut.
-- **11/20 18:00, P2 or the latency gate fails:** the relay ships off by default (the app doesn't send `/relay`); the
+- **11/20 18:00, the latency gate fails:** the relay ships off by default (the app doesn't send `/relay`); the
   rest of the Bluetooth link stays.
 
 ---
@@ -648,31 +632,17 @@ bool relaying();                                        // a Bluetooth tick in t
 
 ### Task W6c: Gates on the wearable (Track W; Leo's board and iPhone time)
 
-**Files:** `tools/power_model.json` (`ble.advertising_ma`, `ble.connected_ma`, with a datasheet source), the power
-log columns for the Bluetooth state (`power_log.cpp`, `tools/power_model.py`, and their tests), `docs/power/log.md`,
-`docs/ecosystem/day1-link.md`.
+**Files:** `docs/ecosystem/day1-link.md`. (No power runs or power-model work: Leo, 2026-11-14.)
 
-- [ ] **Step 1:** Fill the BLE model terms from Espressif's ESP32-S3 datasheet, marked "estimate". Log the Bluetooth
-  state (off, advertising, connected) and the relaying flag per sample. Add a `test_power_model` case for them.
+- [x] **Step 1:** Dropped (battery tests removed).
 - [ ] **Step 2: RAM** (all three cases in Gates; 10 min each; off/on ×3 with no leak).
-- [ ] **Step 3: Power:** interleaved runs A, B1, B2, A, B1, B2, at the same hour, with no touches:
-  - A = main;
-  - B1 = this build with the phone away (Bluetooth advertising, Wi-Fi polling);
-  - B2 = this build with the iPhone app in the foreground, connected and relaying (Auto-Lock off).
-
-  Gates P1 and P2. Also note scroll fps and tap→screen.
+- [x] **Step 3:** Dropped (no battery tests). Note scroll fps and tap→screen from the serial profile instead.
 - [ ] **Step 4: Latency:** pin and follow (stopwatch on video, or a serial timestamp on receipt against the app's
   log); `nearby` → first card; a relayed card's age; reconnect after a wearable reboot; the fallback to HTTP after
   `b` turns Bluetooth off.
-- [ ] **Step 5:** Write the results to `docs/power/log.md` and `docs/ecosystem/day1-link.md`. If a gate fails, apply
+- [ ] **Step 5:** Write the results to `docs/ecosystem/day1-link.md`. If a gate fails, apply
   the ladder below, then the cut lines. Commit:
-  `docs(power): Bluetooth link on the wearable, RAM and power gates`.
-
-**Power ladder, if P1 or P2 fails (no feature loss):**
-1. Connection parameters: request a 100–200 ms interval with slave latency 4 once the link is idle (the app's writes
-   come in bursts every 30 s).
-2. Advertising interval 1022.5 ms (one of Apple's recommended values) after 60 s with no connection.
-3. Turn `info` RSSI updates down to the heartbeat only.
+  `docs(ecosystem): Bluetooth link on the wearable, RAM and latency gates`.
 
 ### Task W6d: Wearable pairing over Wi-Fi, the fallback (Track W; ecosystem Task 9; runs first, 11/15)
 
