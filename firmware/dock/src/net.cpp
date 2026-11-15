@@ -16,6 +16,7 @@
 #include <freertos/task.h>
 #include <lwip/dns.h>
 #include <lwip/ip_addr.h>
+#include <lwip/sockets.h>
 #include <lwip/tcpip.h>
 #include <mbedtls/ssl.h>
 #include <stdio.h>
@@ -87,6 +88,7 @@ volatile bool wifiOff = false;      // the diagnostic "Wi-Fi off" mode
 volatile uint8_t discReason = 0;    // the last disconnect's reason, and how many there have been (the event handler)
 volatile uint32_t discCount = 0;
 volatile bool gotIp = false;        // Wi-Fi joined with an IP (the event handler)
+volatile bool lostIp = false;       // the lease ran out while joined: netTask rejoins
 cta::SavedNet wifiNet = {};         // the network to join: the store's (set up from the app), else secrets.h's
 char hostLabel[16];                 // "cta-dock-xxxx", for mDNS
 
@@ -147,6 +149,9 @@ void onWifiEvent(void*, esp_event_base_t base, int32_t id, void* d) {   // the d
         discReason = static_cast<wifi_event_sta_disconnected_t*>(d)->reason;
         discCount = discCount + 1;
         joinFailed = true;   // ends a join attempt at once (netTask)
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP) {
+        gotIp = false;
+        lostIp = true;
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         gotIp = true;
     }
@@ -164,6 +169,7 @@ bool wifiInit() {
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, onWifiEvent, nullptr);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, onWifiEvent, nullptr);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_LOST_IP, onWifiEvent, nullptr);
     return esp_wifi_set_mode(WIFI_MODE_STA) == ESP_OK && esp_wifi_start() == ESP_OK;
 }
 
@@ -270,6 +276,15 @@ int countedVerify(void* buf, mbedtls_x509_crt* crt, int depth, uint32_t* flags) 
     return esp_crt_verify_callback(buf, crt, depth, flags);
 }
 esp_err_t attachBundle(void* conf) {
+    // esp-tls calls this between the TCP connect and the handshake. Arduino set TCP_NODELAY on its TLS sockets here;
+    // without it, Nagle holds each handshake flight for an ACK (about +300 ms a connection). Only one is open at a time.
+    for (int fd = LWIP_SOCKET_OFFSET; fd < LWIP_SOCKET_OFFSET + CONFIG_LWIP_MAX_SOCKETS; ++fd) {
+        sockaddr_in peer;
+        socklen_t n = sizeof(peer);
+        const int one = 1;
+        if (getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &n) == 0 && peer.sin_port == htons(443))
+            setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    }
     const esp_err_t e = esp_crt_bundle_attach(conf);
     if (e == ESP_OK) mbedtls_ssl_conf_verify(static_cast<mbedtls_ssl_config*>(conf), countedVerify, nullptr);
     return e;
@@ -884,6 +899,13 @@ void netTask(void*) {
             joinFailures = 0;
             joining = false;
             uprintf("net: Wi-Fi back on\n");
+        }
+        if (lostIp) {   // as Arduino did on a lost lease: leave and rejoin through the usual path below
+            lostIp = false;
+            const uint32_t before = discCount;
+            esp_wifi_disconnect();
+            // its own disconnect event, before the rejoin starts, so it never counts as that join failing
+            for (int i = 0; i < 20 && discCount == before; ++i) vTaskDelay(pdMS_TO_TICKS(50));
         }
         if (!gotIp) {
             if (wasUp) { uprintf("net: Wi-Fi lost\n"); joinFailures = 0; closeAll(); }

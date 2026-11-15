@@ -174,23 +174,36 @@ No late panel frames, no restarts, lowest free internal RAM 49 → 50 KB, no res
   - round 1: unread response bodies leaking into the host's next response, Wi-Fi IRAM options and the PSRAM memtest back to high_perf's values (about 17 KB of internal heap), one SNTP server instead of three, and 32/64-byte SSID/PSK truncation;
   - round 2: the lwIP thread pinned to core 0 as on high_perf, the UART fed one ring entry per character (now one write per line, `serial_out.h`), and a duplicate client after a freed slot.
 - **Pixels:** frame grabs of Home, map and picker (3 picks, Wi-Fi off with the `3` diagnostic so the data is fixed) are byte-identical to the Arduino Task 6 build's, in both of Trackie's bob phases.
-- **Runs:** `idf-1` to `idf-3` on the round-2 code with stdout's per-character UART writes, then `idf-4` with `uprintf`. The Arduino side is `task6-1` and `-2` (`57241f7`). Runs from before the reviews aren't kept.
+- **Runs:**
+  - `idf-1` to `idf-3`: the round-2 code, with stdout's per-character UART writes;
+  - `idf-4`: with `uprintf`;
+  - `idf-nodelay-1` to `-3`: plus TCP_NODELAY on the TLS sockets and the lost-IP rejoin (a later review round of the commit).
+  - The Arduino side is `task6-1` and `-2` (`57241f7`). Runs from before the reviews aren't kept.
 
-| Gate | Arduino (task6) | IDF (idf-1..3) | IDF (idf-4) | Pass |
-|---|---|---|---|---|
-| Lowest free internal RAM | 35.8 KB | 73 KB | 74 KB | yes (≥ 40) |
-| Picker scroll | 34.1 fps | 33.9 fps | 34.0 fps | yes in idf-4 (≥ 34) |
-| Map pan | 15.7 fps | 15.6 fps | 15.7 fps | no (≥ 16): drawing, not the port (B2) |
-| Taps (phase means) | 24–63 ms | 27–64 ms | 20–58 ms | yes |
-| Requests (phase means) | 431–716 ms | 567–829 ms | 563–805 ms | **no** |
-| Late panel frames | 0 | 0 | 0 | yes |
-| Train host resumes TLS | yes | yes (16–26 of ~43 reopens) | yes (21 of 40) | yes |
-| Wi-Fi up / all loaded after boot | 4.5 / 10.1 s | 4.2 / 10.0 s | 9.2 / 17.3 s (first join missed the AP) | mostly |
+| Gate | Arduino (task6) | idf-1..3 | idf-4 | idf-nodelay-1..3 | Pass (final) |
+|---|---|---|---|---|---|
+| Lowest free internal RAM | 35.8 KB | 73 KB | 74 KB | 73 KB | yes (≥ 40) |
+| Picker scroll | 34.1 fps | 33.9 fps | 34.0 fps | 34.0 fps | yes (≥ 34) |
+| Map pan | 15.7 fps | 15.6 fps | 15.7 fps | 15.7 fps | no (≥ 16): drawing, not the port (B2) |
+| Taps (phase means) | 24–63 ms | 27–64 ms | 20–58 ms | 24–65 ms | yes, within noise |
+| Requests (phase means) | 431–716 ms | 567–829 ms | 563–805 ms | 344–637 ms | yes |
+| Late panel frames | 0 | 0 | 0 | 0 | yes |
+| Train host resumes TLS | yes | yes | yes | yes (19–25 of ~42 reopens) | yes |
+| Wi-Fi up / all loaded after boot | 4.5 / 10.1 s | 4.2 / 10.0 s | 9.2 / 17.3 s (first join missed the AP) | 4.5 / 10.4 s (8.4–12.8) | yes, within noise |
 
 **Findings**
 
 1. **Internal RAM doubled at the low point** (35.8 → 73–74 KB). At boot: 134.5 KB free at "dock: up" (Arduino 122.4), 91.2 KB after httpd (72.1), 90.2 KB after mDNS (65.7). The gains: all of mbedTLS, the httpd stack and mDNS in PSRAM, and no Arduino runtime.
-2. **Requests are 130–230 ms slower per phase.** A timing breakdown (DNS, connect, first byte) puts the extra time in the server's first byte and in full handshakes; resumed reconnects take about 80–120 ms to connect. Hosts resume about as often as on Arduino (weather and alerts mostly full, buses about half). Not settled: the two sides ran at different times of day, and the breakdown shows no extra work per request from the port.
+2. **Requests were 130–230 ms slower until TCP_NODELAY.** Arduino 3.2.0 set it on every TLS socket before the handshake (`ssl_client.cpp`); ESP-IDF's esp-tls doesn't, so Nagle held each handshake flight for an ACK, and every new connection paid about 300 ms whatever its crypto. Kept-alive requests didn't. With it set from the certificate-bundle hook, each host's mean request is now faster than on Arduino:
+
+   | Host | Arduino | IDF |
+   |---|---|---|
+   | trains | 521 ms | 456 ms |
+   | buses | 448 ms | 319 ms |
+   | alerts | 1298 ms | 1234 ms |
+   | weather | 1973 ms | 1685 ms |
+
+   Resumed train reconnects take about 210 ms, against 600 ms before.
 3. **The map stays at 15.7 fps**, as on Arduino: it's drawing-bound (42 ms a frame), B2's job.
 4. **About one boot in fifteen** missed the AP on the first fast scan (Wi-Fi reason 201) and joined on the retry 2 s later (`idf-4`: Wi-Fi up 9.2 s). Eight boots in a row afterwards joined first time. Arduino's join used the same scan settings.
 5. **Serial output costs less.** stdout handed the UART driver one character per ring entry; one write per line (`uprintf`) took core 1 from 61.3 to 60.1 % busy in the picker phase, and the worst map tap from 166 to 59 ms.

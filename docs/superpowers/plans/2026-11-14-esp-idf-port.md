@@ -477,6 +477,9 @@ and CH422G over `i2c_master`), `leds.cpp`, `perf_log.cpp`, `stress.cpp`, and a n
   - **Resumption:** the perf log's `tls,…,resumed|full` comes from a counted wrapper around the bundle's verify
     callback. Only a full handshake checks certificates. This replaces the plan's connect-time guess.
   - **Logging:** the `HTTP_CLIENT` log tag is set to NONE, because its errors can print a URL.
+  - **TCP_NODELAY:** esp-tls doesn't set it; Arduino did. Without it every new TLS connection paid about 300 ms. The
+    certificate-bundle hook sets it on the port-443 socket.
+  - **Lost lease:** `IP_EVENT_STA_LOST_IP` makes the net task leave the network and rejoin through the backoff path.
   - **UART:** the driver has no TX buffer in the dock build, as Arduino's Serial had. The perf build has a 4 KB one,
     which `perf::flush` fills a whole line at a time with `uart_write_bytes`, once the UART is idle.
     `uart_get_tx_buffer_free_size` doesn't count queued bytes, and the VFS queues one ring entry per character.
@@ -504,7 +507,7 @@ Run on the board, with Wi-Fi from `secrets.h` and the token set with serial `T <
   - If the map is still under 16, it is a drawing problem, not the port; flag it to the orchestrator for B2 rather
     than tuning inside this task.
   - **Result** (`docs/perf/log.md`, "ESP-IDF port"): RAM 73–74 KB, picker 34.0, map 15.7 (B2), taps 20–58 ms, no late
-    frames, the train host resumes. Requests 563–829 ms miss the 716 ms gate; not settled whether that's the port.
+    frames, the train host resumes. Requests 344–637 ms after TCP_NODELAY (563–829 ms without it).
 - [x] **Commit:** review first, then `feat(dock): native ESP-IDF build, no Arduino (with the Task 6 link)`, and
   write the run results into `docs/perf/log.md`.
 
