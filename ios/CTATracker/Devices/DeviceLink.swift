@@ -13,6 +13,8 @@ import os
         var peripheral: UUID? = nil   // the wearable's Bluetooth identity on this phone
     }
     enum LinkError: Error, Equatable { case noAddress, noToken, status(Int), disconnected }
+    /// What `POST /pair` came to (ecosystem spec 4.3; Leo 2026-11-14: 423 is a 30 s cooldown, then a new code).
+    nonisolated enum PairResult: Equatable { case paired, wrongCode, cooldown, taken, unreachable }
     enum Transport {
         case bluetooth, wifi
         var label: String { self == .bluetooth ? "via Bluetooth" : "via Wi-Fi" }
@@ -84,15 +86,79 @@ import os
         try await write("DELETE", path, nil, to: id)
     }
 
+    /// Boards answering on the network that have no token: new ones, and known ones that were reset.
+    var unpaired: [InfoMessage] { online.values.filter { !$0.paired }.sorted { $0.id < $1.id } }
+
+    /// Pairs with the code on the board's screen. A 409 may be our own earlier try whose 200 got lost, so it's
+    /// confirmed with a write carrying `token` before it counts as taken.
+    func pair(_ id: String, code: String, token: String) async -> PairResult {
+        let address = address(of: id)
+        guard var r = try? Self.request("POST", "/pair", address: address, token: token,
+                                        body: try? JSONEncoder().encode(PairMessage(code: code, token: token))) else { return .unreachable }
+        r.setValue(nil, forHTTPHeaderField: "Authorization")   // /pair takes no bearer (spec 4.3)
+        let answer = await status(of: r)
+        guard answer == 409 else { return Self.pairResult(answer) }
+        // `{}` changes nothing; a 200 means the board holds our token.
+        var confirmed: Int?
+        if let confirm = try? Self.request("POST", "/config", address: address, token: token,
+                                           body: try? JSONEncoder().encode(ConfigMessage())) {
+            confirmed = await status(of: confirm)
+        }
+        return Self.pairResult(409, confirm: confirmed)
+    }
+
+    /// Saves a device just set up; one already known by that id is updated in place (re-pairing).
+    func add(_ id: String, kind: DeviceKind, peripheral: UUID?) {
+        devices = Self.adding(id, kind: kind, peripheral: peripheral, lastIP: found[id], to: devices)
+    }
+
+    /// Removes the device; a Bluetooth bond stays until the user forgets it in iOS Settings (app spec 6.3).
+    func forget(_ id: String) {
+        devices.removeAll { $0.id == id }
+        watches[id] = nil
+        online[id] = nil
+    }
+
     // MARK: - Pure parts (tested)
 
     /// Bluetooth when it's connected, else HTTP; a Bluetooth write lost to a disconnect is retried once over HTTP.
-    static func route(ble: (() async throws -> Void)?, http: () async throws -> Void) async throws {
-        guard let ble else { return try await http() }
-        do { try await ble() } catch LinkError.disconnected { try await http() }
+    /// With no `http` (a Bluetooth-only path) the write fails instead.
+    static func route(ble: (() async throws -> Void)?, http: (() async throws -> Void)?) async throws {
+        guard let ble else {
+            guard let http else { throw LinkError.disconnected }
+            return try await http()
+        }
+        do { try await ble() } catch LinkError.disconnected where http != nil { try await http?() }
     }
 
+    /// The Wi-Fi password and the household token go only over the bond, never in clear on the LAN (spec 4.3, 4.4).
+    nonisolated static func httpAllowed(_ path: String) -> Bool { path != "/wifi" && path != "/token" }
+
     nonisolated static func peripherals(_ devices: [Device]) -> Set<UUID> { Set(devices.compactMap(\.peripheral)) }
+
+    /// nil (a network error) is unreachable. A 409 counts as ours when the authenticated `confirm` write got 200.
+    nonisolated static func pairResult(_ status: Int?, confirm: Int? = nil) -> PairResult {
+        switch status {
+        case 200: .paired
+        case 403: .wrongCode
+        case 423: .cooldown
+        case 409: confirm == 200 ? .paired : confirm == nil ? .unreachable : .taken
+        default: .unreachable
+        }
+    }
+
+    nonisolated static func adding(_ id: String, kind: DeviceKind, peripheral: UUID?, lastIP: String?,
+                                   to devices: [Device]) -> [Device] {
+        var devices = devices
+        if let i = devices.firstIndex(where: { $0.id == id }) {
+            devices[i].peripheral = peripheral   // a code pairing means the board wiped its bond (Leo 2026-11-14)
+            devices[i].lastIP = lastIP ?? devices[i].lastIP
+        } else {
+            devices.append(Device(id: id, kind: kind, name: kind == .dock ? "Dock" : "Trackie", lastIP: lastIP,
+                                  peripheral: peripheral))
+        }
+        return devices
+    }
 
     /// Bonjour's answer this session, else the address the device last had: blocked mDNS alone isn't fatal (spec 7).
     nonisolated static func address(of id: String, found: [String: String], known: [Device]) -> String? {
@@ -129,8 +195,15 @@ import os
     private func write(_ method: String, _ path: String, _ body: Data?, to id: String) async throws {
         try await Self.route(
             ble: ble.connected[id] == nil ? nil : { try await self.ble.send(method, path, body, to: id) },
-            http: { _ = try await self.send(Self.request(method, path, address: self.address(of: id),
-                                                         token: TokenStore.token(), body: body)) })
+            http: !Self.httpAllowed(path) ? nil : {
+                _ = try await self.send(Self.request(method, path, address: self.address(of: id),
+                                                     token: TokenStore.token(), body: body))
+            })
+    }
+
+    private func status(of request: URLRequest) async -> Int? {
+        guard let (_, response) = try? await session.data(for: request) else { return nil }
+        return (response as? HTTPURLResponse)?.statusCode
     }
 
     private func send(_ request: URLRequest) async throws -> Data {

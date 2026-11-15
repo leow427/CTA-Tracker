@@ -91,6 +91,7 @@ struct CardList: View {
         }
         .tint(Theme.headlight)
         .sheet(isPresented: $model.showSettings) { SettingsScreen() }
+        .modifier(SetupHost(link: model.devices))
         .onAppear { track() }
         .onChange(of: model.slots) { track() }
         .onChange(of: model.location.denied) { track() }

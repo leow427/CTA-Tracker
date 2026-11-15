@@ -37,6 +37,17 @@ struct BLELinkTests {
         #expect(calls == ["ble"])   // the board answered: HTTP would get the same answer
     }
 
+    @Test func wifiPasswordAndTokenNeverGoOverHTTP() async {
+        #expect(!DeviceLink.httpAllowed("/wifi") && !DeviceLink.httpAllowed("/token"))
+        #expect(DeviceLink.httpAllowed("/pin") && DeviceLink.httpAllowed("/config"))
+        var calls: [String] = []
+        await #expect(throws: DeviceLink.LinkError.disconnected) {
+            try await DeviceLink.route(ble: { calls.append("ble"); throw DeviceLink.LinkError.disconnected }, http: nil)
+        }
+        await #expect(throws: DeviceLink.LinkError.disconnected) { try await DeviceLink.route(ble: nil, http: nil) }
+        #expect(calls == ["ble"])
+    }
+
     @Test func transportLabel() {
         #expect(DeviceLink.Transport.bluetooth.label == "via Bluetooth")
         #expect(DeviceLink.Transport.wifi.label == "via Wi-Fi")
@@ -104,7 +115,9 @@ struct BLELinkTests {
         let b = BLELink.afterDisconnect(stranger, connected: connected, known: [known])
         #expect(b.connected == ["c3d4": known] && !b.reconnect)
         let bond = CBError(.peerRemovedPairingInformation)
-        #expect(!BLELink.afterDisconnect(known, connected: connected, known: [known], error: bond).reconnect)
+        let broken = BLELink.afterDisconnect(known, connected: connected, known: [known], error: bond)
+        #expect(!broken.reconnect && broken.addAgain)   // the wearable was reset: "Add again"
+        #expect(!a.addAgain && !b.addAgain)
         #expect(BLELink.afterDisconnect(known, connected: connected, known: [known], error: CBError(.connectionTimeout)).reconnect)
     }
 

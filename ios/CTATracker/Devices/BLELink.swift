@@ -8,14 +8,22 @@ import os
 /// known wearable, takes its status from `info` notifies, and writes framed envelopes to `link`, one message at a time.
 @Observable final class BLELink: NSObject {
     static let restoreID = "io.github.leow427.CTATracker.ble"
+    /// The cut line (plan, 11/19): false sends every wearable setup to the code on its screen.
+    static let enabled = true
     static let service = CBUUID(string: BLEID.service)
     static let infoUUID = CBUUID(string: BLEID.info)
     static let linkUUID = CBUUID(string: BLEID.link)
 
     /// Device id -> peripheral, once an `info` notify came through (the characteristic is encrypted, so the link is).
     private(set) var connected: [String: UUID] = [:]
-    /// Unknown `CTA-Pet-*` boards in range while scanning -> advertised name (AB2's found card).
+    /// Unknown `CTA-Pet-*` boards in range while scanning, and known ones whose bond broke -> advertised name.
     private(set) var found: [UUID: String] = [:]
+    /// Peripherals whose last connect or subscription failed, so setup can stop waiting; a new `connect` clears it.
+    private(set) var failed: Set<UUID> = []
+    /// The radio: nil until it reports, or before `start()`.
+    private(set) var state: CBManagerState?
+    /// Not started and never asked: the app's own Bluetooth line comes before iOS's prompt (app spec 3).
+    var needsAsking: Bool { central == nil && CBManager.authorization == .notDetermined }
     @ObservationIgnored var onInfo: ((String, InfoMessage) -> Void)?   // DeviceLink.feed
 
     /// Wearables set up from this app: always kept on a pending connect, foreground or not.
@@ -27,7 +35,7 @@ import os
         }
     }
 
-    @ObservationIgnored private var central: CBCentralManager?
+    private var central: CBCentralManager?
     @ObservationIgnored private var active = false
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]   // CoreBluetooth needs them retained
     @ObservationIgnored private var links: [UUID: CBCharacteristic] = [:]
@@ -61,7 +69,14 @@ import os
         guard let central, central.state == .poweredOn,
               let p = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else { return }
         peripherals[id] = p
+        failed.remove(id)
         if p.state == .disconnected { central.connect(p) }
+    }
+
+    /// Drops a setup's connection that never became a known wearable, so iOS's passkey prompt can't pop up later.
+    func cancel(_ id: UUID) {
+        guard !known.contains(id), let p = peripherals[id] else { return }
+        central?.cancelPeripheralConnection(p)
     }
 
     /// One message to the wearable, framed and written with response; the ATT answer is the HTTP status.
@@ -102,11 +117,14 @@ import os
     }
 
     /// A known wearable gets a pending connect again, unless its bond broke: then the next foreground scan retries,
-    /// not a tight loop that drains both batteries until the user forgets it in Settings.
+    /// not a tight loop that drains both batteries until the user forgets it in Settings, and the app offers
+    /// "Add again" (Leo 2026-11-14).
     nonisolated static func afterDisconnect(_ peripheral: UUID, connected: [String: UUID], known: Set<UUID>,
-                                            error: Error? = nil) -> (connected: [String: UUID], reconnect: Bool) {
+                                            error: Error? = nil)
+        -> (connected: [String: UUID], reconnect: Bool, addAgain: Bool) {
         let bondBroken = (error as? CBError)?.code == .peerRemovedPairingInformation
-        return (connected.filter { $0.value != peripheral }, known.contains(peripheral) && !bondBroken)
+        let isKnown = known.contains(peripheral)
+        return (connected.filter { $0.value != peripheral }, isKnown && !bondBroken, isKnown && bondBroken)
     }
 
     // MARK: - Radio
@@ -133,7 +151,7 @@ import os
     }
 
     private func updateScan() {
-        guard let central, central.state == .poweredOn else { return }
+        guard Self.enabled, let central, central.state == .poweredOn else { return }
         if active {
             found = [:]
             central.scanForPeripherals(withServices: [Self.service])
@@ -155,13 +173,18 @@ import os
         links[p.identifier] = nil
         inboxes[p.identifier] = nil
         pendingWrite.removeValue(forKey: p.identifier)?.resume(throwing: DeviceLink.LinkError.disconnected)
-        if after.reconnect && reconnect { central?.connect(p) }   // pending: iOS completes it whenever the wearable comes back
+        // Pending: iOS completes it whenever the wearable comes back.
+        if after.reconnect && reconnect { central?.connect(p) }
+        if after.addAgain { found[p.identifier] = p.name ?? "CTA-Pet" }
+        // A setup connect that went nowhere, or a reset wearable's stale bond: setup stops waiting.
+        if !known.contains(p.identifier) || after.addAgain { failed.insert(p.identifier) }
     }
 }
 
 extension BLELink: @preconcurrency CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         log.info("state \(central.state.rawValue)")
+        state = central.state
         guard central.state == .poweredOn else {
             connected = [:]   // the radio is off: every link is gone, HTTP takes over
             links = [:]
@@ -201,7 +224,7 @@ extension BLELink: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        drop(peripheral, reconnect: false)
+        drop(peripheral, error: error, reconnect: false)   // a broken bond often shows up here
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
@@ -220,11 +243,20 @@ extension BLELink: @preconcurrency CBPeripheralDelegate {
         for c in service.characteristics ?? [] {
             if c.uuid == Self.linkUUID { links[peripheral.identifier] = c }
             // Subscribing to the encrypted `info` brings up iOS's pairing prompt on a new wearable.
-            if c.uuid == Self.infoUUID { peripheral.setNotifyValue(true, for: c) }
+            // The read too: NimBLE leaves the CCCD unprotected, but `info` itself needs encryption, so the read
+            // makes iOS pair even when the subscribe alone wouldn't.
+            if c.uuid == Self.infoUUID { peripheral.setNotifyValue(true, for: c); peripheral.readValue(for: c) }
         }
     }
 
+    /// A refused `info` subscription: the passkey was cancelled or wrong, or the bond is stale.
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                    error: Error?) {
+        if error != nil { failed.insert(peripheral.identifier) }
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if error != nil && characteristic.uuid == Self.infoUUID { failed.insert(peripheral.identifier) }   // passkey refused
         guard characteristic.uuid == Self.infoUUID, error == nil, let chunk = characteristic.value,
               let info = Self.info(chunk, &inboxes[peripheral.identifier, default: BLEFrames.Reassembler()]) else { return }
         if connected[info.id] != peripheral.identifier { connected[info.id] = peripheral.identifier }

@@ -776,7 +776,23 @@ and AB2 sets `Device.peripheral`, so Step 3 runs with AB2. A failed connect or a
 **Files:** Create `ios/CTATracker/Devices/WearableSetup.swift`; hook into Task 12's `FoundCard`/`SetupFlow` (A owns
 the shell and its code-pairing screen; this adds the wearable's Bluetooth branch and the choice between the two).
 
-- [ ] **Step 1:** Build the wearable branch:
+**As built (2026-11-14):** Task 12's shell wasn't on main yet, so AB2 built it with both branches:
+`Devices/SetupFlow.swift` (the flow model and its pure rules: Bluetooth or code, the steps, the found cards, the
+`/pair` copy, `PairMessage`), `Devices/SetupScreens.swift` (the found card, the app's Bluetooth line before iOS asks,
+the full-screen steps), `DeviceLink.pair/add/forget/unpaired`, one `.modifier(SetupHost(…))` line in
+`Sheet/CardList.swift`, and tests in `SetupFlowTests.swift`. Task 12 can drop to its device-page parts. Leo's pairing
+rules of 2026-11-14 are in: no time window; 423 is a 30 s cooldown ("Too many tries, a new code will appear on the
+device.") and the field stays open; a 409 is confirmed with an authenticated `POST /config {}` (200 = our own lost
+reply); a known device that comes back unpaired (on the network, or its bond broken over Bluetooth) raises
+"… was reset · Add again"; the "forget CTA-Pet-xxxx in iOS Settings → Bluetooth" hint shows only after a Bluetooth
+pairing fails. Not built: the Wi-Fi name pre-fill (needs the Access Wi-Fi Information entitlement), the pet's color
+presets (Task 13; the Pet step sends the name with today's blue), Settings → Devices → Add device and Forget's UI
+(Task 11's device page; `DeviceLink.forget` is ready). For W6a: the app subscribes to `info` and also reads it, because NimBLE leaves the
+CCCD unprotected and only the encrypted read makes iOS pair. Send one `info` notify when encryption completes
+(`BLE_GAP_EVENT_ENC_CHANGE`), or the first may wait for the 30 s heartbeat, the app's pairing timeout. A code pairing
+clears the device's saved peripheral (the board took a code only after wiping its bond).
+
+- [x] **Step 1:** Build the wearable branch:
   - `BLELink.found` raises "Trackie found · Set up".
   - **Pair:** "Type the code shown on Trackie when your iPhone asks." `connect`, then subscribing to `info` brings up
     iOS's pairing prompt. Once encrypted, the app writes `POST /token` with the household token
@@ -801,7 +817,7 @@ the shell and its code-pairing screen; this adds the wearable's Bluetooth branch
   - Re-pair after a reset with no Forget in iOS Settings (decision 3).
   - With Bluetooth off on the phone, a fresh wearable (Wi-Fi from `secrets.h`) sets up with the code on its screen
     and works over HTTP.
-- [ ] **Step 3:** Commit: `feat(ios): set up the wearable over Bluetooth, Wi-Fi optional, the code as the fallback`.
+- [x] **Step 3:** Commit: `feat(ios): set up the wearable over Bluetooth, Wi-Fi optional, the code as the fallback`.
 
 ### Task AB3: The relay (Track AB)
 
