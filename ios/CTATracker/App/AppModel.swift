@@ -111,9 +111,13 @@ import SwiftUI
         devices.devices.filter { $0.kind == .handheld && devices.online[$0.id] != nil }.map(\.id)
     }
 
+    /// The phone's card list goes to the wrist (spec 5.5): while following, the list at the fix (nil until one comes);
+    /// while panned, the list on screen.
     private var mapNearby: NearbyMessage? {
-        index.flatMap {
-            NearbyBuilder.forMap(following: following, fix: location.coordinate, slots: slots, center: center, index: $0)
+        guard let index else { return nil }
+        guard following else { return NearbyBuilder.fromList(slots, center: center) }
+        return location.coordinate.map {
+            NearbyBuilder.fromList(CardBuilder.slots(center: $0, filter: filter, favorites: favorites, index: index), center: $0)
         }
     }
 

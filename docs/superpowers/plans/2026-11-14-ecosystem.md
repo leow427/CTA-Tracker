@@ -841,7 +841,8 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
 
 **As built (worker notes):**
 - The map's `following` moved from `MapScreen`'s `@State` to `AppModel.following` (also touches `Map/MapScreen.swift`),
-  so the model knows whether the map is at the user. `NearbyBuilder.forMap` picks `fromLocation` or `fromList`.
+  so the model knows whether the map is at the user. Spec 5.5 wins over this step's `fromLocation`: the wrist always
+  gets the phone's card list, built at the location fix while following and from the list on screen while panned.
 - Only wearables (`DeviceKind.handheld`) get `nearby`. A wake or come-online while following with no fix yet waits:
   `LocationService.onFix` sends it when the first fix arrives. With location off nothing goes; the wearable keeps its
   last list.
@@ -850,9 +851,6 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
   and recenter cancels the flush. A wake (`.sendNearby`) and recenter skip wearables that already have those stops
   (each new list blanks the wearable's cards; closing stop detail restores `following` too); `.cameOnline` always
   sends. Actions are ignored while the app isn't active: the wearable keeps its last list (spec 5.5).
-- Open question for Leo: spec 5.5 says the foreground `nearby` is always built from the card list (also at the user's
-  location and on recenter); this plan step says `fromLocation` there. Built as the plan says; `NearbyBuilder.forMap`
-  is the one place to change if the spec wins.
 - The mirror also runs when the filter or favorites change while panned (the list changed), but not while stop detail
   is open (its focus clears `following` without a pan). The held offer is flushed by a one-shot 10 s task, restarted
   on each held offer.
