@@ -910,19 +910,20 @@ as `records: []`, with no `ts` to compare; it should clear that stop's cards.
 
 ### Task X2: Docs and the demo script (Track X; with ecosystem Task 21)
 
-- [ ] **Step 1:** Update the wearable README:
+- [x] **Step 1:** Update the wearable README:
   - Bluetooth pairing, serial `b`, `W`, `R`;
   - `link_send.py relay` and `stop`;
   - the HTTP fallback.
-- [ ] **Step 2:** Update the demo script (`docs/ecosystem/demo-script.md`):
+- [ ] **Step 2:** (Waits for the final demo flow; not started.) Update the demo script (`docs/ecosystem/demo-script.md`):
   - reset → pair over Bluetooth;
   - step 7 if go;
   - the iPhone's Auto-Lock off;
   - the Forget step if decision 3's address change didn't work;
   - pairing by code if Bluetooth is cut or won't pair (W6d);
   - what to do if Bluetooth drops (the app falls back to the LAN if Wi-Fi is set).
-- [ ] **Step 3:** Check the diff for network names, home paths and tokens. Commit:
-  `docs: Bluetooth link in the READMEs and the demo script`.
+- [x] **Step 3:** Check the diff for network names, home paths and tokens. Commit:
+  `docs: Bluetooth link in the READMEs and the demo script`. Done for the README alone (`docs: Bluetooth link in the
+  wearable README`); Step 2 waits for the final demo flow.
 
 ### Task S-D: dock Settings page (Track D)
 

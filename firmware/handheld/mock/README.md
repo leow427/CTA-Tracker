@@ -2,7 +2,7 @@
 
 The handheld's real screens and gestures (spec §8.1, `docs/handheld-ui.md`) running on the Waveshare 1.75" round AMOLED, a port of `docs/ideas/2026-11-04-handheld-ui-mockup.html` to C++. Two builds share them:
 
-- **`live` (the default):** real arrivals, alerts, and weather over Wi-Fi, polled on the spec's schedule (§6.6) for a preset nearby list. The app's `POST /nearby` over the local network will replace the preset (ecosystem spec 5.5).
+- **`live` (the default):** real arrivals, alerts, and weather over Wi-Fi, polled on the spec's schedule (§6.6) for the nearby list the Trackie app sends (over Bluetooth, see The link), or the phone relays them while it's near (the relay).
 - **`mock`:** simulated arrivals around a fixed location, no network. The clock starts at the build time, read as Chicago time.
 
 ## Run it
@@ -13,7 +13,7 @@ cd firmware/handheld/mock && ~/.platformio/penv/bin/pio run -t upload
 
 Use PlatformIO's own `pio` (above), not Homebrew's: the pinned platform runs `python -m pip`, and Homebrew's Python has no pip. With the dock plugged in too, add `--upload-port` with the handheld's port: the dock's serial chip is also a `/dev/cu.usbmodem…`.
 
-That's the live build. It needs `firmware/secrets.h` (git-ignored; template `firmware/secrets.example.h`) with the two CTA keys and a Wi-Fi network:
+That's the live build. It needs `firmware/secrets.h` (git-ignored; template `firmware/secrets.example.h`) with the two CTA keys. Wi-Fi normally comes from the app over Bluetooth (up to 5 networks, the first is home); `WIFI_SSID` and `WIFI_PASS` there are only a build-time fallback, used while the app has sent none:
 
 ```c
 #define WIFI_SSID "your network"
@@ -34,7 +34,7 @@ What replaced each Arduino piece:
 
 ## The live build
 
-- **Nearby list (spec §8.3).** The handheld polls the stops in the `nearby` message, kept in flash. Until the app's BLE link exists, the Mac sends it over USB serial: `python3 tools/send_nearby.py` (from the repo root) takes the Mac's location from CoreLocation, picks the 5 nearest stations and 5 bus stops (each route and direction's nearest stop, the 5 nearest of those; 10 of each was too slow), and writes the list to the board, which starts over with the new stops. The first run builds a small helper app, `Trackie Locate`, and macOS asks once to let it use your location. `--lat … --lon …` sends a spot instead; `--dry-run` shows the stops without sending. The location goes only to the board (and on to Open-Meteo for weather); nothing prints it or writes it to the repo. Until a list arrives, Trackie is Sleepy and says "Waiting for location".
+- **Nearby list (spec §8.3).** The handheld polls the stops in the `nearby` message, kept in flash. The app sends it (`/nearby`, over Bluetooth or the LAN). Without the app, the Mac can send it over USB serial: `python3 tools/send_nearby.py` (from the repo root) takes the Mac's location from CoreLocation, picks the 5 nearest stations and 5 bus stops (each route and direction's nearest stop, the 5 nearest of those; 10 of each was too slow), and writes the list to the board, which starts over with the new stops. The first run builds a small helper app, `Trackie Locate`, and macOS asks once to let it use your location. `--lat … --lon …` sends a spot instead; `--dry-run` shows the stops without sending. The location goes only to the board (and on to Open-Meteo for weather); nothing prints it or writes it to the repo. Until a list arrives, Trackie is Sleepy and says "Waiting for location".
 - **Polls (spec §6.6).** The 3 closest stations every 60 s and the other 2 every 3 min (one `ttarrivals?mapid=` each, split into one card per line and direction by `cta::parseTrainCards`); all 5 bus stops in one `getpredictions` call every 60 s; alerts every 5 min for the routes seen; weather every 15 min. That's about 5 CTA requests a minute. Every due station goes before the buses, so they share one connection.
 - **One kept-open connection.** The train API's certificate is ECDSA, which the ESP32-S3 verifies in software: a fresh TLS handshake there takes about 2.4 s. The live build keeps that connection open between train requests (closing it after 90 s idle, or before a request to another host), so a station takes about 0.25 s after the first. The other hosts get one request a minute or less, so their connections close when done. Only one is ever open.
 - **Resumed TLS sessions.** Each host has its own `esp_http_client` handle, which keeps that host's last TLS session (never logged), and a connection opened again offers it back to that host only. When the server agrees (the train API does: its connection is reopened every minute, after the bus poll), the handshake skips the certificate checks and the key exchange and takes about one round trip (70 ms on the board, against about 1.8 s in full); when it declines, it's a full handshake with every certificate checked, as before. A handshake that fails within 3 s while offering a session is tried once more in full; one that timed out isn't. The bus API's sessions carry a ticket of about 4 KB; the outgoing TLS record is 16 KB (in PSRAM, as Arduino had it), so they resume too. Nagle is off on every TLS connection, as Arduino's client had it: esp-tls leaves it on, and each handshake flight then waited out a delayed ACK (about 0.3 s per connection).
@@ -42,7 +42,7 @@ What replaced each Arduino piece:
 - **Buses once each.** A route and direction shows once, at the nearest listed stop that serves it.
 - **Alerts.** Only unplanned service alerts count (`accessibility=false&planned=false`). Without that filter, elevator outages and planned bus-stop notes marked Red, Brown, Purple, 22, and 8 as alerted on a normal weekday, and Trackie would be Sad all day.
 - **Offline.** Until Wi-Fi and the clock are up, the bubble says "No signal" and a tap shows why ("Connecting to Wi-Fi", "Setting the clock", "No Wi-Fi set up"). Data older than 5 min greys out, as in the mock's Offline state.
-- **Docked (spec §8.4).** USB power, a battery, and the home network (`WIFI_SSID`). A board with no battery runs on USB whenever it's on, so it never counts as docked.
+- **Docked (spec §8.4).** USB power, a battery, and the home network (the first network the app sent, else `WIFI_SSID`; or no Wi-Fi set up at all). A board with no battery runs on USB whenever it's on, so it never counts as docked.
 - **Battery log (spec §8.5).** `power: usb …, battery …%, … mV` at boot and every 15 min.
 - **TLS.** Every request verifies the server against the ESP-IDF certificate bundle. Request URLs carry the keys and are never logged.
 - **Countdown.** Between polls, minutes count down from each record's fetch time; arrivals that have passed drop, as in the app. Once a record is stale (over 5 min) it stays as fetched, greyed out (spec §8.3).
@@ -55,7 +55,24 @@ What replaced each Arduino piece:
 - **Wi-Fi out of reach.** Joining backs off from 15 s to 5 min, so the radio isn't scanning nonstop away from home; a tap on the dim screen (a wake) retries at once.
 - **I2C.** The power chip shares the touch controller's bus, and a touch read is two transfers (a write, then a read) that must not be split, so only the touch task uses the bus: it reads the AXP2101 once a second and hands the state to the loop.
 - **Before data.** The clock shows `--:--` until NTP syncs, and the weather stays hidden until Open-Meteo answers.
-- **Internal RAM.** Wi-Fi and each TLS connection need about 100 KB of internal RAM between them, so the live build keeps the model, the card scratch, and the parsers' buffers in PSRAM. Measured on the board (2026-11-09): about 103 KB internal free with no connection open, about 57 KB while the train connection is kept open, and a low of about 30 KB during a handshake (a TLS connection takes about 45–50 KB), under the foundation plan's 40 KB floor; BLE will need some of it back. On core 3.2 high_perf (see Toolchain) the Wi-Fi and lwIP buffers live in PSRAM, and the lowest point over a whole stress test is about 44 KB (2026-11-13; `docs/power/log.md`). Scratch in PSRAM cost the Stops list 0.7 ms a frame while scrolling (27.5 vs 26.8 ms; 23 fps either way).
+- **Internal RAM.** Wi-Fi and each TLS connection need about 100 KB of internal RAM between them, so the live build keeps the model, the card scratch, and the parsers' buffers in PSRAM. Measured on the board (2026-11-09): about 103 KB internal free with no connection open, about 57 KB while the train connection is kept open, and a low of about 30 KB during a handshake (a TLS connection takes about 45–50 KB), under the foundation plan's 40 KB floor; Bluetooth (always on, NimBLE) takes some of it back: serial `b` prints internal free with it on and off. On core 3.2 high_perf (see Toolchain) the Wi-Fi and lwIP buffers live in PSRAM, and the lowest point over a whole stress test is about 44 KB (2026-11-13; `docs/power/log.md`). Scratch in PSRAM cost the Stops list 0.7 ms a frame while scrolling (27.5 vs 26.8 ms; 23 fps either way).
+
+## The link (Bluetooth first, Wi-Fi as fallback)
+
+The wearable is the only board with Bluetooth (NimBLE on ESP-IDF; the dock is Wi-Fi only). The app reaches it over Bluetooth first and falls back to HTTP on the LAN when Bluetooth isn't connected (`ios/CTATracker/Devices/DeviceLink.swift`).
+
+- **Pairing over Bluetooth (`src/ble_setup.cpp`).** Bluetooth is on from boot and advertises as `CTA-Pet-xxxx` (the last two bytes of the Wi-Fi MAC). Pair from the Trackie app: iOS asks for a 6-digit passkey, which the wearable shows on its Pair screen (on screen only, never logged). The link's two characteristics need an encrypted, authenticated, bonded connection. An unpaired wearable boots into the Pair screen and stays there until it's paired (a token or a bond); then it goes Home.
+- **What's kept.** The bond lives in NimBLE's NVS store, and the wearable's static random Bluetooth address in NVS (`trackie`/`ble_addr`), so a reboot or reflash keeps the phone paired. If the phone lost its bond and pairs again, the wearable drops its old bond for that phone and pairs anew.
+- **Pair again.** Settings → Pair again (it asks first), or serial `P`: forgets the bond, the token and the Bluetooth address (a new one is made, so the phone sees a new device), and Bluetooth starts again, ready to pair. Wi-Fi networks are kept.
+- **What travels over Bluetooth.** One framed message per write to the `link` characteristic, the same paths and JSON as HTTP (`lan::apply` in `src/link.cpp` handles both): `/token` and `/wifi` (Bluetooth only: the token and the passwords never go over HTTP and are never logged), `/config`, `/nearby`, `/pin` and `/follow` (and their DELETEs), `/reset`, and the relay's `/relay` and `/stop`. Status goes the other way as notifies on the `info` characteristic (the same JSON as `GET /info`), on a change and as a heartbeat.
+- **Over HTTP (port 80, mDNS `cta-pet-xxxx.local`, service `_ctatracker._tcp`).** Once Wi-Fi is up: `GET /info`, `GET`/`POST /config`, `POST /nearby`, `/pin`, `/follow`, `/reset`, `/relay`, `/stop`, `DELETE /pin`, `/follow`, all with `Authorization: Bearer <token>`, and `POST /pair` without one.
+- **The relay.** While the phone is near, it fetches the wearable's stops and weather and sends them: `/relay` ticks (the phone's clock, and the weather) and one `/stop` per stop with its records. A tick over Bluetooth puts the wearable in relay mode for `kRelayHoldSec` (90 s, `cta_config.h`) after the last one: it makes no CTA, alert or weather requests of its own (`live.cpp`) and shows the relayed cards, and polls again once the ticks stop. A tick over HTTP only sets the clock (if NTP hasn't) and the weather; it doesn't pause polling. With serial `W` (Wi-Fi off), the relay alone keeps the cards coming.
+- **Pairing by code over Wi-Fi (fallback, W6d).** If Bluetooth won't pair, an unpaired wearable on Wi-Fi shows a 6-digit code on its Pair screen; `POST /pair {"code","token"}` with that code pairs it (`firmware/lib/cta/src/pair.*`, shared with the dock). It stays open with no time limit until paired (then 409). After 5 wrong codes (403) it cools down for 30 s (423 with `retry_after`; the screen counts down), then shows a new code. Pair again also picks a fresh code.
+- **The reset.** `POST /reset` (Bluetooth or HTTP) or serial `R`: forgets Wi-Fi, the token and the Bluetooth bonds, and reboots.
+
+### From the Mac (`tools/link_send.py`)
+
+`python3 tools/link_send.py cta-pet-xxxx.local <command> [json]`, over HTTP. Writes need the household token: `--token` or `LINK_TOKEN` (never printed). Commands: `info`, `config` (GET with no json, else POST), `pet`, `nearby`, `pin`, `unpin`, `follow`, `unfollow`, `pair <code>`, `reset`, `relay [unix time]` (default this Mac's clock), and `stop '<json>'` (one stop's relayed records). Also `--burst` (20 pins in 2 s), `--garbage` (bad bodies: expect 400, 413, 401, 401), and `--serve --type handheld`, a fake board on the Mac for the app. Since an HTTP `relay` doesn't pause polling, it checks the clock, weather and parsing, not relay mode.
 
 ## Using it
 
@@ -74,6 +91,8 @@ Live computes Trackie's mood from the simulated arrivals with `cta::deviceMood`,
 |---|---|
 | `src/mock_data.*` | The model the screens draw; the mock's preset stations and simulated arrivals; `finish()`, which sorts the cards and sets the mood, reason, and home card for both builds |
 | `src/live.*` | Live build: Wi-Fi, NTP, HTTPS, and the poll schedule, on a task of its own (core 0) |
+| `src/ble_setup.*` | Live build: Bluetooth (NimBLE): advertising, passkey pairing and the bond, the `info` and `link` characteristics |
+| `src/link.*` | Live build: the link both transports share (`lan::apply`), the HTTP server and mDNS, and pairing by code |
 | `src/live_store.*` | Live build: what each response adds to the records (plain C++, so the preview tool runs it too) |
 | `src/live_model.*` | Live build: the records, power, and weather into the model |
 | `src/power.*` | Live build: the AXP2101 (USB, battery, charging) over `i2c_master`, read-only for the rails |
@@ -157,4 +176,10 @@ What made the difference:
   | `h` | A hash of four fixed frames (`tools/preview.cpp`'s `home_live`, `trains`, `detail_train`, `home_dim` at its fixed clock), drawn through the strips: two builds that print the same hashes draw the same pixels |
   | `s` | Print the frame stats now and start a new window (they also print every 10 s) |
   | `t` | Touch log on or off: every touch event (`T d\|m\|u x y ms`) and what each release did (`G …`) |
+  | `N {json}` | Live build: the `nearby` message, as `tools/send_nearby.py` sends it |
+  | `b` | Live build: Bluetooth off or on (on from boot), with internal RAM free and its low |
+  | `P` | Live build: pair again, as Settings → Pair again (forgets the bond, token and Bluetooth address) |
+  | `R` | Live build: the link reset: forgets Wi-Fi, the token and the Bluetooth bonds, and reboots |
+  | `T <32 hex>` | Live build: set the household token, as `/token` over Bluetooth does (never echoed) |
+  | `W` | Live build: Wi-Fi off until reboot (for showing the Bluetooth relay without Wi-Fi) |
   | `O` | Live build: turn the board off. The AXP2101 cuts every rail, screen included, so a board left plugged in can't burn in. Tried with USB in and no battery (2026-11-13): it stayed off, and its USB port went away (flashing needs it on again). The PWR button should turn it back on (not tried yet) |
