@@ -74,7 +74,10 @@ size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap) {
 
 bool decodeStopRecord(const char* json, size_t len, StopRecord& out) {
     json::Doc doc(json::parse(json, len));
-    const cJSON* root = doc.root;
+    return decodeStopRecord(doc.root, out);
+}
+
+bool decodeStopRecord(const cJSON* root, StopRecord& out) {
     if (!cJSON_IsObject(root) || !cJSON_IsString(json::at(root, "id"))) return false;
     const char* type = json::str(json::at(root, "type"));
     if (type == nullptr || (strcmp(type, "train") != 0 && strcmp(type, "bus") != 0)) return false;

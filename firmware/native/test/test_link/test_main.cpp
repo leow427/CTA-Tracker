@@ -1,9 +1,11 @@
 // The link messages (ecosystem spec 4.3, 4.4): the HTTP bodies the app, the dock, and the wearable send each other.
 #include <unity.h>
 
+#include <stdio.h>
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include "link_msg.h"
 #include "pet_palette.h"
@@ -319,7 +321,7 @@ static void info_has_new_fields() {
     char buf[512];
     TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
     for (const char* want : {"\"type\":\"handheld\"", "\"id\":\"a1b2\"", "\"fw\":\"0.4.0\"", "\"battery\":87",
-                             "\"charging\":true", "\"wifi\":{\"connected\":true,\"ssid\":\"net\"}",
+                             "\"charging\":true", "\"wifi\":{\"connected\":true,\"ssid\":\"net\",\"rssi\":0}",
                              "\"last_update\":1700000000", "\"picks_ver\":3", "\"wake\":7", "\"docked\":true",
                              "\"uptime\":42"})
         TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, want), want);
@@ -383,6 +385,236 @@ static void palette_changes_slots_2_3_only() {
         if (i != 2 && i != 3) TEST_ASSERT_EQUAL_HEX16(pet::kDefaultPalette565[i], pal[i]);
 }
 
+// --- The Bluetooth link: envelope, relay tick, relay stop, info's new fields ---
+
+static bool env(const std::string& msg, cta::Method& m, char path[16], std::string& body) {
+    const char* b = nullptr;
+    size_t n = 0;
+    if (!cta::parseEnvelope(msg.data(), msg.size(), m, path, b, n)) return false;
+    body.assign(b, n);
+    return true;
+}
+
+static void envelope_post_pin() {
+    cta::Method m = cta::Method::Delete;
+    char path[16];
+    std::string body;
+    TEST_ASSERT_TRUE(env(std::string("POST /pin\n") + kStop, m, path, body));
+    TEST_ASSERT_EQUAL(cta::Method::Post, m);
+    TEST_ASSERT_EQUAL_STRING("/pin", path);
+    TEST_ASSERT_EQUAL_STRING(kStop, body.c_str());
+    cta::PickedStop s;
+    TEST_ASSERT_TRUE(cta::parseStop(body.data(), body.size(), s));   // the body goes straight to its parser
+    TEST_ASSERT_TRUE(env("POST /" + std::string(14, 'a') + "\n{}", m, path, body));   // 15 bytes fit
+    TEST_ASSERT_EQUAL(15, (int)strlen(path));
+}
+
+static void envelope_delete_no_body() {
+    cta::Method m = cta::Method::Post;
+    char path[16];
+    std::string body = "x";
+    TEST_ASSERT_TRUE(env("DELETE /follow\n", m, path, body));
+    TEST_ASSERT_EQUAL(cta::Method::Delete, m);
+    TEST_ASSERT_EQUAL_STRING("/follow", path);
+    TEST_ASSERT_EQUAL(0, (int)body.size());
+}
+
+static void envelope_rejects_get_and_no_newline() {
+    cta::Method m = cta::Method::Post;
+    char path[16] = "/keep";
+    std::string body = "keep";
+    for (const std::string& bad :
+         {std::string("GET /info\n"), std::string("POST /pin"), std::string("POST /pin {}"), std::string("post /pin\n{}"),
+          std::string("POST pin\n{}"), std::string("POST \n{}"), std::string("POST /\n{}"), std::string("POST  /pin\n{}"),
+          std::string("POST /p n\n{}"), std::string("POST /pin\r\n{}"), "POST /" + std::string(15, 'a') + "\n{}",
+          std::string("DELETE\n"), std::string(""), std::string("POST /pi\0n\n{}", 14)}) {
+        TEST_ASSERT_FALSE_MESSAGE(env(bad, m, path, body), bad.c_str());
+        TEST_ASSERT_EQUAL(cta::Method::Post, m);   // untouched
+        TEST_ASSERT_EQUAL_STRING("/keep", path);
+        TEST_ASSERT_EQUAL_STRING("keep", body.c_str());
+    }
+    const char* b = nullptr;
+    size_t n = 0;
+    TEST_ASSERT_FALSE(cta::parseEnvelope(nullptr, 0, m, path, b, n));
+    const std::string big = "POST /stop\n" + std::string(cta::kMaxBleMsg, ' ');
+    TEST_ASSERT_FALSE(cta::parseEnvelope(big.data(), big.size(), m, path, b, n));   // over one BLE message
+}
+
+static void relay_tick_needs_now() {
+    cta::RelayTick t = {1800000000, true, 3, 5.5f};
+    auto parse = [&](const std::string& j) { return cta::parseRelayTick(j.c_str(), j.size(), t); };
+    for (const char* bad : {"{}", "{\"now\":1700000000}", "{\"now\":\"1800000001\"}", "{\"now\":1800000001.5}",
+                            "{\"now\":4294967296}", "{\"now\":-1}", "[1800000001]", "{\"now\":", "null"}) {
+        TEST_ASSERT_FALSE_MESSAGE(parse(bad), bad);
+        TEST_ASSERT_EQUAL_UINT32(1800000000, t.now);   // untouched
+        TEST_ASSERT_TRUE(t.hasWeather);
+    }
+    TEST_ASSERT_TRUE(parse("{\"now\":1700000001}"));
+    TEST_ASSERT_EQUAL_UINT32(1700000001, t.now);
+    TEST_ASSERT_FALSE(t.hasWeather);
+    TEST_ASSERT_TRUE(parse("{\"now\":4294967295}"));
+    const std::string big = "{\"now\":1800000001" + std::string(cta::kMaxBody, ' ') + "}";
+    TEST_ASSERT_FALSE(parse(big));
+}
+
+static void relay_tick_weather_optional() {
+    cta::RelayTick t = {};
+    auto parse = [&](const std::string& j) { return cta::parseRelayTick(j.c_str(), j.size(), t); };
+    TEST_ASSERT_TRUE(parse("{\"now\":1800000000,\"wmo\":61,\"temp\":-3.5}"));
+    TEST_ASSERT_TRUE(t.hasWeather);
+    TEST_ASSERT_EQUAL(61, t.wmo);
+    TEST_ASSERT_EQUAL_FLOAT(-3.5f, t.tempC);
+    TEST_ASSERT_TRUE(parse("{\"now\":1800000000,\"wmo\":null,\"temp\":null}"));   // null is absent
+    TEST_ASSERT_FALSE(t.hasWeather);
+    // half the weather, or bad weather, fails the whole tick
+    for (const char* bad : {"{\"now\":1800000005,\"wmo\":61}", "{\"now\":1800000005,\"temp\":2}",
+                            "{\"now\":1800000005,\"wmo\":1.5,\"temp\":2}", "{\"now\":1800000005,\"wmo\":100,\"temp\":2}",
+                            "{\"now\":1800000005,\"wmo\":-1,\"temp\":2}", "{\"now\":1800000005,\"wmo\":1,\"temp\":\"2\"}",
+                            "{\"now\":1800000005,\"wmo\":1,\"temp\":101}"}) {
+        TEST_ASSERT_FALSE_MESSAGE(parse(bad), bad);
+        TEST_ASSERT_EQUAL_UINT32(1800000000, t.now);
+    }
+}
+
+static std::string record(const char* id, const char* type, const char* route, int min, uint32_t ts) {
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+             "{\"id\":\"%s\",\"type\":\"%s\",\"route\":\"%s\",\"dir\":\"Howard\",\"name\":\"Belmont\",\"arrivals\":"
+             "[{\"min\":%d,\"dest\":\"Howard\",\"live\":true,\"delayed\":false,\"veh\":\"812\"}],\"alert\":false,"
+             "\"ts\":%u}",
+             id, type, route, min, (unsigned)ts);
+    return buf;
+}
+
+static std::string relayStop(const char* id, const char* type, const std::vector<std::string>& records) {
+    std::string s = std::string("{\"id\":\"") + id + "\",\"type\":\"" + type + "\",\"records\":[";
+    for (size_t i = 0; i < records.size(); ++i) s += (i ? "," : "") + records[i];
+    return s + "]}";
+}
+
+static bool pr(const std::string& j, cta::RelayStop& out) { return cta::parseRelayStop(j.c_str(), j.size(), out); }
+
+static void relay_stop_parses_six_records() {
+    // Belmont: Red, Brown, Purple, both ways
+    std::vector<std::string> recs;
+    for (const char* line : {"Red", "Brn", "P"})
+        for (int dir = 0; dir < 2; ++dir) recs.push_back(record("41320", "train", line, 2 + dir, 1800000000));
+    cta::RelayStop out;
+    TEST_ASSERT_TRUE(pr(relayStop("41320", "train", recs), out));
+    TEST_ASSERT_EQUAL_STRING("41320", out.id);
+    TEST_ASSERT_EQUAL(cta::Kind::Train, out.type);
+    TEST_ASSERT_EQUAL(6, out.n);
+    TEST_ASSERT_EQUAL_STRING("Brn", out.records[2].route);
+    TEST_ASSERT_EQUAL(3, out.records[3].arrivals[0].min);
+    TEST_ASSERT_EQUAL_STRING("812", out.records[5].arrivals[0].vehicle);   // Follow needs veh
+    TEST_ASSERT_EQUAL_UINT32(1800000000, out.records[5].ts);
+    TEST_ASSERT_TRUE(pr(relayStop("1828", "bus", {}), out));   // nothing there now
+    TEST_ASSERT_EQUAL(0, out.n);
+    TEST_ASSERT_EQUAL(cta::Kind::Bus, out.type);
+    // bigger than one HTTP body, as long as it fits one BLE message
+    std::vector<std::string> sixteen(16, record("41320", "train", "Red", 1, 1800000000));
+    const std::string big = relayStop("41320", "train", sixteen);
+    TEST_ASSERT_TRUE(big.size() > cta::kMaxBody);
+    TEST_ASSERT_TRUE(pr(big, out));
+    TEST_ASSERT_EQUAL(16, out.n);
+}
+
+static void relay_stop_rejects_record_of_other_stop() {
+    cta::RelayStop out;
+    TEST_ASSERT_TRUE(pr(relayStop("41320", "train", {record("41320", "train", "Red", 1, 1)}), out));
+    for (const std::string& bad :
+         {relayStop("41320", "train", {record("41320", "train", "Red", 1, 1), record("40380", "train", "Red", 1, 1)}),
+          relayStop("41320", "train", {record("41320", "bus", "22", 1, 1)}),
+          relayStop("1828", "bus", {record("18280", "bus", "22", 1, 1)}),
+          relayStop("41320", "train", {"{\"id\":\"41320\",\"type\":\"boat\"}"}),
+          relayStop("41320", "train", {"5"})}) {
+        TEST_ASSERT_FALSE_MESSAGE(pr(bad, out), bad.c_str());
+        TEST_ASSERT_EQUAL(1, out.n);   // untouched
+        TEST_ASSERT_EQUAL_STRING("41320", out.id);
+    }
+}
+
+static void relay_stop_caps_at_16() {
+    cta::RelayStop out;
+    std::vector<std::string> recs;
+    for (int i = 0; i < 20; ++i) recs.push_back(record("41320", "train", "Red", i, 1800000000));
+    TEST_ASSERT_TRUE(pr(relayStop("41320", "train", recs), out));
+    TEST_ASSERT_EQUAL(cta::kMaxRelayRecords, out.n);
+    TEST_ASSERT_EQUAL(15, out.records[15].arrivals[0].min);   // the first 16 are kept
+    // past the cap, records are still checked: a stranger fails the whole stop
+    recs.push_back(record("40380", "train", "Red", 1, 1));
+    TEST_ASSERT_FALSE(pr(relayStop("41320", "train", recs), out));
+}
+
+static void relay_stop_bad_json_leaves_out() {
+    cta::RelayStop out;
+    const std::string good = relayStop("1828", "bus", {record("1828", "bus", "22", 4, 1800000000)});
+    TEST_ASSERT_TRUE(pr(good, out));
+    std::string deep = good;
+    deep.insert(deep.size() - 1, ",\"x\":[[[[[[[[[[]]]]]]]]]]");   // 11 levels
+    std::string tooBig = good;
+    tooBig.insert(tooBig.size() - 1, std::string(cta::kMaxBleMsg, ' '));
+    for (const std::string& bad :
+         {std::string("{\"id\":\"1828\",\"type\":\"bus\",\"records\":["), std::string("{\"id\":\"1828\",\"type\":\"bus\"}"),
+          std::string("{\"id\":\"1828\",\"type\":\"bus\",\"records\":{}}"),
+          std::string("{\"id\":\"\",\"type\":\"bus\",\"records\":[]}"),
+          std::string("{\"id\":\"12345678\",\"type\":\"bus\",\"records\":[]}"),
+          std::string("{\"id\":1828,\"type\":\"bus\",\"records\":[]}"),
+          std::string("{\"id\":\"1828\",\"type\":\"boat\",\"records\":[]}"), std::string("[]"), std::string("null"), deep,
+          tooBig}) {
+        TEST_ASSERT_FALSE_MESSAGE(pr(bad, out), bad.substr(0, 80).c_str());
+        TEST_ASSERT_EQUAL(1, out.n);
+        TEST_ASSERT_EQUAL_STRING("1828", out.id);
+        TEST_ASSERT_EQUAL(4, out.records[0].arrivals[0].min);
+    }
+    TEST_ASSERT_FALSE(cta::parseRelayStop(nullptr, 0, out));
+}
+
+static void info_has_rssi_settings_relaying() {
+    cta::InfoMsg in = {};
+    strcpy(in.id, "a1b2");
+    strcpy(in.fw, "0.5.0");
+    in.battery = 64;
+    in.charging = false;
+    in.wifiConnected = true;
+    strcpy(in.ssid, "net");
+    in.rssi = -61;
+    in.paired = true;
+    char buf[512];
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    for (const char* want : {"\"wifi\":{\"connected\":true,\"ssid\":\"net\",\"rssi\":-61}", "\"relaying\":false",
+                             "\"battery\":64", "\"charging\":false", "\"paired\":true"})
+        TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, want), want);
+    TEST_ASSERT_NULL(strstr(buf, "\"settings\""));   // only when hasSettings
+    in.hasSettings = true;
+    in.settings = {70, 0, 60, 300};
+    in.relaying = true;
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    for (const char* want : {"\"settings\":{\"screen\":70,\"led\":0,\"night_start\":60,\"night_end\":300}",
+                             "\"relaying\":true"})
+        TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, want), want);
+    // the settings shape is config's: it parses back
+    std::string cfg = strstr(buf, "\"settings\"");
+    cfg = "{" + cfg.substr(0, cfg.find('}') + 1) + "}";
+    cta::ConfigMsg c;
+    TEST_ASSERT_TRUE(cta::parseConfig(cfg.c_str(), cfg.size(), c));
+    TEST_ASSERT_TRUE(c.hasSettings);
+    TEST_ASSERT_EQUAL_UINT8(70, c.settings.screen);
+    // the longest info fits kMaxInfo: an SSID of control bytes, each written as a six-byte \u00XX
+    char big[cta::kMaxInfo];
+    memset(in.ssid, 0x01, cta::kSsidLen);
+    in.ssid[cta::kSsidLen] = '\0';
+    memset(in.fw, '9', sizeof(in.fw) - 1);
+    in.fw[sizeof(in.fw) - 1] = '\0';
+    in.rssi = -128;
+    in.battery = 100;
+    in.lastUpdate = in.uptime = in.picksVer = in.wake = 4294967295u;
+    in.settings = {100, 100, 1439, 1439};
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 384);   // over the boards' old 384-byte buffers
+    memset(in.ssid, '"', cta::kSsidLen);
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 0);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(wifi_accepts_slot_4_rejects_5);
@@ -404,5 +636,15 @@ int main() {
     RUN_TEST(strongest_skips_masked_slot);
     RUN_TEST(strongest_none_seen);
     RUN_TEST(palette_changes_slots_2_3_only);
+    RUN_TEST(envelope_post_pin);
+    RUN_TEST(envelope_delete_no_body);
+    RUN_TEST(envelope_rejects_get_and_no_newline);
+    RUN_TEST(relay_tick_needs_now);
+    RUN_TEST(relay_tick_weather_optional);
+    RUN_TEST(relay_stop_parses_six_records);
+    RUN_TEST(relay_stop_rejects_record_of_other_stop);
+    RUN_TEST(relay_stop_caps_at_16);
+    RUN_TEST(relay_stop_bad_json_leaves_out);
+    RUN_TEST(info_has_rssi_settings_relaying);
     return UNITY_END();
 }

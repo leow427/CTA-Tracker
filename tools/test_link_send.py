@@ -174,6 +174,72 @@ class RejectsWhatTheBoardsRejectTests(unittest.TestCase):
                                                                             "night_end": 1}})
 
 
+def record(stop_id, kind="train", route="Red"):
+    return {"id": stop_id, "type": kind, "route": route, "dir": "Howard", "name": "Belmont",
+            "arrivals": [{"min": 2, "dest": "Howard", "live": True, "delayed": False, "veh": "812"}],
+            "alert": False, "ts": 1800000000}
+
+
+class RelayTests(unittest.TestCase):
+    """POST /relay and /stop as cta::parseRelayTick and cta::parseRelayStop (test_link)."""
+
+    def post(self, board, path, msg):
+        return call(board, "POST", path, json.dumps(msg).encode())[0]
+
+    def test_relay_tick(self):
+        board = link_send.FakeBoard("handheld", TOKEN)
+        self.assertEqual(self.post(board, "/relay", {"now": 1800000000}), 200)
+        self.assertEqual(self.post(board, "/relay", {"now": 1800000000, "wmo": 61, "temp": -3.5}), 200)
+        self.assertEqual(board.tick["wmo"], 61)
+        for bad in ({}, {"now": 1700000000}, {"now": "1800000000"}, {"now": 1800000000.5}, {"now": 2 ** 32},
+                    {"now": True}, {"now": 1800000000, "wmo": 61}, {"now": 1800000000, "temp": 2},
+                    {"now": 1800000000, "wmo": 100, "temp": 2}, {"now": 1800000000, "wmo": 1, "temp": "2"},
+                    {"now": 1800000000, "wmo": 1, "temp": 101}):
+            with self.subTest(bad):
+                self.assertEqual(self.post(board, "/relay", bad), 400)
+        self.assertEqual(board.tick["wmo"], 61)   # untouched
+        self.assertFalse(call(board, "GET", "/info")[1]["relaying"])   # HTTP ticks don't mark relaying
+        self.assertEqual(call(board, "POST", "/relay", b"{}", token=None)[0], 401)
+        self.assertEqual(self.post(link_send.FakeBoard("dock", TOKEN), "/relay", {"now": 1800000000}), 404)
+
+    def test_stop_keeps_only_listed_stops(self):
+        board = link_send.FakeBoard("handheld", TOKEN)
+        stop = {"id": "41320", "type": "train", "records": [record("41320"), record("41320", route="Brn")]}
+        self.assertEqual(self.post(board, "/stop", stop), 200)
+        self.assertEqual(board.relayed, {})   # not in a nearby or the pin: ignored, still 200
+        self.post(board, "/pin", link_send.DEFAULT_PIN)
+        self.assertEqual(self.post(board, "/stop", stop), 200)
+        self.assertEqual(len(board.relayed["41320"]["records"]), 2)
+        nearby = {"lat": 41.94, "lon": -87.65, "trains": [], "buses": ["1828"], "close": []}
+        self.post(board, "/nearby", nearby)
+        many = {"id": "1828", "type": "bus", "records": [record("1828", "bus", "22")] * 20}
+        self.assertEqual(self.post(board, "/stop", many), 413)   # over 1 KB on HTTP
+        few = {"id": "1828", "type": "bus", "records": []}
+        self.assertEqual(self.post(board, "/stop", few), 200)
+        self.assertEqual(board.relayed["1828"]["records"], [])
+
+    def test_stop_rules(self):
+        board = link_send.FakeBoard("handheld", TOKEN)
+        self.post(board, "/pin", link_send.DEFAULT_PIN)
+        good = {"id": "41320", "type": "train", "records": [record("41320")]}
+        for change in ({"id": ""}, {"id": "12345678"}, {"id": 41320}, {"type": "boat"}, {"records": {}},
+                       {"records": None}, {"records": [record("40380")]}, {"records": [record("41320", "bus")]},
+                       {"records": [5]}, {"records": [{"type": "train"}]}):
+            with self.subTest(change):
+                self.assertEqual(self.post(board, "/stop", {**good, **change}), 400)
+        self.assertEqual(board.relayed, {})
+
+    def test_info_reports_rssi_settings_relaying(self):
+        board = link_send.FakeBoard("handheld", TOKEN)
+        info = call(board, "GET", "/info")[1]
+        self.assertIn("rssi", info["wifi"])
+        self.assertNotIn("settings", info)
+        self.assertFalse(info["relaying"])
+        settings = {"screen": 80, "led": 40, "night_start": 60, "night_end": 300}
+        self.post(board, "/config", {"settings": settings})
+        self.assertEqual(call(board, "GET", "/info")[1]["settings"], settings)
+
+
 class PairTests(unittest.TestCase):
     """POST /pair as cta::PairGate (pair.h, test_pair): the same answers in the same order."""
 
@@ -254,6 +320,14 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(json.loads(body), {"pet": {"name": "T", "colors": [1, 2]}})
         with self.assertRaises(ValueError):
             link_send.build("pin", None)
+        self.assertEqual(link_send.build("relay", "1800000000"), ("POST", "/relay", b'{"now":1800000000}'))
+        method, path, body = link_send.build("relay", None)
+        self.assertEqual((method, path), ("POST", "/relay"))
+        self.assertGreater(json.loads(body)["now"], link_send.RELAY_MIN_NOW)
+        with self.assertRaises(ValueError):
+            link_send.build("relay", "soon")
+        stop = '{"id":"41320","type":"train","records":[]}'
+        self.assertEqual(link_send.build("stop", stop), ("POST", "/stop", stop.encode()))
 
 
 if __name__ == "__main__":

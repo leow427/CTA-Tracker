@@ -6,7 +6,10 @@
     python3 tools/link_send.py cta-dock-a1b2.local config                       # GET /config
     python3 tools/link_send.py cta-dock-a1b2.local config '{"settings":{...}}'  # POST /config
     python3 tools/link_send.py cta-pet-a1b2.local pet '{"name":"Trackie","colors":[2976742,8238335]}'
-    python3 tools/link_send.py cta-pet-a1b2.local --burst      # 20 pins in 2 s: each answers 200 within 500 ms
+    python3 tools/link_send.py cta-pet-a1b2.local relay                        # POST /relay {"now": this Mac's clock}
+    python3 tools/link_send.py cta-pet-a1b2.local relay 1800000000
+    python3 tools/link_send.py cta-pet-a1b2.local stop '{"id":"41320","type":"train","records":[...]}'
+    python3 tools/link_send.py cta-pet-a1b2.local --burst     # 20 pins in 2 s: each answers 200 within 500 ms
     python3 tools/link_send.py cta-pet-a1b2.local --garbage    # to /config: bad JSON 400, 2 KB 413, no token 401, wrong token 401
     python3 tools/link_send.py --serve --type handheld         # a fake board on this Mac, for the app
 
@@ -49,7 +52,11 @@ COMMANDS = {
     "unfollow": ("DELETE", "/follow", None),
     "pair": ("POST", "/pair", "pair"),   # the json argument is the 6-digit code
     "reset": ("POST", "/reset", None),
+    "relay": ("POST", "/relay", "now"),   # the json argument is the Unix time, default now
+    "stop": ("POST", "/stop", "body"),
 }
+RELAY_MIN_NOW = 1700000000   # cta::parseRelayTick: now must be later
+MAX_RELAY_RECORDS = 16       # cta::kMaxRelayRecords
 
 
 def request(host, method, path, body=None, token=None, timeout=5):
@@ -77,6 +84,9 @@ def build(cmd, arg, token=None):
         if token is None:
             raise ValueError("pair needs --token or LINK_TOKEN")
         return method, path, json.dumps({"code": arg, "token": token}, separators=(",", ":")).encode()
+    if use == "now":
+        now = int(time.time()) if arg is None else int(arg)
+        return method, path, json.dumps({"now": now}, separators=(",", ":")).encode()
     if use is None:
         return method, path, (b"{}" if method == "POST" else None)
     if arg is None:
@@ -168,6 +178,16 @@ def valid(path, msg):
         return (coord(msg.get("lat"), 90) and coord(msg.get("lon"), 180) and ids(trains, PER_TAB, station)
                 and ids(buses, PER_TAB, bus) and ids(close, CLOSE, lambda i: station(i) or bus(i))
                 and all(i in trains or i in buses for i in close))
+    if path == "/relay":   # cta::parseRelayTick
+        wmo, temp = msg.get("wmo"), msg.get("temp")
+        weather = (wmo is None and temp is None) or (
+            num(wmo, 0, 99) and isinstance(temp, (int, float)) and not isinstance(temp, bool) and -100 <= temp <= 100)
+        return num(msg.get("now"), RELAY_MIN_NOW + 1, 2 ** 32 - 1) and weather
+    if path == "/stop":   # cta::parseRelayStop: every record is this stop's (decodeStopRecord cuts ids to 7 bytes)
+        sid, kind, records = msg.get("id"), msg.get("type"), msg.get("records")
+        return (text(sid, 1, 7) and kind in ("train", "bus") and isinstance(records, list)
+                and all(isinstance(r, dict) and isinstance(r.get("id"), str) and r.get("type") == kind
+                        and r["id"].encode()[:7] == sid.encode() for r in records))
     if path != "/config":
         return True
     stops, pet, settings = msg.get("stops"), msg.get("pet"), msg.get("settings")
@@ -197,18 +217,22 @@ class FakeBoard:
         if kind == "dock":
             self.config["stops"] = [{}, {}, {}]
         self.pin = self.follow = self.nearby = None
+        self.tick = None    # the last /relay body
+        self.relayed = {}   # stop id -> the last /stop body for it
 
     def info(self):
         t = self.now()
         return {"type": self.kind, "id": FAKE_ID, "fw": "fake", "battery": None if self.kind == "dock" else 100,
-                "charging": False, "wifi": {"connected": True, "ssid": ""}, "last_update": int(t),
+                "charging": False, "wifi": {"connected": True, "ssid": "", "rssi": -55}, "last_update": int(t),
                 "uptime": int(t - self.booted), "picks_ver": self.picks_ver, "wake": self.wake, "docked": False,
-                "paired": self.token is not None}
+                "paired": self.token is not None,
+                **({"settings": self.config["settings"]} if self.config["settings"] else {}),
+                "relaying": False}   # only a tick over Bluetooth marks relaying, and the fake is HTTP
 
     def handle(self, method, path, headers, read):
         """(status, reply dict). headers: a dict-like; read(n) gives the body. Checks run in the boards' order:
         size before reading, then the token, then the JSON."""
-        handheld_only = ("/nearby", "/pin", "/follow")
+        handheld_only = ("/nearby", "/pin", "/follow", "/relay", "/stop")
         routes = {("GET", "/info"), ("GET", "/config"), ("POST", "/config"), ("POST", "/pair"), ("POST", "/reset")}
         if self.kind == "handheld":
             routes |= {("POST", p) for p in handheld_only} | {("DELETE", "/pin"), ("DELETE", "/follow")}
@@ -274,6 +298,14 @@ class FakeBoard:
         if path == "/nearby":
             self.nearby = msg
             return 200, {}
+        if path == "/relay":
+            self.tick = msg
+            return 200, {}
+        if path == "/stop":   # a stop that isn't in the last nearby or the pin is ignored, still 200
+            near = self.nearby or {}
+            if msg["id"] in near.get("trains", []) + near.get("buses", []) or (self.pin or {}).get("id") == msg["id"]:
+                self.relayed[msg["id"]] = dict(msg, records=msg["records"][:MAX_RELAY_RECORDS])
+            return 200, {}
         if path == "/config":
             if msg.get("stops") is not None and self.kind == "dock":
                 self.config["stops"] = msg["stops"]
@@ -335,7 +367,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("host", nargs="?", help="the board: cta-pet-xxxx.local, an IP, or host:port")
     ap.add_argument("command", nargs="?", choices=sorted(COMMANDS))
-    ap.add_argument("json", nargs="?", help="the body (for config, pet, nearby, pin, follow), or pair's code")
+    ap.add_argument("json", nargs="?", help="the body (for config, pet, nearby, pin, follow, stop), pair's code, or relay's time")
     ap.add_argument("--token", help="the household token (default: LINK_TOKEN)")
     ap.add_argument("--burst", action="store_true", help=f"send {BURST_N} pins in {BURST_SECONDS:g} s")
     ap.add_argument("--garbage", action="store_true", help="send bad bodies; expect 400, 413, 401, 401")

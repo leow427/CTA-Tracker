@@ -446,7 +446,7 @@ bool parseRelayStop(const char* json, size_t len, RelayStop& out);         // ea
 // encodeInfo writes "wifi":{"connected","ssid","rssi"}, "settings" (when hasSettings), "relaying".
 ```
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```cpp
 // test_ble_frame
@@ -463,18 +463,35 @@ void relay_stop_caps_at_16();          void relay_stop_bad_json_leaves_out();
 void info_has_rssi_settings_relaying();
 ```
 
-- [ ] **Step 2:** Run `cd firmware/native && ~/.platformio/penv/bin/pio test -e native -f test_ble_frame -f test_link`.
+- [x] **Step 2:** Run `cd firmware/native && ~/.platformio/penv/bin/pio test -e native -f test_ble_frame -f test_link`.
   Expect FAIL.
-- [ ] **Step 3:** Implement. Reuse `decodeStopRecord`'s body by splitting it into a cJSON-node decoder, and keep the
+- [x] **Step 3:** Implement. Reuse `decodeStopRecord`'s body by splitting it into a cJSON-node decoder, and keep the
   "fill a temporary, copy on success" pattern. `splitFrames` and `Reassembler` stay free of allocation.
-- [ ] **Step 4:** Run the whole native suite (`pio test -e native`). All pass.
-- [ ] **Step 5:** Add to `link_send.py`:
+- [x] **Step 4:** Run the whole native suite (`pio test -e native`). All pass.
+- [x] **Step 5:** Add to `link_send.py`:
   - `relay [now]`, which posts `/relay`;
   - `stop <json>`, which posts `/stop`;
   - the fake board (`--serve`), which accepts both with the same checks.
 
   `tools/test_link_send.py` covers the fake's answers.
-- [ ] **Step 6:** Commit: `feat(lib): BLE frames, link envelope, relay tick and stop messages`.
+- [x] **Step 6:** Commit: `feat(lib): BLE frames, link envelope, relay tick and stop messages`.
+
+**As built (L1):**
+- The envelope always needs its newline: `DELETE /pin\n` has an empty body. The path is 2–15 printable bytes with no
+  spaces (`kPathLen = 15`). A message over `kMaxBleMsg` is refused.
+- `/relay`: `wmo` (0–99) and `temp` (−100 to 100 °C) come together or not at all; null counts as absent.
+- `parseRelayStop` checks every record first, then decodes into `out`. It leaves `out` alone on failure without a
+  3.6 KB temporary on the caller's stack. Past 16 records it keeps the first 16, but a bad 17th still fails the stop.
+  It takes up to `kMaxBleMsg`; HTTP keeps its 1 KB limit.
+- The overload `decodeStopRecord(const cJSON*, StopRecord&)` is the shared node decoder.
+- `splitFrames` holds `chunkMax` to `kBleMaxPayload` (512, one ATT value). The `Reassembler` NUL-terminates, so
+  give it `kMaxBleMsg + 1` bytes.
+- `ble_ids.h` adds `kLinkUuid`. The retired UUIDs stay as constants for now, marked retired, because `test_basics`
+  checks them. They can go once W6a's GATT no longer serves them.
+- `kMaxInfo = 640` in `link_msg.h`: the new fields push the worst-case info (an SSID of escaped bytes) past the
+  boards' 384-byte `/info` buffers. W6a (the GET handler and the notify) and the dock's `getInfo` size theirs to it.
+- The fake board's `/info` adds `wifi.rssi`, `settings` and `relaying` (always false, because the fake is HTTP only).
+  Its `/stop` keeps a stop only if that stop is in the last `nearby` or is the pin.
 
 ### Task K1: CTAKit mirrors (Track K)
 

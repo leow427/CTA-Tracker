@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ble_frame.h"
 #include "cta_types.h"
 #include "picks.h"
 
@@ -77,9 +78,46 @@ struct InfoMsg {
     uint32_t wake;
     bool docked;
     bool paired;   // has a token; false raises the app's "found" card
+    int8_t rssi;   // dBm; 0 when not joined
+    bool hasSettings;
+    DeviceSettings settings;
+    bool relaying;   // a /relay tick came over Bluetooth in the last kRelayHoldSec
 };
-// {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid"},"last_update","uptime",
-//  "picks_ver","wake","docked","paired"}. Returns the length (and a NUL), or 0 if it doesn't fit in cap.
+// {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid","rssi"},"last_update",
+//  "uptime","picks_ver","wake","docked","paired","settings" (config's shape, only with hasSettings),"relaying"}.
+// Returns the length (and a NUL), or 0 if it doesn't fit in cap.
+constexpr size_t kMaxInfo = 640;   // fits any InfoMsg, even an SSID of 32 control bytes (530 bytes)
 size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap);
+
+// --- The wearable's Bluetooth link (wearable BLE link plan, "Envelope", "Messages") ---
+
+// "<POST|DELETE> <path>\n<body>": path starts with /, 2-15 printable bytes, no spaces; the newline is required and
+// the body may be empty. body points into msg. False (outputs untouched) otherwise, or if msg is over kMaxBleMsg.
+enum class Method : uint8_t { Post, Delete };
+constexpr size_t kPathLen = 15;
+bool parseEnvelope(const char* msg, size_t len, Method& m, char path[kPathLen + 1], const char*& body,
+                   size_t& bodyLen);
+
+// POST /relay {"now","wmo"?,"temp"?}: now a Unix time after 1700000000; wmo (0-99) and temp (C, -100-100) come
+// together or not at all (null counts as absent).
+struct RelayTick {
+    uint32_t now;
+    bool hasWeather;
+    int wmo;
+    float tempC;
+};
+bool parseRelayTick(const char* json, size_t len, RelayTick& out);
+
+// POST /stop {"id","type","records":[stop record...]}: id 1-7 bytes, type train or bus, records an array (may be
+// empty). Each record is read by decodeStopRecord's rules, and its id and type must match the stop's; the first
+// kMaxRelayRecords are kept, but every record is checked. Up to kMaxBleMsg bytes (HTTP limits it to kMaxBody).
+constexpr int kMaxRelayRecords = 16;   // the wearable's cards per station (live_store.h kCardsPerStation)
+struct RelayStop {
+    char id[8];
+    Kind type;
+    StopRecord records[kMaxRelayRecords];
+    int n;
+};
+bool parseRelayStop(const char* json, size_t len, RelayStop& out);
 
 }  // namespace cta

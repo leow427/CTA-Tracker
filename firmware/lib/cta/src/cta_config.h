@@ -45,4 +45,9 @@ constexpr uint32_t kFollowEndedSecs = 60;   // Arrived or Lost shows this long, 
 constexpr int kFollowGraceMin = 2;          // a seen vehicle counts as arrived this long after its last minutes ran out
 constexpr int kFollowUnseenCapMin = 3;      // a vehicle never on the card is lost after this many minutes of fresh polls
 
+// The wearable's Bluetooth link (wearable BLE link plan, "Relay" and "Status")
+constexpr uint32_t kRelayHoldSec = 90;       // "relaying" (own CTA polling off) this long after the last /relay tick
+constexpr uint32_t kRelayTickSec = 30;       // the app's /relay tick
+constexpr uint32_t kInfoHeartbeatSec = 30;   // an info notify at least this often while subscribed
+
 }  // namespace cta

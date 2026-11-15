@@ -4,6 +4,8 @@
 
 #include "cta_types.h"
 
+struct cJSON;
+
 namespace cta {
 
 // Writes {id, type:"train"|"bus", route, dir, name, arrivals:[{min,dest,live,delayed,veh}], alert, ts}, keys in that
@@ -17,5 +19,7 @@ size_t encodeStopRecord(const StopRecord& r, char* buf, size_t cap);
 // isn't "train" or "bus". Other missing fields default to empty, 0, or false. Keeps at most kMaxArrivals,
 // clamps min to 0–32767, cuts ids, routes, and veh to 7 bytes and names to kNameLen with copyTruncated.
 bool decodeStopRecord(const char* json, size_t len, StopRecord& out);
+// The same from a parsed node (a relayed stop's records, link_msg.h).
+bool decodeStopRecord(const cJSON* node, StopRecord& out);
 
 }  // namespace cta

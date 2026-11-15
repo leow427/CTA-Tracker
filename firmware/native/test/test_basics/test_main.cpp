@@ -231,11 +231,15 @@ static void test_config_values() {
     TEST_ASSERT_EQUAL_INT(15, cta::kScreenDimSec);
     TEST_ASSERT_EQUAL_INT(4, cta::kMaxArrivals);
     TEST_ASSERT_EQUAL_INT(24, cta::kNameLen);
+    TEST_ASSERT_EQUAL_INT(90, cta::kRelayHoldSec);
+    TEST_ASSERT_EQUAL_INT(30, cta::kRelayTickSec);
+    TEST_ASSERT_EQUAL_INT(30, cta::kInfoHeartbeatSec);
 }
 
 static void test_ble_ids() {
     TEST_ASSERT_EQUAL_STRING("d8d4388c-c8e3-4ff0-b269-015d0979c266", cta::kServiceUuid);
     TEST_ASSERT_EQUAL_STRING("fb360799-3925-45c3-90be-c32d504bbc99", cta::kInfoUuid);
+    TEST_ASSERT_EQUAL_STRING("4a1eedc7-ebeb-42b2-9ce5-e1cc4f05e398", cta::kLinkUuid);
     TEST_ASSERT_EQUAL_STRING("8d0820b1-1735-4f23-b1be-17b5d867632e", cta::kWifiUuid);
     TEST_ASSERT_EQUAL_STRING("d8427173-107a-4c28-97ba-ab3b12d1500f", cta::kConfigUuid);
     TEST_ASSERT_EQUAL_STRING("3c4dd75c-a019-4171-b7f1-b8dd87eda07c", cta::kRequestUuid);

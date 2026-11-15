@@ -1,10 +1,13 @@
 #pragma once
-// The GATT service and characteristic UUIDs (spec 10). Mirrored in the app's Config.swift.
+// The GATT service and characteristic UUIDs (spec 10, wearable BLE link plan "GATT"). Mirrored in the app's
+// Config.swift.
 
 namespace cta {
 
 constexpr const char* kServiceUuid = "d8d4388c-c8e3-4ff0-b269-015d0979c266";
-constexpr const char* kInfoUuid = "fb360799-3925-45c3-90be-c32d504bbc99";
+constexpr const char* kInfoUuid = "fb360799-3925-45c3-90be-c32d504bbc99";   // status, framed, read and notify
+constexpr const char* kLinkUuid = "4a1eedc7-ebeb-42b2-9ce5-e1cc4f05e398";   // framed envelopes, write (2026-11-14)
+// Retired 2026-11-14 (now paths on link); kept until the wearable's GATT stops serving them.
 constexpr const char* kWifiUuid = "8d0820b1-1735-4f23-b1be-17b5d867632e";
 constexpr const char* kConfigUuid = "d8427173-107a-4c28-97ba-ab3b12d1500f";
 constexpr const char* kRequestUuid = "3c4dd75c-a019-4171-b7f1-b8dd87eda07c";
