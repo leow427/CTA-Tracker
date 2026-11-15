@@ -26,6 +26,10 @@ import os
     var devices: [Device] { didSet { KnownDevices.save(devices); ble.known = Self.peripherals(devices) } }
     let ble: BLELink
     private(set) var online: [String: InfoMessage] = [:]   // by device id
+    /// What each wearable was last told it shows, for the relay's stop set (plan AB3).
+    @ObservationIgnored private(set) var sentNearby: [String: NearbyMessage] = [:]
+    @ObservationIgnored private(set) var sentPin: [String: ConfigStop] = [:]
+    @ObservationIgnored var onSent: (() -> Void)?   // the relay sends a changed stop set at once
     var onAction: ((String, DeviceWatch.Action) -> Void)?   // AppModel reacts (Tasks 13–17)
 
     @ObservationIgnored private var found: [String: String] = [:]   // id -> "ip:port" Bonjour gave this session
@@ -80,10 +84,15 @@ import os
 
     func post(_ path: String, _ body: some Encodable, to id: String) async throws {
         try await write("POST", path, JSONEncoder().encode(body), to: id)
+        if path == "/nearby", let n = body as? NearbyMessage { sentNearby[id] = n; onSent?() }
+        if path == "/pin", let s = body as? ConfigStop { sentPin[id] = s; onSent?() }
+        // Following pins the stop on the wearable too, so it gets relayed like a pin.
+        if path == "/follow", let f = body as? FollowMessage { sentPin[id] = f.stop; onSent?() }
     }
 
     func delete(_ path: String, to id: String) async throws {
         try await write("DELETE", path, nil, to: id)
+        if path == "/pin" { sentPin[id] = nil }
     }
 
     /// Boards answering on the network that have no token: new ones, and known ones that were reset.

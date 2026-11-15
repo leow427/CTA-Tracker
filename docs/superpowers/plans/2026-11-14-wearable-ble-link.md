@@ -867,21 +867,32 @@ the Bluetooth connection; the last `NearbyMessage` sent and `pinned` are the sto
 }
 ```
 
-- [ ] **Step 1: Pure tests first** (`ios/CTATrackerTests/WearableRelayTests.swift`, or CTAKit if the record
+**As built (2026-11-14):** `WearableRelay` starts and stops itself on the app's active/resign notifications and is
+created in `CTATrackerApp` (AppModel doesn't hold the arrivals store). The stop set comes from what `DeviceLink`
+last sent each wearable (`sentNearby`, `sentPin`), so it follows Task 15's `nearby` with no extra wiring.
+`ArrivalsStore.extra` adds the relay's stops to the list's fetches; a tick fetches only stops older than 30 s. Writes
+go through `BLELink.send` directly, so the relay never uses HTTP; a body that won't fit `BLEFrames.maxMessage` is
+skipped and logged. Train records take the platform's label from `stops.json`, matching `test_train_cards`. No
+weather: the app has no weather fetch yet, so `/relay` carries `now` only. Nothing is relayed to a wearable until the app has sent it
+`nearby` this launch (a bare `/relay` would stop its own polling); a new `nearby`, pin or `/follow` restarts the loop
+for an immediate tick, and a `/follow`'s stop is relayed like the pin. For W6b: a stop whose arrivals ran out comes
+as `records: []`, with no `ts` to compare; it should clear that stop's cards.
+
+- [x] **Step 1: Pure tests first** (`ios/CTATrackerTests/WearableRelayTests.swift`, or CTAKit if the record
   building lives there):
   - records for a station: one per line and direction, with the wearable's keys, checked against the same
     `fixtures/` train response that `test_train_cards` uses, so the (id, route, dir) keys match the C++ cards;
   - bus records split per route and direction;
   - `veh` carried;
   - a stop not fetched since its last send isn't re-sent before 60 s.
-- [ ] **Step 2:** Implement. Reuse `StopRecord.make` and `CardBuilder`'s slot rules, not a new card builder. The
+- [x] **Step 2:** Implement. Reuse `StopRecord.make` and `CardBuilder`'s slot rules, not a new card builder. The
   weather comes from the app's own weather fetch if it has one; otherwise omit it.
 - [ ] **Step 3: Verify (board):**
   - The wearable with no Wi-Fi shows live cards from the phone, never older than 60 s.
   - Pan the map: the mirror sends a new `nearby`, and the new stops' cards arrive within 10 s.
   - Follow a train: the countdown runs on relayed data.
   - Close the app: the wearable keeps its last cards greying out, and with Wi-Fi it polls again within 90 s.
-- [ ] **Step 4:** Commit: `feat(ios): relay arrivals to the wearable over Bluetooth`.
+- [x] **Step 4:** Commit: `feat(ios): relay arrivals to the wearable over Bluetooth`.
 
 ### Task X2: Docs and the demo script (Track X; with ecosystem Task 21)
 

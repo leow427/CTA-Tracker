@@ -15,6 +15,14 @@ import Observation
     var unavailable: Bool { trainsFailing || busesFailing }
 
     private var slots: [Slot] = []
+    /// The relay's stops beyond the list's cards (plan AB3), fetched with them; a stop in both is fetched once.
+    var extra: [Slot] = [] {
+        didSet {   // ⚠ for the relay's own routes now, as `track` does for the list's
+            let new = Set(extra.map(\.line.route)).subtracting(alerts.keys)
+            if !new.isEmpty { Task { await refreshAlerts(routes: new) } }
+        }
+    }
+    private var fetchedSlots: [Slot] { slots + extra }
     private var poll: Task<Void, Never>?
     private var pending: Set<String> = []          // added stops waiting for their first fetch
     private var pendingFetch: Task<Void, Never>?
@@ -71,7 +79,7 @@ import Observation
 
     /// Refreshes every tracked stop (and alerts when due), or just `only`.
     func refresh(only ids: Set<String>? = nil) async {
-        let slots = ids.map { ids in self.slots.filter { ids.contains($0.fetchID) } } ?? self.slots
+        let slots = ids.map { ids in fetchedSlots.filter { ids.contains($0.fetchID) } } ?? fetchedSlots
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-demo") { return demo(slots) }
         #endif
@@ -153,7 +161,7 @@ import Observation
         guard let url = CTAClient.alertsURL(routes: routes.sorted()),
               let data = try? await CTAClient.get(url),
               let items = try? AlertsWeather.alerts(data) else { return }
-        if routes == Set(slots.map(\.line.route)) { alertsFetched = Date() }
+        if routes == Set(fetchedSlots.map(\.line.route)) { alertsFetched = Date() }
         // Merged per route: a fetch for some routes never erases the others' ⚠ (and a route with none clears).
         let byRoute = Dictionary(grouping: items.flatMap { a in a.routes.map { ($0, a) } }, by: \.0).mapValues { $0.map(\.1) }
         for route in routes { alerts[route] = byRoute[route] ?? [] }
