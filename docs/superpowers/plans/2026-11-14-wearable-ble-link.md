@@ -881,8 +881,11 @@ Settings), `net.cpp` (the network's name and RSSI into `Data`), `tools/preview.c
   34.0 fps, map 15.7 fps, lowest free internal RAM 73 KB, tap means 23–61 ms, request means 302–702 ms, no late
   frames. `dock_perf_report.py`: 10 metrics better, 3 worse beyond noise, all network or one-off: the burst phase's
   requests (+135 ms) and core 0 (+6.5 %), and the mixed phase's slowest tap (175 ms, the map's own worst case, B2).
-- [ ] **Step 6 (Leo):** look and touch check on the dock: the gear, back, Pair again → Cancel, Pair again → confirm
+- [x] **Step 6 (Leo):** look and touch check on the dock: the gear, back, Pair again → Cancel, Pair again → confirm
   (the pairing screen with a new code), then pair from the app.
+  - *Result (2026-11-14):* Leo: every tap responded on the first try, and the gear's spot and the red Pair again
+    button are fine. Paired with the new code from the Mac (`link_send.py pair`: 200, then 409 on a second try,
+    `/info` paired true); pairing from the app waits on AB2.
 
 ---
 
