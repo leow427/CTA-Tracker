@@ -336,8 +336,9 @@ void drawSection(Canvas& cv, App& a, const Data& d, const Clock& c, int i, uint3
         for (int k = 0; k < 3 && k < s.rec.count; ++k) {
             const int tx = L + k * (TILE.w + TILE_GAP);
             tile(cv, tx, y + TILE.dy, s.rec, k, k == 0, t, stale, c, ms);
-            // a tap on a time: that vehicle's stops ahead (spec 5.10); not on a peek, whose card a tap flips back
-            if (!peeking && s.rec.arrivals[k].vehicle[0]) hit(a, tx, y + TILE.dy, TILE.w, TILE.h, Act::Ahead, Act::None, i * 4 + k);
+            // a tap on a live time: that vehicle's stops ahead (spec 5.10); not on a peek, whose card a tap flips back, and
+            // not on a scheduled one, which ttfollow doesn't track yet
+            if (!peeking && s.rec.arrivals[k].live && s.rec.arrivals[k].vehicle[0]) hit(a, tx, y + TILE.dy, TILE.w, TILE.h, Act::Ahead, Act::None, i * 4 + k);
         }
     }
     cv.alpha = saved;

@@ -119,6 +119,14 @@ static void test_opposite_bus_stop() {
     const std::string f = readFixture("bus_patterns.json");
     TEST_ASSERT_FALSE(cta::oppositeBusStop(f.c_str(), f.size(), "22", "2002", "Southbound", o));
     TEST_ASSERT_FALSE(cta::oppositeBusStop("x", 1, "22", "1828", "Southbound", o));
+    // the only stop the other way is about 600 m off: past the 500 m limit, so none
+    const std::string far =
+        "{\"bustime-response\":{\"ptr\":["
+        "{\"pid\":1,\"rtdir\":\"Southbound\",\"pt\":["
+        "{\"typ\":\"S\",\"stpid\":\"1828\",\"stpnm\":\"Clark & Belmont\",\"lat\":41.9399,\"lon\":-87.6482}]},"
+        "{\"pid\":2,\"rtdir\":\"Northbound\",\"pt\":["
+        "{\"typ\":\"S\",\"stpid\":\"1950\",\"stpnm\":\"Clark & Addison\",\"lat\":41.9453,\"lon\":-87.6482}]}]}}";
+    TEST_ASSERT_FALSE(cta::oppositeBusStop(far.c_str(), far.size(), "22", "1828", "Southbound", o));
 }
 
 int main(int, char**) {
