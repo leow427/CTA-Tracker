@@ -300,7 +300,7 @@ CTA-Pet-xxxx in iOS Settings → Bluetooth").
   polled at the close stations' rate (every 60 s, spec 6.6) even when it isn't in the nearby list, and it counts as a
   close stop for Hyped (6.3).
 - The pin clears on: a swipe on the pinned card (the builder fits the gesture into `docs/handheld-ui.md`), a new pin,
-  docking, `DELETE /pin`, or a reboot (my call: kept in RAM only).
+  docking, `DELETE /pin`, a reboot (my call: kept in RAM only), or the end of a follow (5.7).
 
 ### 5.7 Follow a train (step 6)
 

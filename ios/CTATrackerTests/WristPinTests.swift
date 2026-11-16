@@ -44,8 +44,17 @@ struct WristPinTests {
 
     @Test func pinOfAnotherStopEndsTheFollow() {
         let howard = ConfigStop(type: .train, route: "Red", dir: "Howard", id: "41320", name: "Belmont")
-        #expect(AppModel.follow(after: belmont, followed: follow)?.vehicle == "812")
-        #expect(AppModel.follow(after: howard, followed: follow) == nil)
-        #expect(AppModel.follow(after: belmont, followed: nil) == nil)
+        #expect(AppModel.follow(after: belmont, followed: follow, followedAt: due, now: due)?.vehicle == "812")
+        #expect(AppModel.follow(after: howard, followed: follow, followedAt: due, now: due) == nil)
+        #expect(AppModel.follow(after: belmont, followed: nil, followedAt: due, now: due) == nil)
+    }
+
+    @Test func pinAfterAPassedFollowOfTheSameStopIsResent() {
+        let now = due.addingTimeInterval(Config.departedGraceSec)
+        let kept = AppModel.follow(after: belmont, followed: follow, followedAt: due, now: now)
+        #expect(kept == nil)
+        let r = AppModel.resend(followed: kept, followedAt: due, pinned: belmont, paired: true, docked: false, now: now)
+        guard case .pin(let p) = r else { Issue.record("\(String(describing: r))"); return }
+        #expect(p == belmont)
     }
 }

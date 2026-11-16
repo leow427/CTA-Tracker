@@ -279,15 +279,15 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
     for (int i = 0; i < m.nTrains; ++i) m.trains[i].close = m.trains[i].distKm <= closest[2] + 1e-4f;
     for (int i = 0; i < m.nBuses; ++i) m.buses[i].close = m.buses[i].distKm <= closest[2] + 1e-4f;
     // Live pins Belmont's Red to 95th and follows its second train (due 9 min after start): it counts down, is Due,
-    // shows Arrived for a minute, then the pin stays alone until a swipe clears it.
+    // shows Arrived for a minute, then the follow and its pin clear (spec 5.7) and Home shows the closest stops.
     m.hasPin = m.hasFollow = false;
     if (sc == Scenario::Live && !gUnpinned)
         for (int i = 0; i < m.nTrains; ++i)
             if (m.trains[i].station == 0 && strcmp(m.trains[i].rec.route, "Red") == 0 && strcmp(m.trains[i].rec.dir, "95th/Dan Ryan") == 0) {
-                m.pin = m.trains[i];
-                m.hasPin = true;
                 const float tta = 2 + 7 - elapsed;   // Belmont's first Red to 95th at 2 min, every 7
-                m.hasFollow = tta >= -1;
+                if (tta < -1) break;
+                m.pin = m.trains[i];
+                m.hasPin = m.hasFollow = true;
                 if (tta >= 0) m.follow = {tta < 1 ? cta::FollowState::Due : cta::FollowState::Waiting, static_cast<int16_t>(tta)};
                 else m.follow = {cta::FollowState::Arrived, 0};
                 break;

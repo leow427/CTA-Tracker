@@ -187,13 +187,16 @@ import SwiftUI
     /// the wearable.
     func pin(_ stop: ConfigStop) async -> Bool {
         guard await sendToWrist("/pin", stop) else { return false }
-        (pinned, followed) = (stop, Self.follow(after: stop, followed: followed))
+        (pinned, followed) = (stop, Self.follow(after: stop, followed: followed, followedAt: followedAt, now: .now))
         return true
     }
 
-    /// A pin of the followed stop keeps the follow; any other pin ends it, as on the wearable.
-    nonisolated static func follow(after pin: ConfigStop, followed: FollowMessage?) -> FollowMessage? {
-        followed?.stop == pin ? followed : nil
+    /// A pin of the followed stop keeps the follow; any other pin ends it, as on the wearable. A follow past its
+    /// grace is dropped too, or the next resend would clear the new pin with it.
+    nonisolated static func follow(after pin: ConfigStop, followed: FollowMessage?, followedAt: Date,
+                                   now: Date) -> FollowMessage? {
+        guard followed?.stop == pin, now.timeIntervalSince(followedAt) < Config.departedGraceSec else { return nil }
+        return followed
     }
 
     /// Follows one departure on the online wearables (it pins its stop too); true when one took it.
