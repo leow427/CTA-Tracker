@@ -343,6 +343,21 @@ Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates p
   phone's location and the time, and Settings → Find my handheld shows them as a map pin, or "Connected now." On the
   one demo network, powering the wearable off shows it.
 
+### 5.10 Dock touch extras (Leo, 2026-11-16)
+
+Not a showcase step: built after Task 14 with the time it saved, and the first thing dropped if the full run
+struggles. Dock only; nothing changes in the app or the messages.
+
+- **The stops ahead.** Tapping an arrival time on a stop card opens a large overlay: the big time, the line and
+  destination, then that vehicle's next stops (about 5) with their times. One CTA request on tap: Follow This Train
+  (`ttfollow`, by the arrival's run number) for trains, bus predictions by vehicle (`getpredictions?vid=`) for buses.
+  Tap anywhere to close; it also closes after 30 s, or when the vehicle drops out. A failed request says so in the
+  overlay.
+- **The other direction, as a peek.** Tapping a stop card (outside its times) flips it to the other direction for
+  30 s, or until tapped again: trains show the station's opposite platform; buses the closest stop on the same route
+  going the other way (one request on tap). The saved pick, its LED row and `picks_ver` don't change. Holding a card
+  still opens the picker.
+
 ## 6. Constraints
 
 - **Time:** about 9 working days. Steps 1–6 and 8 first, in the order of section 10; section 9 slips first, then

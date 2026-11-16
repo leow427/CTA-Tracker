@@ -132,7 +132,7 @@ Approved by Leo, 2026-11-15. Showcase 2026-11-23, dry run 11/22. **Day 1 (11/14�
 | Day | Work |
 |---|---|
 | Mon 11/16 | The biggest risk first, the phone reaching the dock: on the home network (Leo, 2026-11-15: the dock and the phone stay on the home network; no hotspot). Day 1 found the phone's connections never reached either board there (Task 1). Retry from the app (Bonjour finds the dock, `GET /info`, iOS's Local Network permission); if it's still blocked, find the router setting (client isolation, the 2.4/5 GHz bands kept apart, mDNS). Book a visit to the showcase network (a different home network) before 11/19 to run the same check there. Then pair the dock from the app by code, test the wearable's HTTP fallback after `b` and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
-| Tue 11/17 | Task 14 (dock stops from the app, both ways). Task 13 (one Trackie: presets, resend on `.resendState`, uncomment the wearable's `ui::petPalette565 = petPalette`). |
+| Tue 11/17 | Task 14 (dock stops from the app, both ways; done 11/16). Task 22 (dock touch extras) on the dock, alongside Task 13 (one Trackie: presets, resend on `.resendState`, uncomment the wearable's `ui::petPalette565 = petPalette`). |
 | Wed 11/18 | Task 17 (find my handheld) and the step 8 docking check. Draft the demo script (Task 21 and BLE plan X2 Step 2). |
 | Thu 11/19 | The dock joins the stronger of the home and showcase networks from `secrets.h` (small; or rebuild it for the showcase network). First full run of showcase steps 1–8, on the showcase network if Leo can be there, else at home; fix list. |
 | Fri 11/20 | Step 7 go/no-go at 18:00 (no-Wi-Fi wearable boot with relayed cards, serial `W` demo). Fixes. B2 dock map fps if time. |
@@ -1023,6 +1023,26 @@ with BLE plan X2 Step 2.
 - [ ] **Step 1:** Write them. Check `git diff` for network names, home paths, tokens.
 - [ ] **Step 2: Verify:** run the script end to end on the showcase network (11/22), twice.
 - [ ] **Step 3: Commit:** `docs: ecosystem demo script, base spec points to the ecosystem design`.
+
+---
+
+### Task 22: Dock touch extras (Track D)
+
+Ecosystem spec 5.10 (Leo, 2026-11-16). Dock firmware only; one worker on the dock. Not a showcase step: drop it first
+if Thursday's full run struggles.
+
+**Files:** Modify `firmware/dock/src/dock_ui.cpp` (touch targets, the overlay), `firmware/dock/src/net.cpp` (the
+on-tap requests), `firmware/lib/cta` (parsers, with native tests in `firmware/native/test`).
+
+- [ ] **Step 1: The stops ahead.** Tap an arrival time → overlay with the vehicle's next stops and times
+  (`ttfollow` by run number for trains, `getpredictions?vid=` for buses). Parser tests from saved real responses (no
+  keys in fixtures). Closes on tap, after 30 s, or when the vehicle drops out.
+- [ ] **Step 2: The other direction.** Tap a stop card → 30 s peek at the other direction (trains: the opposite
+  platform from the dock's tables; buses: the closest stop on the same route going the other way). Saved pick, LED
+  row and `picks_ver` unchanged; hold still opens the picker.
+- [ ] **Step 3: Verify** on the dock: both peeks on a train and a bus card; RAM low-water mark no worse than 5 KB
+  below today's (83 KB); frame time unchanged when idle.
+- [ ] **Step 4: Commit:** `feat(dock): tap a time for the stops ahead, tap a card for the other direction`.
 
 ---
 
