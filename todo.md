@@ -4,7 +4,7 @@
 
 Labelled B1, B2, … in order of importance.
 
-### B1. Handheld cards look jagged while scrolling (fixed on the board 2026-11-13; card pop open)
+### B1. Handheld cards look jagged while scrolling (fixed on the board 2026-11-13, on ESP-IDF in b659af5; card pop open)
 
 On the handheld (wearable), scrolling the card list didn't look smooth: the cards' edges looked mildly
 jagged, one side of the screen seemed to move a little before the other, and slow scrolls froze now and then.
@@ -41,9 +41,14 @@ Still open:
   that starts mostly vertical now scrolls instead of switching tabs.
 - **59 fps scrolling** would need scroll frames under 16.9 ms, about 25% faster drawing in column strips.
 
-### B2. Dock screen is still choppy: map 13 fps, picker 17 fps, aim for 24–30 (open)
+### B2. Dock screen frame rate: picker 34 fps, map 15.7, aim for 24+ on the map (partly done)
 
 The dock's screen was at 5–10 frames a second; the goal is at least 24–30 fps if the board allows it.
+
+**Status (2026-11-15):** since the DMA band copies (merged `aa6b705`, 2026-11-14) and the ESP-IDF port, the picker
+scroll runs at 34 fps, the map pan at 15.7 and the mixed phase at 25 (`docs/perf/log.md`). **Open:** the map to
+24 fps or more (the next panel step is 34; it needs about 18 ms off its frame), and the look on the real panel
+(below). Scheduled only if time on 11/20. The history below is from before those changes.
 
 The first perf pass is on main (merged `68f177c`, 2026-11-13; rounds 1 and 3 kept, round 2 reverted and kept on
 branch `dock-perf-r2`). It took the map pan from 7.1 to 12.9 fps and the picker scroll from 11.4 to 17.1 fps;
@@ -68,6 +73,19 @@ Frame rate moves in panel steps of 29.3 ms (34, 17, 11.4 fps), so 24 fps really 
 (about 29 ms a frame) or settling for 17. Done when map pans and list scrolls measure at least 24 fps with
 `tools/dock_perf_run.py`, or when it's clear why not and what the best rate is.
 
+## Found 2026-11-15
+
+Small items from the Send to Trackie and Follow checks on Leo's phone and wearable:
+
+- **"Send to Trackie" is a bare paper-plane icon.** Leo couldn't find it at first. Consider a label or a clearer icon.
+- **The wearable prints the Wi-Fi network name on serial at join** (`net: connecting to …`). Remove it: network
+  names stay out of logs.
+- **The phone keeps relaying a stop after the wearable clears its pin on its own** (swipe, dock, passed follow).
+  Harmless: one fetch and one write per tick.
+- **A swiped pin comes back on the next reconnect.** The app can't see swipes; the fix is a pin field in `/info`
+  (spec and firmware change).
+- **Rewrite git history for the network name in old commit f9ed1e2?** The repo is public. Leo's call.
+
 ## Features
 
 Ranked by importance, most important first (do F1 first). Labels: F = feature, B = bug.
@@ -77,8 +95,13 @@ Ranked by importance, most important first (do F1 first). Labels: F = feature, B
 Today the handheld knows one network (`WIFI_SSID` / `WIFI_PASS` in `firmware/secrets.h`), so it only gets
 live data in one place.
 
+**Status (2026-11-15): done on the wearable, not on the dock.** The wearable keeps up to 5 networks in NVS, sent from
+the app over Bluetooth (setup's Wi-Fi step), with the `secrets.h` list as the fallback, and joins the strongest;
+a board check with two saved networks is still open (BLE plan W6a Step 7). The dock still joins one network from
+`secrets.h`, so moving it to another network means editing `secrets.h` and reflashing.
+
 - Hold a list of at least 5 SSID + password pairs (in the git-ignored `secrets.h`; setting them from the app
-  needs Bluetooth, which is future work: ecosystem spec section 12). Update `secrets.example.h` and the handheld README to show the list form.
+  over Bluetooth is built, BLE plan W6a/AB2). Update `secrets.example.h` and the handheld README to show the list form.
 - Scan, and of the saved networks in range, join the one with the strongest signal (RSSI).
 - If the connection drops, scan again and move to the next strongest.
 - Keep the first entry as home: docked detection (spec 8.4) depends on being on the home network.
@@ -87,6 +110,9 @@ live data in one place.
 it looks.
 
 ### F2. Battery level at the top of the handheld
+
+**Status (2026-11-15): partly done.** The battery and charging show on the wearable's Settings page (S-W); not yet at
+the top of every screen.
 
 Today the handheld only shows its charge while it's docked (the ring and "Charging · 64%" on the home screen).
 Off the dock there's no way to tell how much battery is left.
@@ -101,21 +127,25 @@ Off the dock there's no way to tell how much battery is left.
 
 ### F3. A real settings page on the handheld
 
+**Status (2026-11-15): built as S-W** (`bdd9e1f`, BLE plan): swipe left from Home; name, Wi-Fi with bars, battery and
+charging, Bluetooth, Pair again behind a confirm. Not built: brightness, networks in range, forget / move up,
+firmware version. Board check open (BLE plan S-W Step 4).
+
 The handheld has no settings screen; brightness is fixed in code (`brightness()` in `ui.cpp`), and Wi-Fi comes
 from `secrets.h`.
 
 - A settings screen reached from the home screen, in the handheld's theme, with at least:
   - default brightness (and the dimmed level), saved in flash
   - Wi-Fi: the saved networks from F1, the networks in range with their signal, which one it's on, and
-    forget / move up. Typing a new password on the watch is impractical, so networks come from `secrets.h`
-    (adding one from the app needs Bluetooth, future work: ecosystem spec section 12).
+    forget / move up. Typing a new password on the watch is impractical, so networks come from the app over
+    Bluetooth (built) or `secrets.h`.
   - battery and charging (F2), firmware version, and pairing / unpair
 - Decide the list of settings and how you get there (a gesture or a button on the home screen) in a short design
   first.
 
 **Why third:** it goes with F1 (the network list) and F2, and it ends hard-coded settings in firmware.
 
-### F4. A more premium font in the app, the handheld and the dock (done 2026-11-14; dock draw cost open)
+### F4. A more premium font in the app, the handheld and the dock (done 2026-11-14 in b181da8; dock draw cost open)
 
 **Done:** Leo picked from renders on both boards (Nunito, Inter, Geist, Figtree, Manrope). The boards use
 Manrope (SIL OFL 1.1), built by `font_build.py` from Google Fonts; Manrope stops at 800, so the atlases the UI
@@ -143,6 +173,9 @@ The text in all three looks close to Comic Sans: the iOS app uses SF Rounded (`T
 made on real screens first.
 
 ### F5. Tap Trackie to see why he feels that way
+
+**Status: built** on the wearable (`294ec27`) and the dock (`58c8b60`): tapping Trackie switches his bubble to the
+reason for a few seconds (`docs/handheld-ui.md`).
 
 The user can tap Trackie and see the reason for his current mood (Sleepy, Sad, Worried, Happy, Hyped).
 Right now it isn't clear why he's happy or sad.
@@ -241,6 +274,10 @@ has, and the LED row already shows the bunch.
 **Why eleventh:** a real alternative for very little work.
 
 ### F12. Countdown on the handheld (spec §2 stretch)
+
+**Status (2026-11-15): mostly superseded** by ecosystem Tasks 16 and 18: "Follow on Trackie" from a departure in the
+app, counted down on the wearable's Home card. Left from this item: starting a follow on the wearable itself, and
+leave time (F8).
 
 - Follow one arrival and count down to it on the handheld.
 - Start it from the handheld's stop detail view first. Starting it by tapping an arrival on the dock

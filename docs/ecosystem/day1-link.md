@@ -5,8 +5,10 @@ Ecosystem plan Task 1 (`docs/superpowers/plans/2026-11-14-ecosystem.md`), spec s
 train API every 30 s, all at once, and prints internal RAM every 5 s. This page is the procedure and the results.
 Networks are named only "home" and "campus".
 
-**Decision (Leo, 2026-11-14):** **LAN pairing, plan Appendix A.** No Bluetooth anywhere for the showcase. BLE works
-but costs about 50 KB of internal RAM, which neither board has; see [Decision](#decision).
+**Now (2026-11-15):** the dock is Wi-Fi only and pairs by code (Appendix A); the wearable talks Bluetooth first on
+ESP-IDF (setup and relay; see [ESP-IDF](#esp-idf)), with its Wi-Fi path as the fallback.
+**First decision (Leo, 2026-11-14, history):** LAN pairing, plan Appendix A, no Bluetooth anywhere for the showcase:
+on the Arduino build BLE cost about 50 KB of internal RAM, which neither board had; see [Decision](#decision).
 **BLE library tested:** NimBLE-Arduino 2.5.2 on arduino-esp32 3.2.0 (passes; kept for future work).
 
 ## Build
