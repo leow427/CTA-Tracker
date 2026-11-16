@@ -329,7 +329,7 @@ int main() {
         look();
         CHECK(!s.hasPin && !s.hasFollow);
 
-        // Every follow ends: a seen vehicle past its minutes plus the grace is Arrived, then expires, leaving the pin.
+        // Every follow ends: a seen vehicle past its minutes plus the grace is Arrived, then expires with its pin.
         ps.setFollow(&f);
         ps.updateFollow(t0 + 70);   // sees 911 on the t0 + 60 record
         const uint32_t over = t0 + 60 + (8 + cta::kFollowGraceMin) * 60 + 1;
@@ -338,7 +338,7 @@ int main() {
         CHECK(s.hasFollow && s.follow.state == cta::FollowState::Arrived);
         ps.updateFollow(over + cta::kFollowEndedSecs);
         look();
-        CHECK(!s.hasFollow && s.hasPin);
+        CHECK(!s.hasFollow && !s.hasPin && !ps.pin());
 
         // A pinned stop outside the list counts as close for Hyped: Red to Howard, live, due in about 1 min.
         ps.setNearby(far);

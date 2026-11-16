@@ -40,7 +40,8 @@ public:
     void setWeather(int wmo, float tempC);
 
     // The pinned stop and the followed vehicle (ecosystem spec 5.6, 5.7). setPin(nullptr) clears both; a pin at
-    // another stop drops the old stop's data and ends the follow. setFollow also pins f->stop.
+    // another stop drops the old stop's data and ends the follow. setFollow also pins f->stop;
+    // updateFollow clears both once the follow has ended (Arrived or Lost) for kFollowEndedSecs.
     void setPin(const cta::PickedStop* p);
     void setFollow(const cta::FollowMsg* f);
     const cta::PickedStop* pin() const { return hasPin_ ? &pin_ : nullptr; }

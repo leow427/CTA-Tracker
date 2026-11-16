@@ -898,6 +898,9 @@ one opens the search picker; a chosen card sends all 3 sections (platform IDs fo
   change).
 - A new pairing of a wearable (`DeviceLink.onAdded`, called from `add`) clears `pinned` and `followed`, so a reset
   wearable re-paired over Bluetooth doesn't get the old pin back.
+- 2026-11-15 (Leo): a follow whose departure is past `departedGraceSec` is no longer resent and doesn't fall back to
+  the pin: `AppModel.resend` returns nil, so the app forgets `pinned` and `followed` (a pin with no follow still
+  resends), matching the wearable clearing a passed follow with its pin.
 - [ ] **Step 2: Verify:** pin Belmont Red → the wearable's Home card is Belmont with ★ (after Task 18); follow the
   next train → the wearable counts down to it; reboot the wearable → pin and follow come back.
 - [ ] **Step 3: Commit:** `feat(ios): send a stop to Trackie and follow a departure`.
@@ -932,6 +935,8 @@ in the App Group.
   `glance`. After Task 8 and this task both merge, Track H copies `hasPin`/`pin`/`hasFollow`/`follow` from
   `live::Snapshot` in `fromLive`. The follow line takes the line from the pin's `route` and the destination from its
   `heading` (a bus's `dir` is its `rtdir`). A pin with no arrivals shows no time.
+- 2026-11-15 (Leo): when Arrived or Lost has shown for 60 s, `Store::updateFollow` clears the follow and its pin
+  (`setPin(nullptr)`), so Home goes back to the closest stops instead of an empty pinned card.
 - The ★ goes before the card's title: the stop on a train card, the route on a bus card (its stop line is too small).
 - The swipe calls `live::setFollow(nullptr)` and `live::setPin(nullptr)` and clears the model's pin for that frame;
   it stays gone only if `setPin(nullptr)` clears the published snapshot. `mock_data.cpp` holds weak stubs of both

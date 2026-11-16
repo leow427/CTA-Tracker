@@ -220,7 +220,7 @@ int Store::pinRecords() const {
 void Store::updateFollow(uint32_t now) {
     if (!hasFollow_) return;
     view_ = cta::followView(staging_->atPin, pinRecords(), follow_, memo_, now);
-    if (cta::followExpired(memo_, now)) hasFollow_ = false;
+    if (cta::followExpired(memo_, now)) setPin(nullptr);   // the follow and the pin it made: Home goes back to the closest stops
 }
 
 bool Store::everyStopPolled() const {

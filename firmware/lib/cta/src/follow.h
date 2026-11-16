@@ -41,7 +41,7 @@ struct FollowView {
 // than the follow's first look. now is Unix time.
 FollowView followView(const StopRecord* recs, int n, const FollowMsg& f, FollowMemo& memo, uint32_t now);
 
-// True once Arrived or Lost has lasted kFollowEndedSecs: the card falls back to the pin.
+// True once Arrived or Lost has lasted kFollowEndedSecs: the follow and its pin clear (Home goes back to the closest stops).
 bool followExpired(const FollowMemo& memo, uint32_t now);
 
 }  // namespace cta

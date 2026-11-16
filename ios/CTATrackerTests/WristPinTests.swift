@@ -16,9 +16,14 @@ struct WristPinTests {
         #expect(f.vehicle == "812" && f.stop == belmont)
     }
 
-    @Test func followPastTheGraceFallsBackToThePin() {
-        let r = AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: true, docked: false,
-                                now: due.addingTimeInterval(Config.departedGraceSec))
+    @Test func followPastTheGraceClearsWithItsPin() {
+        #expect(AppModel.resend(followed: follow, followedAt: due, pinned: belmont, paired: true, docked: false,
+                                now: due.addingTimeInterval(Config.departedGraceSec)) == nil)
+    }
+
+    @Test func aPinWithNoFollowIsResent() {
+        let r = AppModel.resend(followed: nil, followedAt: .distantPast, pinned: belmont, paired: true, docked: false,
+                                now: due)
         guard case .pin(let p) = r else { Issue.record("\(String(describing: r))"); return }
         #expect(p == belmont)
     }

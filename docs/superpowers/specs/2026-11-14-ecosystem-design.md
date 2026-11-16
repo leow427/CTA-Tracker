@@ -309,9 +309,11 @@ CTA-Pet-xxxx in iOS Settings → Bluetooth").
 - In stop detail, a departure tile offers "Follow on Trackie" (the builder picks the gesture: a long press or a small
   button on the open tile). It sends `POST /follow`, which also pins that stop.
 - The wearable's Home card counts down to that vehicle, matched by `rn`/`vid` in the predictions it polls for the
-  stop: "Red · 4 min · to 95th." When it's due it says so and clears a minute later. If the vehicle drops out of the
-  predictions before it's due, the card says the train (or bus) was lost, then falls back to the pin. `DELETE /follow`
-  or a new follow replaces it.
+  stop: "Red · 4 min · to 95th." When it's due it says so; a minute later the follow and the pin it made clear and
+  Home goes back to the closest stops. If the vehicle drops out of the predictions before it's due, the card says the
+  train (or bus) was lost for a minute, then the same: the follow and its pin clear (Leo 2026-11-15; it used to fall
+  back to the pin). The app stops re-sending a follow whose departure has passed and forgets its pin too.
+  `DELETE /follow` or a new follow replaces it.
 - F6's map display (every vehicle on the line in the app's map) isn't part of this design.
 
 ### 5.8 Relay with no Wi-Fi (step 7): back
