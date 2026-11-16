@@ -1040,8 +1040,10 @@ on-tap requests), `firmware/lib/cta` (parsers, with native tests in `firmware/na
 - [x] **Step 2: The other direction.** Tap a stop card → 30 s peek at the other direction (trains: the opposite
   platform from the dock's tables; buses: the closest stop on the same route going the other way). Saved pick, LED
   row and `picks_ver` unchanged; hold still opens the picker.
-- [ ] **Step 3: Verify** on the dock: both peeks on a train and a bus card; RAM low-water mark no worse than 5 KB
+- [x] **Step 3: Verify** on the dock: both peeks on a train and a bus card; RAM low-water mark no worse than 5 KB
   below today's (83 KB); frame time unchanged when idle.
+  *Done 2026-11-16 (Leo, on the showcase network): every tap worked (stops ahead for a train and a bus, other way
+  on both, hold still picks); internal RAM low-water 82.5 KB during the taps.*
 - [x] **Step 4: Commit:** `feat(dock): tap a time for the stops ahead, tap a card for the other direction`.
 
 **As built (worker notes):**
