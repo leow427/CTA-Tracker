@@ -228,13 +228,15 @@ struct DetailHeroView: View {
             VStack(spacing: Theme.Space.m) {
                 MapButton(symbol: "xmark", label: "Close", fill: Color(rgb: 0xE5484D)) { model.closeDetail += 1 }
                 StarButton(favorite: Favorite(stopID: hero.stopID, line: hero.line))
-                // Only while a paired wearable is online (spec 5.6); a station is pinned by its own ID.
-                if !model.onlineWearables.isEmpty, let stop = model.detailStop {
-                    SendToTrackieButton(pin: ConfigStop(pinning: stop, line: hero.line))
+                // Only while a paired wearable or dock is online (spec 5.6). The wearable pins a station by its own ID;
+                // a dock section takes the shown group's platform, as the dock's picker does.
+                if !model.onlineWearables.isEmpty || !model.onlineDocks.isEmpty, let stop = model.detailStop {
+                    SendToTrackieButton(pin: ConfigStop(pinning: stop, line: hero.line),
+                                        dock: ConfigStop(dock: hero.line, kind: hero.kind, stopID: hero.stopID, name: stop.name))
                         .transition(.scale.combined(with: .opacity))
                 }
             }
-            .animation(Theme.snappy, value: model.onlineWearables.isEmpty)
+            .animation(Theme.snappy, value: model.onlineWearables.isEmpty && model.onlineDocks.isEmpty)
         }
         .padding(.horizontal, Theme.Space.l)
         .padding(.top, Theme.Space.xs)

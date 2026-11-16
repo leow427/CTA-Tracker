@@ -842,10 +842,15 @@ Also: resend pet and settings on `.resendState`, and uncomment the wearable's `u
 **Interfaces:** Consumes `ConfigStop`, `GET/POST /config`, `.fetchConfig`. Produces the dock page's 3 sections; tapping
 one opens the search picker; a chosen card sends all 3 sections (platform IDs for trains).
 
-- [ ] **Step 1:** Build it; on `.fetchConfig` read `GET /config` and refresh the sections.
+- [x] **Step 1:** Build it; on `.fetchConfig` read `GET /config` and refresh the sections.
 - [ ] **Step 2: Verify:** pick in the app → dock section and LED row change; pick on the dock → the app's page shows
   it within 3 s.
-- [ ] **Step 3: Commit:** `feat(ios): pick the dock's stops from the app, and see picks made on the dock`.
+- [x] **Step 3: Commit:** `feat(ios): pick the dock's stops from the app, and send a stop to the dock`.
+
+**As built:** `AppModel.dockPicks` holds each dock's 3 sections (read on `.fetchConfig`, retried while online);
+`DockConfig.replacing` builds the body (empty `{}`, other sections' `rtnm` kept; app picks send none); plus Send to
+dock (Leo, 2026-11-16): the stop page's paper plane becomes a menu, "Send to Trackie" and "Send to dock" → "Replace
+<name>" / "Empty section", sending the shown group's platform.
 
 ### Task 15: Nearby and the mirror (Track A)
 

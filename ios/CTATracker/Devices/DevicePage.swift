@@ -6,8 +6,9 @@ struct DevicePage: View {
     let link: DeviceLink
     let device: DeviceLink.Device
     @Environment(\.dismiss) private var dismiss
-    @State private var stops: [ConfigStop]?
+    @Environment(AppModel.self) private var model
     @State private var confirming = false
+    @State private var picking: Int?   // the section whose picker is open
 
     private var info: InfoMessage? { link.online[device.id] }
     private var wearable: Bool { device.kind == .handheld }
@@ -34,14 +35,18 @@ struct DevicePage: View {
             }
             if !wearable {
                 Section("Stops") {
-                    if let stops, stops.isEmpty {
-                        Text("No stops picked yet.").foregroundStyle(Theme.secondaryText)
-                    } else if let stops {
-                        ForEach(stops, id: \.self) { stop in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(stop.name)
-                                Text("\(stop.route) · \(stop.dir)").font(.subheadline).foregroundStyle(Theme.secondaryText)
+                    // Read on `.fetchConfig` (AppModel), so a pick made on the dock shows here within a poll.
+                    if info != nil, let picks = model.dockPicks[device.id] {
+                        ForEach(Array(picks.enumerated()), id: \.offset) { i, pick in
+                            Button { picking = i } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(pick.stop?.name ?? "Empty")
+                                        .foregroundStyle(pick.stop == nil ? Theme.secondaryText : .primary)
+                                    Text(pick.stop.map { "Section \(i + 1) · \($0.route) · \($0.dir)" } ?? "Section \(i + 1)")
+                                        .font(.subheadline).foregroundStyle(Theme.secondaryText)
+                                }
                             }
+                            .accessibilityHint("Picks this section's stop")
                         }
                     } else {
                         Text("Shown when the dock is online.").foregroundStyle(Theme.secondaryText)
@@ -55,12 +60,8 @@ struct DevicePage: View {
             }
         }
         .navigationTitle(device.name)
-        .task(id: info?.picksVer) {   // a pick on the dock raises picks_ver (spec 4.4), like DeviceWatch's .fetchConfig
-            guard !wearable, info != nil else { return }
-            while !Task.isCancelled {   // a single missed poll is normal (DeviceWatch allows 3), so retry
-                if let config: DockConfig = try? await link.get("/config", from: device.id) { stops = config.picked; return }
-                try? await Task.sleep(for: .seconds(DeviceLink.pollSec))
-            }
+        .sheet(isPresented: Binding { picking != nil } set: { if !$0 { picking = nil } }) {
+            if let picking { DockStopPicker(dock: device.id, section: picking) }
         }
         .confirmationDialog("Forget \(device.name)?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Forget", role: .destructive) {
@@ -81,12 +82,51 @@ struct DevicePage: View {
     }
 }
 
-/// The dock's `GET /config` stops: always 3 slots, `{}` for an empty one (firmware picks.cpp `encodePicks`).
-nonisolated struct DockConfig: Decodable {
-    private struct Slot: Decodable {
-        let stop: ConfigStop?
-        init(from decoder: Decoder) throws { stop = try? ConfigStop(from: decoder) }
+/// The dock's `GET /config` and `POST /config` stops: always 3 sections, `{}` for an empty one (firmware picks.cpp
+/// `encodePicks`, `decodePicks`). Trains are a platform ID with its line's direction, as the dock's own picker saves them.
+nonisolated struct DockConfig: Codable {
+    static let sections = 3   // the dock's kDockStops
+
+    /// One section. `rtnm` (a bus route's name, which the app doesn't know) is kept so a section the app didn't change
+    /// goes back exactly as the dock gave it.
+    struct Pick: Codable, Hashable {
+        var stop: ConfigStop?
+        var rtnm = ""
+        private enum Key: String, CodingKey { case rtnm }
+
+        init(_ stop: ConfigStop?) { self.stop = stop }
+        init(from decoder: Decoder) throws {
+            stop = try? ConfigStop(from: decoder)
+            rtnm = (try? decoder.container(keyedBy: Key.self).decode(String.self, forKey: .rtnm)) ?? ""
+        }
+        func encode(to encoder: Encoder) throws {
+            guard let stop else { _ = encoder.container(keyedBy: Key.self); return }   // `{}`
+            try stop.encode(to: encoder)
+            if !rtnm.isEmpty {
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(rtnm, forKey: .rtnm)
+            }
+        }
     }
-    private let stops: [Slot]?
-    var picked: [ConfigStop] { stops?.compactMap(\.stop) ?? [] }
+
+    var stops: [Pick]?
+
+    /// Exactly 3 sections, which is all the dock takes; a short list is padded with empty ones.
+    static func padded(_ picks: [Pick]) -> [Pick] {
+        Array((picks + Array(repeating: Pick(nil), count: sections)).prefix(sections))
+    }
+
+    /// All 3 sections with one replaced and the others as they were.
+    static func replacing(_ current: [Pick], section: Int, with stop: ConfigStop?) -> [Pick] {
+        var picks = padded(current)
+        picks[section] = Pick(stop)
+        return picks
+    }
+}
+
+extension ConfigStop {
+    /// What a dock section holds for one card: a train's platform (not its station) or a bus stop, with the line.
+    init(dock line: Line, kind: Kind, stopID: String, name: String) {
+        self.init(type: kind == .station ? .train : .bus, route: line.route, dir: line.dir, id: stopID, name: name)
+    }
 }

@@ -58,7 +58,9 @@ import SwiftUI
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
         devices.onAction = { [weak self] id, action in
-            guard let self, isWearable(id) else { return }
+            guard let self else { return }
+            if action == .fetchConfig, isDock(id) { fetchConfig(id) }
+            guard isWearable(id) else { return }
             // Docking clears the wearable's pin (spec 5.6), so the app forgets it too.
             if action == .docked { (pinned, followed) = (nil, nil) }
             // A rebooted or newly seen wearable lost its pin and follow (kept in RAM, spec 5.6): give them back, even
@@ -70,7 +72,10 @@ import SwiftUI
         }
         // A fresh pairing means a fresh wearable (a demo reset, spec 5.4): its old pin and follow don't come back.
         devices.onAdded = { [weak self] id in
-            guard let self, isWearable(id) else { return }
+            guard let self else { return }
+            // Its first `.fetchConfig` came before `add`, when it wasn't ours yet.
+            if isDock(id) { fetchConfig(id) }
+            guard isWearable(id) else { return }
             (pinned, followed) = (nil, nil)
             // Its first `.cameOnline` came before `add`, when it wasn't ours yet, so its stops go now.
             if active { sendNearby(to: id, unlessHas: false) }
@@ -235,6 +240,44 @@ import SwiftUI
         guard paired, !docked else { return nil }
         if let followed { return now.timeIntervalSince(followedAt) < Config.followEndedSec ? .follow(followed) : nil }
         return pinned.map { .pin($0) }
+    }
+
+    // MARK: - Dock stops (ecosystem spec 5.3)
+
+    /// Each paired dock's 3 sections as it last reported them (`GET /config`), read on `.fetchConfig`.
+    private(set) var dockPicks: [String: [DockConfig.Pick]] = [:]
+    @ObservationIgnored private var configFetches: [String: Task<Void, Never>] = [:]
+
+    private func isDock(_ id: String) -> Bool { devices.devices.first { $0.id == id }?.kind == .dock }
+
+    /// Paired docks online whose sections are known: what "Send to dock" can replace.
+    var onlineDocks: [String] {
+        devices.devices.filter { $0.kind == .dock && devices.online[$0.id] != nil && dockPicks[$0.id] != nil }.map(\.id)
+    }
+
+    /// Reads the dock's sections; a missed poll is normal (DeviceWatch allows 3), so it retries while the dock is online.
+    private func fetchConfig(_ id: String) {
+        configFetches[id]?.cancel()
+        configFetches[id] = Task { [weak self] in
+            while let self, !Task.isCancelled, devices.online[id] != nil {
+                if let config: DockConfig = try? await devices.get("/config", from: id), let stops = config.stops,
+                   !Task.isCancelled {
+                    dockPicks[id] = DockConfig.padded(stops)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(DeviceLink.pollSec))
+            }
+        }
+    }
+
+    /// Replaces one section of the dock, keeping the other two as the dock last reported them; true when it took it.
+    /// The dock raises `picks_ver`, and the `.fetchConfig` that follows reads back what it saved.
+    func sendToDock(_ stop: ConfigStop, section: Int, dock id: String) async -> Bool {
+        guard let current = dockPicks[id] else { return false }   // never blank the other two sections
+        let picks = DockConfig.replacing(current, section: section, with: stop)
+        do { try await devices.post("/config", DockConfig(stops: picks), to: id) } catch { return false }
+        dockPicks[id] = picks
+        return true
     }
 
     // MARK: - Storage

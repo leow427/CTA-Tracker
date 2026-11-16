@@ -417,35 +417,62 @@ struct StarButton: View {
     }
 }
 
-/// "Send to Trackie" beside ★ (ecosystem spec 5.6): pins this card on the wearable. A plate button like ★; for 2 s
-/// after a send it shows a check or a ⚠, with a success or error haptic, then goes back.
+/// "Send to Trackie" beside ★ (ecosystem spec 5.6): pins this card on the wearable. With a dock online it's a menu
+/// that also offers each dock section to replace (Leo 2026-11-16); with only Trackie it stays one tap. A plate button
+/// like ★; for 2 s after a send it shows a check or a ⚠, with a success or error haptic, then goes back.
 struct SendToTrackieButton: View {
     let pin: ConfigStop
+    let dock: ConfigStop   // the same card as a dock section takes it (a train's platform)
     @Environment(AppModel.self) private var model
     @State private var sending = false
     @State private var sent: Bool?
 
     var body: some View {
-        Button {
-            sending = true
-            Task {
-                sent = await model.pin(pin)
-                sending = false
-                AccessibilityNotification.Announcement(sent == true ? "Sent to Trackie" : "Couldn't reach Trackie").post()
+        Group {
+            if model.onlineDocks.isEmpty {
+                Button { send("Trackie") { await model.pin(pin) } } label: { plate }
+                    .accessibilityLabel("Send to Trackie")
+            } else {
+                Menu {
+                    if !model.onlineWearables.isEmpty {
+                        Button("Send to Trackie", systemImage: "pawprint.fill") { send("Trackie") { await model.pin(pin) } }
+                    }
+                    ForEach(model.onlineDocks, id: \.self) { id in
+                        Section("Send to dock") {
+                            ForEach(Array((model.dockPicks[id] ?? []).enumerated()), id: \.offset) { i, p in
+                                Button { send("the dock") { await model.sendToDock(dock, section: i, dock: id) } } label: {
+                                    Text(p.stop.map { "Replace \($0.name)" } ?? "Empty section")
+                                    Text(p.stop.map { "Section \(i + 1) · \($0.route) · \($0.dir)" } ?? "Section \(i + 1)")
+                                }
+                            }
+                        }
+                    }
+                } label: { plate }
+                .accessibilityLabel("Send to Trackie or dock")
             }
-        } label: {
-            Image(systemName: sent == nil ? "paperplane.fill" : sent == true ? "checkmark" : "exclamationmark.triangle.fill")
-                .contentTransition(.symbolEffect(.replace))
-                .font(Theme.mapSymbol)
-                .foregroundStyle(sent == true ? Theme.live : .white)
-                .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
-                .plate(edge: 4, shape: .small)
         }
         .buttonStyle(PressableCard())
         .disabled(sending)
         .sensoryFeedback(trigger: sent) { _, new in new.map { $0 ? .success : .error } }
         .task(id: sent) { if sent != nil { try? await Task.sleep(for: .seconds(2)); sent = nil } }
-        .accessibilityLabel("Send to Trackie")
+    }
+
+    private func send(_ to: String, _ action: @escaping () async -> Bool) {
+        sending = true
+        Task {
+            sent = await action()
+            sending = false
+            AccessibilityNotification.Announcement(sent == true ? "Sent to \(to)" : "Couldn't reach \(to)").post()
+        }
+    }
+
+    private var plate: some View {
+        Image(systemName: sent == nil ? "paperplane.fill" : sent == true ? "checkmark" : "exclamationmark.triangle.fill")
+            .contentTransition(.symbolEffect(.replace))
+            .font(Theme.mapSymbol)
+            .foregroundStyle(sent == true ? Theme.live : .white)
+            .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
+            .plate(edge: 4, shape: .small)
     }
 }
 
