@@ -823,6 +823,7 @@ void netTask(void*) {
             bool changed = takeNearby();   // in this order: a relayed pin's stop is accepted once it's pinned
             changed |= takeLink();
             changed |= takeRelays();
+            changed |= ntpSynced() && store.followOver(static_cast<uint32_t>(time(nullptr)));
             if (changed) publish();
             vTaskDelay(pdMS_TO_TICKS(500));
         }
@@ -890,6 +891,7 @@ void netTask(void*) {
             publish();
         }
         if (takeLink()) publish();     // a pin or follow from the app: poll its stop from now on
+        if (ntpSynced() && store.followOver(static_cast<uint32_t>(time(nullptr)))) publish();   // Home back on time
         if (takeRelays()) publish();   // the phone's arrivals and weather, after the pin they may be for
         if (takeWifi()) {   // a new or changed network: rejoin, strongest saved first
             if (wifiUp) {

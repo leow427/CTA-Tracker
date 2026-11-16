@@ -259,7 +259,7 @@ static void follow_two_lines_one_label() {
     ASSERT_VIEW(FollowState::Waiting, 2, cta::followView(cards, n, follow("Loop", "510", "P"), p, 1000));
 }
 
-static void follow_expires_after_60_s() {
+static void follow_expires_after_the_hold() {
     cta::FollowMemo m;
     view(card(100, 0), m, 100);
     TEST_ASSERT_FALSE(cta::followExpired(m, 1000));  // Due isn't over yet
@@ -269,13 +269,13 @@ static void follow_expires_after_60_s() {
     cta::FollowMemo lost;
     view(card(100, 9), lost, 100);
     view(card(160, 0, ""), lost, 170);
-    TEST_ASSERT_FALSE(cta::followExpired(lost, 229));
-    TEST_ASSERT_TRUE(cta::followExpired(lost, 230));
+    TEST_ASSERT_FALSE(cta::followExpired(lost, 169 + cta::kFollowEndedSecs));
+    TEST_ASSERT_TRUE(cta::followExpired(lost, 170 + cta::kFollowEndedSecs));
     // A clock still at 0 (before time sync) ends and expires too.
     cta::FollowMemo zero;
     view(card(1, 9), zero, 0);
     ASSERT_VIEW(FollowState::Lost, 9, view(card(61, 0, ""), zero, 0));
-    TEST_ASSERT_TRUE(cta::followExpired(zero, 60));
+    TEST_ASSERT_TRUE(cta::followExpired(zero, cta::kFollowEndedSecs));
 }
 
 int main(int, char**) {
@@ -297,6 +297,6 @@ int main(int, char**) {
     RUN_TEST(follow_finds_its_card);
     RUN_TEST(follow_from_train_cards);
     RUN_TEST(follow_two_lines_one_label);
-    RUN_TEST(follow_expires_after_60_s);
+    RUN_TEST(follow_expires_after_the_hold);
     return UNITY_END();
 }

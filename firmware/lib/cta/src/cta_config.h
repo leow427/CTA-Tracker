@@ -42,7 +42,7 @@ constexpr uint8_t kPairMaxWrong = 5;            // wrong codes in a row, then a 
 constexpr uint32_t kPairCooldownMs = 30 * 1000;
 
 // Follow a train (ecosystem spec 5.7)
-constexpr uint32_t kFollowEndedSecs = 60;   // Arrived or Lost shows this long, then the follow and its pin clear
+constexpr uint32_t kFollowEndedSecs = 30;   // Arrived or Lost shows this long, then the follow and its pin clear (Leo 2026-11-15)
 constexpr int kFollowGraceMin = 2;          // a seen vehicle counts as arrived this long after its last minutes ran out
 constexpr int kFollowUnseenCapMin = 3;      // a vehicle never on the card is lost after this many minutes of fresh polls
 

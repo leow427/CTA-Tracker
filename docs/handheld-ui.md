@@ -62,7 +62,7 @@ everywhere else on Home it still opens Settings.
   Howard"). The destination comes from the card's heading (a bus's `dir` is "Southbound"), cut at a "/" as the spec
   writes it. A pin with nothing due shows no time. At 0–1 min it's "Red · Due · to 95th" with "Due"
   big; not on the card yet (further out than its 4 arrivals), "Red · to 95th" with "--". Then "Arrived", or "Lost the
-  train" ("Lost the bus"), with no time, for 60 s (`cta::kFollowEndedSecs`); then the follow and its pin clear and Home goes back to the closest stops
+  train" ("Lost the bus"), with no time, for 30 s (`cta::kFollowEndedSecs`); then the follow and its pin clear and Home goes back to the closest stops
   (Leo 2026-11-15; `live::Store::updateFollow`).
 - The code: `followCard` and `star` in `firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `hasPin`, `pin`,
   `hasFollow`, `follow`. Renders: `tools/preview.cpp` writes `pin_*` and `follow_*`.

@@ -279,7 +279,7 @@ void update(Model& m, uint32_t now, uint32_t startUnix) {
     for (int i = 0; i < m.nTrains; ++i) m.trains[i].close = m.trains[i].distKm <= closest[2] + 1e-4f;
     for (int i = 0; i < m.nBuses; ++i) m.buses[i].close = m.buses[i].distKm <= closest[2] + 1e-4f;
     // Live pins Belmont's Red to 95th and follows its second train (due 9 min after start): it counts down, is Due,
-    // shows Arrived for a minute, then the follow and its pin clear (spec 5.7) and Home shows the closest stops.
+    // shows Arrived for about a minute (the mock counts whole minutes; the live build holds it 30 s), then the follow and its pin clear (spec 5.7) and Home shows the closest stops.
     m.hasPin = m.hasFollow = false;
     if (sc == Scenario::Live && !gUnpinned)
         for (int i = 0; i < m.nTrains; ++i)

@@ -195,7 +195,7 @@ import SwiftUI
     /// grace is dropped too, or the next resend would clear the new pin with it.
     nonisolated static func follow(after pin: ConfigStop, followed: FollowMessage?, followedAt: Date,
                                    now: Date) -> FollowMessage? {
-        guard followed?.stop == pin, now.timeIntervalSince(followedAt) < Config.departedGraceSec else { return nil }
+        guard followed?.stop == pin, now.timeIntervalSince(followedAt) < Config.followEndedSec else { return nil }
         return followed
     }
 
@@ -227,14 +227,13 @@ import SwiftUI
 
     enum Resend { case follow(FollowMessage), pin(ConfigStop) }
 
-    /// The follow while its departure could still be on the wrist (gone a minute after it's due, as the list drops
-    /// it); after that nothing, as the wearable clears a passed follow with its pin (Leo 2026-11-15). A pin with no
+    /// The follow until `followEndedSec` past its departure (the wearable shows Arrived that long); after that nothing, as the wearable clears a passed follow with its pin (Leo 2026-11-15). A pin with no
     /// follow is resent. Nothing for a wearable that's reset (unpaired) or docked: it dropped its pin on purpose
     /// (spec 5.4, 5.6).
     nonisolated static func resend(followed: FollowMessage?, followedAt: Date, pinned: ConfigStop?,
                                    paired: Bool, docked: Bool, now: Date) -> Resend? {
         guard paired, !docked else { return nil }
-        if let followed { return now.timeIntervalSince(followedAt) < Config.departedGraceSec ? .follow(followed) : nil }
+        if let followed { return now.timeIntervalSince(followedAt) < Config.followEndedSec ? .follow(followed) : nil }
         return pinned.map { .pin($0) }
     }
 

@@ -45,6 +45,9 @@ public:
     void setPin(const cta::PickedStop* p);
     void setFollow(const cta::FollowMsg* f);
     const cta::PickedStop* pin() const { return hasPin_ ? &pin_ : nullptr; }
+    // True once a follow's Arrived or Lost has shown for kFollowEndedSecs: the net task publishes then, not at its
+    // next poll (up to 60 s later).
+    bool followOver(uint32_t now) const { return hasFollow_ && cta::followExpired(memo_, now); }
     // A response for a pinned station outside the list (-1 for a bus pin: its stop rides in applyBuses' poll).
     int applyPin(const char* body, size_t len, uint32_t now);
     // Runs the follow rules on the newest records at the pinned stop; ends the follow once it has expired.
