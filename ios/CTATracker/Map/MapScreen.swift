@@ -97,7 +97,7 @@ struct MapControls: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.m) {
-            PetAvatar(mood: petMood(now: .now)) { model.showSettings = true }
+            PetAvatar(mood: petMood(now: .now), colors: model.pet.colors) { model.showSettings = true }
             NearLabel(center: model.center)
             Spacer(minLength: 0)
             VStack(spacing: Theme.Space.m) {
@@ -156,6 +156,7 @@ struct MapButton: View {
 /// a game character waiting, and holds still under Reduce Motion.
 struct PetAvatar: View {
     let mood: Mood
+    let colors: [UInt32]   // the pet's, so a new color shows at once
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -163,7 +164,7 @@ struct PetAvatar: View {
         Button(action: action) {
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let up = !reduceMotion && Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-                PixelImage(image: Glyphs.pet(mood), points: 96)   // 3× the 32-pixel art
+                PixelImage(image: Glyphs.pet(mood, colors: colors), points: 96)   // 3× the 32-pixel art
                     .offset(y: up ? -3 : 0)   // one art pixel
                     .frame(width: Theme.avatar, height: Theme.avatar)
                     .plate(Theme.cream, rim: Theme.navy, rimWidth: 3)

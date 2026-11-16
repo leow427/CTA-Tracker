@@ -1,0 +1,9 @@
+# Trackie's color presets (ecosystem spec 5.2): <name> <slot 2 body> <slot 3 body light>, as 0xRRGGBB.
+# The app's Settings -> Pet offers these in order; the first is the default. Kept in sync with Pet.presets in CTAKit
+# (PetPresetsTests.matchesArtFile). The devices take whatever two colors config.pet carries.
+Blue 0x2D6BE6 0x7DB4FF
+Green 0x1E9E50 0x72D98F
+Orange 0xF26B1D 0xFFAE70
+Purple 0x7B4BD8 0xB79BFF
+Pink 0xE2549C 0xFF9FCD
+Teal 0x12A0A8 0x6BDCE0

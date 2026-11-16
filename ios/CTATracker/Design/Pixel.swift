@@ -107,10 +107,19 @@ enum Glyphs {
 
     /// Leo's train pet (32×32): one body, a face per mood drawn on its door, and a little extra that floats beside
     /// it (heart, excitement lines, sweat drop, Zz; sad has its tears on its face).
-    static func pet(_ mood: Mood) -> CGImage { pets[mood]! }
+    /// `colors` paint palette slots 2 and 3 (a `Pet.presets` entry). The default is the chosen pet's, which `AppModel`
+    /// keeps in `petColors`; views that must redraw the moment it changes pass `model.pet.colors` themselves.
+    static func pet(_ mood: Mood, colors: [UInt32]? = nil) -> CGImage {
+        let colors = colors ?? petColors
+        if let image = pets[colors]?[mood] { return image }
+        let image = petImage(face: petFaces[mood]!, colors: colors)
+        pets[colors, default: [:]][mood] = image
+        return image
+    }
     static func petExtra(_ mood: Mood) -> CGImage? { extras[mood] }
 
-    private static let pets = Dictionary(uniqueKeysWithValues: Mood.allCases.map { ($0, petImage(face: petFaces[$0]!)) })
+    static var petColors = Pet.defaultConfig.colors
+    private static var pets: [[UInt32]: [Mood: CGImage]] = [:]   // a handful: one entry per preset shown
     private static let extras = petExtras.mapValues { petArt($0) }
 
     private static let petChars = ".KBLGSWDCRYPUT"
@@ -200,16 +209,18 @@ enum Glyphs {
         .sleepy: ["WWWW...", "..W....", ".W.....", "WWWW...", "....WWW", ".....W.", "....WWW"]
     ]
 
-    private static func petImage(face: [String]) -> CGImage {
+    private static func petImage(face: [String], colors: [UInt32]) -> CGImage {
         var rows = petBody.map(Array.init)
         for (dy, row) in face.enumerated() {
             for (dx, c) in row.enumerated() where c != "." { rows[12 + dy][11 + dx] = c }
         }
-        return petArt(rows.map { String($0) })
+        var palette = petPalette
+        if colors.count == 2 { palette[2...3] = colors[...] }   // B and L, as on the boards (pet::applyColors)
+        return petArt(rows.map { String($0) }, palette: palette)
     }
 
-    private static func petArt(_ rows: [String]) -> CGImage {
-        PetSprites.grid(rows, chars: petChars).flatMap { PetSprites.image(grid: $0, palette: petPalette) }!
+    private static func petArt(_ rows: [String], palette: [UInt32] = petPalette) -> CGImage {
+        PetSprites.grid(rows, chars: petChars).flatMap { PetSprites.image(grid: $0, palette: palette) }!
     }
 
     private static func glyph(_ rows: [String]) -> CGImage {

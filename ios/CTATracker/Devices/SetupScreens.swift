@@ -5,6 +5,7 @@ import SwiftUI
 /// everything (app spec 6.1–6.2). Attached once, inside the sheet's content.
 struct SetupHost: ViewModifier {
     let link: DeviceLink
+    @Environment(AppModel.self) private var model
     @State private var dismissed: Set<String> = []   // "Not now": until the next launch
     @State private var flow: SetupFlow?
     @State private var asked = false
@@ -15,7 +16,10 @@ struct SetupHost: ViewModifier {
                 Group {
                     if let c = candidates.first {
                         SetupCard(title: c.title, action: c.action, symbol: c.kind == .dock ? "tv" : "applewatch") {
-                            flow = SetupFlow(c, link: link)
+                            let f = SetupFlow(c, link: link)
+                            f.petName = model.pet.name
+                            f.onPetName = { [model] name in model.pet = PetConfig(name: name, colors: model.pet.colors) }
+                            flow = f
                         } notNow: {
                             dismissed.insert(c.id)
                         }
@@ -248,7 +252,7 @@ struct SetupScreen: View {
                     .buttonStyle(SecondaryButton())
                     .disabled(flow.busy)
             case .pet:
-                Button("Continue") { Task { await flow.savePet() } }
+                Button("Continue") { flow.savePet() }
                     .buttonStyle(PrimaryButton())
                     .disabled(flow.petName.trimmingCharacters(in: .whitespaces).isEmpty || flow.busy)
             case .ready:

@@ -35,7 +35,7 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
   The reasons are examples; the real one names the stop or alert behind the mood.
 - **Speech bubble:** a cream pixel bubble beside him says the mood word. Tapping Trackie switches it to the reason for a few seconds.
 - **Weather:** an umbrella over the roof in rain, a striped scarf over the bumper in snow or below 0 °C, from Open-Meteo. Never while Asleep.
-- **Pet colors:** set from the app. They replace two palette slots (body and body light), so recoloring needs no new art.
+- **Pet colors:** set from the app (Settings → Pet, one of the 6 presets in `art/presets.txt`). They replace two palette slots (body and body light), so recoloring needs no new art. Saved on the wearable, so a reboot keeps them.
 - **Debug:** a two-finger long-press on Trackie cycles every mood and state, for testing and the demo.
 
 ## Screens

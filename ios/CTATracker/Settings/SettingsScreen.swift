@@ -10,8 +10,10 @@ struct SettingsScreen: View {
             List {
                 DeviceList(link: link)
                 Section {
-                    row("Pet", "pawprint.fill")
-                    row("Device settings", "slider.horizontal.3")
+                    NavigationLink { PetSettings() } label: { Label("Pet", systemImage: "pawprint.fill") }
+                    NavigationLink { DeviceSettingsScreen() } label: {
+                        Label("Device settings", systemImage: "slider.horizontal.3")
+                    }
                     row("Find my handheld", "location.magnifyingglass")
                 }
                 Section {

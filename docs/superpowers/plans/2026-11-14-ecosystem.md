@@ -825,14 +825,26 @@ modify `ios/CTATracker/Design/Pixel.swift` (palette slots 2–3 from the chosen 
 Also: resend pet and settings on `.resendState`, and uncomment the wearable's `ui::petPalette565 = petPalette`
 (Task 8's note) so Trackie recolors on the wrist.
 
-- [ ] **Step 1:** Write `art/presets.txt`: 6 presets, two `0xRRGGBB` each for slots 2 and 3, the first being today's
+- [x] **Step 1:** Write `art/presets.txt`: 6 presets, two `0xRRGGBB` each for slots 2 and 3, the first being today's
   blue (`0x2D6BE6 0x7DB4FF`). Add `PetPresetsTests.matchesArtFile` in CTAKit tests (a `Pet.presets` table in CTAKit,
   Track K reviews) that reads `art/presets.txt` and compares.
-- [ ] **Step 2:** Build the Pet screen (name, 6 swatches with a 128 pt Trackie preview) and Device settings (screen
+- [x] **Step 2:** Build the Pet screen (name, 6 swatches with a 128 pt Trackie preview) and Device settings (screen
   brightness, LED brightness, night hours).
 - [ ] **Step 3: Verify:** change the color and name in the app; Trackie changes on the dock and the wearable within
   3 s; reboot the wearable and it comes back recolored.
-- [ ] **Step 4: Commit:** `feat(ios): one Trackie and device settings, synced to both boards`.
+- [x] **Step 4: Commit:** `feat(ios): one Trackie and device settings, synced to both boards`.
+
+**As built (worker notes):** presets are Blue, Green, Orange, Purple, Pink, Teal (`<name> 0xRRGGBB 0xRRGGBB` per
+line; `Pet.presets` and `Pet.defaultConfig` in `CTAKit/PetPresets.swift`). `AppModel.pet` and `.deviceSettings` live
+in the App Group (keys `pet`, `deviceSettings`; defaults blue "Trackie", 100/100, night 1:00–5:00 as on the boards).
+A change writes `{pet, settings}` to every paired online device 400 ms after it settles; `.resendState` (which comes
+with every `.cameOnline` and on a reboot) and `onAdded` write it to that one device. The setup flow's Pet step now
+names `AppModel.pet` instead of writing its own blue. `Glyphs.pet(_:colors:)` swaps slots 2–3, defaulting to
+`Glyphs.petColors`, which `AppModel` keeps current; the map's avatar and the Pet preview pass the colors so they
+redraw at once. The screen slider runs 10–100 % (0 would leave the wearable dark; the dock's backlight is on/off only).
+Firmware: both boards already parsed, saved (NVS) and reapplied pet and settings at boot; the only change is the
+wearable's `ui::petPalette565 = petPalette` (plus the `card_theme.h` include it needs). No new native test: no
+parser changed.
 
 ### Task 14: Dock stops from the app (Track A)
 

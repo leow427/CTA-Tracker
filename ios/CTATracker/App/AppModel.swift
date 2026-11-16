@@ -29,8 +29,16 @@ import SwiftUI
         didSet { if following && !oldValue { recenter() } }
     }
     /// Starred cards (plan 4 decision 1), saved as JSON in the App Group (app spec 7.4) so the widget can read them.
-    var favorites: [Favorite] = AppModel.loadFavorites() {
-        didSet { rebuild(); AppModel.save(favorites); mirror() }
+    var favorites: [Favorite] = AppModel.load(AppModel.favoritesKey) ?? [] {
+        didSet { rebuild(); AppModel.save(favorites, AppModel.favoritesKey); mirror() }
+    }
+    /// The one Trackie (ecosystem spec 5.2): its name and colors, kept in the App Group and written to every device.
+    var pet: PetConfig = AppModel.load(AppModel.petKey) ?? Pet.defaultConfig {
+        didSet { Glyphs.petColors = pet.colors; AppModel.save(pet, AppModel.petKey); pushConfig() }
+    }
+    /// Screen and LED brightness and night hours, written with the pet (spec 5.2).
+    var deviceSettings: DeviceSettings = AppModel.load(AppModel.settingsKey) ?? AppModel.defaultSettings {
+        didSet { AppModel.save(deviceSettings, AppModel.settingsKey); pushConfig() }
     }
     /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the list).
     var detailStop: Stop?
@@ -57,9 +65,12 @@ import SwiftUI
         let stops = index
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
+        Glyphs.petColors = pet.colors
         devices.onAction = { [weak self] id, action in
             guard let self else { return }
             if action == .fetchConfig, isDock(id) { fetchConfig(id) }
+            // `.resendState` comes with every `.cameOnline` and on a reboot, so the pet and settings go once for each.
+            if action == .resendState, isPaired(id) { sendConfig(to: id) }
             guard isWearable(id) else { return }
             // Docking clears the wearable's pin (spec 5.6), so the app forgets it too.
             if action == .docked { (pinned, followed) = (nil, nil) }
@@ -73,7 +84,8 @@ import SwiftUI
         // A fresh pairing means a fresh wearable (a demo reset, spec 5.4): its old pin and follow don't come back.
         devices.onAdded = { [weak self] id in
             guard let self else { return }
-            // Its first `.fetchConfig` came before `add`, when it wasn't ours yet.
+            // Its first `.fetchConfig` and `.resendState` came before `add`, when it wasn't ours yet.
+            sendConfig(to: id)
             if isDock(id) { fetchConfig(id) }
             guard isWearable(id) else { return }
             (pinned, followed) = (nil, nil)
@@ -283,18 +295,45 @@ import SwiftUI
         return true
     }
 
+    // MARK: - One Trackie and device settings (ecosystem spec 5.2)
+
+    /// The boards' own defaults: full brightness, night 1:00–5:00.
+    static let defaultSettings = DeviceSettings(screen: 100, led: 100, nightStart: Config.nightStartMin,
+                                                nightEnd: Config.nightEndMin)
+    @ObservationIgnored private var configPush: Task<Void, Never>?
+
+    private func isPaired(_ id: String) -> Bool { devices.devices.contains { $0.id == id } }
+
+    /// A slider or the name field changes many times a second: write once it settles.
+    private func pushConfig() {
+        configPush?.cancel()
+        configPush = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled else { return }
+            devices.devices.filter { devices.online[$0.id] != nil }.forEach { sendConfig(to: $0.id) }
+        }
+    }
+
+    // shortcut: a failed write isn't retried; the device gets it again on its next `.resendState` (online or reboot).
+    private func sendConfig(to id: String) {
+        let m = ConfigMessage(pet: pet, settings: deviceSettings)
+        Task { try? await devices.post("/config", m, to: id) }
+    }
+
     // MARK: - Storage
 
     static let appGroup = "group.io.github.leow427.CTATracker"
     private static let favoritesKey = "favorites"
+    private static let petKey = "pet"
+    private static let settingsKey = "deviceSettings"
     private static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
-    private static func loadFavorites() -> [Favorite] {
-        defaults.data(forKey: favoritesKey).flatMap { try? JSONDecoder().decode([Favorite].self, from: $0) } ?? []
+    private static func load<T: Decodable>(_ key: String) -> T? {
+        defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
     }
 
-    private static func save(_ favorites: [Favorite]) {
-        if let data = try? JSONEncoder().encode(favorites) { defaults.set(data, forKey: favoritesKey) }
+    private static func save(_ value: some Encodable, _ key: String) {
+        if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: key) }
     }
 
     private func rebuild() {

@@ -36,8 +36,6 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     static let bondSec = 30.0          // the passkey prompt and the first notify
     static let wifiSec = 20.0          // app spec 6.2
     static let maxNetworks = 5         // kWifiSlots
-    // shortcut: today's blue until Task 13's presets (art/presets.txt) land; the Pet step names it only.
-    static let petColors: [UInt32] = [0x2D6BE6, 0x7DB4FF]
 
     let candidate: SetupCandidate
     let firstDevice: Bool
@@ -51,7 +49,9 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     var code = ""
     var ssid = ""
     var password = ""   // cleared once sent; never stored or logged
-    var petName = "Trackie"
+    var petName = "Trackie"   // SetupHost starts it at the app's pet name
+    /// The Pet step names the one Trackie (`AppModel.pet`), which writes it to every device, this one included.
+    @ObservationIgnored var onPetName: ((String) -> Void)?
 
     @ObservationIgnored private let link: DeviceLink
     @ObservationIgnored private let token = TokenStore.token() ?? Token.random()   // one per flow, so a retry matches
@@ -235,12 +235,9 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
 
     func finishWifi() { step = Self.next(after: .wifi, viaBluetooth: true, firstDevice: firstDevice) }
 
-    func savePet() async {
-        guard let id = deviceID, !busy else { return }
-        busy = true
-        defer { busy = false }
+    func savePet() {
         // A failed write isn't fatal: the app writes the pet again on every connect (app spec 6.4).
-        try? await link.post("/config", ConfigMessage(pet: PetConfig(name: petName, colors: Self.petColors)), to: id)
+        onPetName?(petName.trimmingCharacters(in: .whitespaces))
         step = .ready
     }
 
