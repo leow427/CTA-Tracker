@@ -90,7 +90,7 @@ struct CardList: View {
             .environment(\.listMetrics, metrics)
         }
         .tint(Theme.headlight)
-        .sheet(isPresented: $model.showSettings) { SettingsScreen() }
+        .sheet(isPresented: $model.showSettings) { SettingsScreen(link: model.devices) }
         .modifier(SetupHost(link: model.devices))
         .onAppear { track() }
         .onChange(of: model.slots) { track() }

@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Settings (app spec 6.3), presented from inside the sheet. Milestones 3 and 4 fill the sections.
+/// Settings (app spec 6.3), presented from inside the sheet. Milestones 3 and 4 fill the rest.
 struct SettingsScreen: View {
+    let link: DeviceLink
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             List {
+                DeviceList(link: link)
                 Section {
-                    row("Devices", "dot.radiowaves.left.and.right")
                     row("Pet", "pawprint.fill")
                     row("Device settings", "slider.horizontal.3")
                     row("Find my handheld", "location.magnifyingglass")

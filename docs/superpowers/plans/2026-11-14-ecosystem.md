@@ -767,13 +767,17 @@ enum TokenStore { static func token() -> String?; static func setToken(_ t: Stri
 **Interfaces:** Consumes `DeviceLink` (Task 10). Produces the Settings → Devices section and a device page
 (online state, last update, Wi-Fi, battery and charging for the wearable, its stops for the dock, Forget).
 
-- [ ] **Step 1:** Build the list and page from `DeviceLink.online` (app spec §6.3 wording; Forget removes it from
+- [x] **Step 1:** Build the list and page from `DeviceLink.online` (app spec §6.3 wording; Forget removes it from
   `KnownDevices`, and the board keeps its token until it's reset). For the wearable the iPhone's Bluetooth bond stays:
   the app can't remove it, so the page says to forget "CTA-Pet-xxxx" in iOS Settings → Bluetooth as well (or use Pair
   again on the wearable, which re-pairs without that).
 - [ ] **Step 2: Verify** against both real boards, paired from the app (Task 12 / AB2): both online, battery
   shows, Forget works.
-- [ ] **Step 3: Commit:** `feat(ios): devices list and device page`.
+- [x] **Step 3: Commit:** `feat(ios): devices list and device page`.
+
+As built: the Devices section sits at the top of Settings; the wearable's page points to Pair again on the wearable
+first (day 1 showed it re-pairs without forgetting it in iOS) and to forgetting `CTA-Pet-<id>` in iOS Settings →
+Bluetooth only as the fallback. The dock's stops come from `GET /config` while it's online.
 
 ### Task 12: Setup flow over the network (Track A)
 
