@@ -57,7 +57,10 @@ struct DevicePage: View {
         .navigationTitle(device.name)
         .task(id: info?.picksVer) {   // a pick on the dock raises picks_ver (spec 4.4), like DeviceWatch's .fetchConfig
             guard !wearable, info != nil else { return }
-            if let config: DockConfig = try? await link.get("/config", from: device.id) { stops = config.picked }
+            while !Task.isCancelled {   // a single missed poll is normal (DeviceWatch allows 3), so retry
+                if let config: DockConfig = try? await link.get("/config", from: device.id) { stops = config.picked; return }
+                try? await Task.sleep(for: .seconds(DeviceLink.pollSec))
+            }
         }
         .confirmationDialog("Forget \(device.name)?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Forget", role: .destructive) {
