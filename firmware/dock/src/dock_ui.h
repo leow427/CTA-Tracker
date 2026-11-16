@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ahead.h"
 #include "approach.h"
 #include "bus_picker.h"
 #include "cta_types.h"
@@ -29,6 +30,24 @@ struct Section {
 
 constexpr int kMaxPath = 160;      // a bus route's points on the map
 
+enum class Load : uint8_t { Idle, Loading, Ready, Failed };
+
+// The touch extras (ecosystem spec 5.10), each the answer to the App's request with the same id.
+struct Ahead {                     // a tapped arrival's stops ahead
+    uint32_t id = 0;
+    Load state = Load::Idle;
+    bool gone = false;             // Ready with no stops: the vehicle has left service (the overlay closes)
+    uint8_t n = 0;
+    cta::AheadStop stops[cta::kAheadStops];
+    uint32_t ts = 0;               // when it was fetched (the stops' minutes count from then)
+};
+struct Peek {                      // a card's other direction
+    uint32_t id = 0;
+    Load state = Load::Idle;
+    cta::PickedStop pick;          // the stop the other way
+    cta::StopRecord rec;
+};
+
 struct Data {
     Section sec[cta::kDockStops];
     cta::LatLon busPath[cta::kDockStops][kMaxPath];
@@ -43,10 +62,11 @@ struct Data {
     char name[16] = "CTA-Dock";    // the dock's name, for the setup message
     char ssid[33] = "";            // the network joined, for Settings ("" = none); never logged
     int8_t rssi = 0;               // its signal in dBm, 0 = not joined
+    Ahead ahead;
+    Peek peek;
 };
 
 // The picker's live bus lists (spec 7.2), fetched on request by the network side.
-enum class Load : uint8_t { Idle, Loading, Ready, Failed };
 struct PickerLists {
     static constexpr int kRoutes = 160, kDirs = 4, kStops = 220;
     Load routesState = Load::Idle, dirsState = Load::Idle, stopsState = Load::Idle;
@@ -69,7 +89,8 @@ struct Clock {
 // ---------- the screen's own state ----------
 
 enum class Screen : uint8_t { Home, Map, Picker, Settings };
-enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, Settings, PairAsk, PairCancel, PairAgain };
+enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, Settings, PairAsk, PairCancel, PairAgain,
+                         Ahead, Peek, CloseAhead };
 struct Hit { int16_t x, y, w, h; Act tap, hold; int16_t arg; };
 
 // What the device must do after an input: fetch a picker list, or save a new pick.
@@ -110,6 +131,10 @@ struct App {
     uint8_t pairWait = 0;              // seconds left of the cooldown after 5 wrong codes (0 = none)
     bool pairAsk = false;              // Settings' "Pair again?" confirm is up
     bool pairAgain = false;            // out: forget the token and show a fresh code
+    // The touch extras (ecosystem spec 5.10): id 0 = closed. ask is out: for the device to request, then clear.
+    struct { int section = 0; char vehicle[cta::kVehicleLen + 1] = ""; uint32_t id = 0, ms = 0; bool ask = false; } ahead;
+    struct { int section = 0; uint32_t id = 0, ms = 0; bool ask = false; } peek;
+    uint32_t asks = 0;                 // the last request id
 };
 
 // Picks and data can change between frames; draw() reads them as they are.

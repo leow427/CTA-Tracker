@@ -21,6 +21,10 @@ void setPicks(const cta::PickedStop picks[cta::kDockStops]);
 void setSlow(bool slow);
 // A picker list to fetch: the routes, a route's directions, or its stops one way.
 void request(dock::Request what, const char* route, const char* dir);
+// The touch extras (ecosystem spec 5.10): one request each, made before the next poll; the answer comes in the
+// snapshot (Data::ahead, Data::peek) under the same id. A newer ask replaces one not served yet.
+void ahead(uint32_t id, int section, const char* vehicle);   // a section's arrival's stops ahead
+void peek(uint32_t id, int section);                          // a section's stop the other way
 // Copies the newest snapshot (or picker lists) if it changed since `version`, and updates it. False if unchanged.
 bool read(dock::Data& out, uint32_t& version);
 bool readLists(dock::PickerLists& out, uint32_t& version);

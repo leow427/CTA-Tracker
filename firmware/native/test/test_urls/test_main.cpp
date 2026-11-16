@@ -32,6 +32,9 @@ static void test_train() {
     TEST_ASSERT_FALSE(cta::trainArrivalsUrl(buf, sizeof(buf), "K", ""));
     TEST_ASSERT_TRUE(cta::trainPositionsUrl(buf, sizeof(buf), "K", "Red"));
     TEST_ASSERT_EQUAL_STRING("https://lapi.transitchicago.com/api/1.0/ttpositions.aspx?key=K&rt=Red&outputType=JSON", buf);
+    TEST_ASSERT_TRUE(cta::trainFollowUrl(buf, sizeof(buf), "K", "511"));
+    TEST_ASSERT_EQUAL_STRING("https://lapi.transitchicago.com/api/1.0/ttfollow.aspx?key=K&runnumber=511&outputType=JSON", buf);
+    TEST_ASSERT_FALSE(cta::trainFollowUrl(buf, sizeof(buf), "K", ""));
 }
 
 static void test_bus() {
@@ -49,6 +52,9 @@ static void test_bus() {
     TEST_ASSERT_FALSE(cta::busVehiclesUrl(buf, sizeof(buf), "K", routes, 0));
     TEST_ASSERT_TRUE(cta::busPatternsUrl(buf, sizeof(buf), "K", "22"));
     TEST_ASSERT_EQUAL_STRING("https://www.ctabustracker.com/bustime/api/v2/getpatterns?key=K&rt=22&format=json", buf);
+    TEST_ASSERT_TRUE(cta::busAheadUrl(buf, sizeof(buf), "K", "1183"));
+    TEST_ASSERT_EQUAL_STRING("https://www.ctabustracker.com/bustime/api/v2/getpredictions?key=K&vid=1183&format=json", buf);
+    TEST_ASSERT_FALSE(cta::busAheadUrl(buf, sizeof(buf), "K", nullptr));
 }
 
 static void test_alerts_and_weather() {

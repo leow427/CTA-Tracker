@@ -503,6 +503,14 @@ void loop() {
         app.request = dock::Request::None;
         dirty = true;
     }
+    if (app.ahead.ask) {   // a tapped time's stops ahead, and a tapped card's other way (ecosystem spec 5.10)
+        app.ahead.ask = false;
+        net::ahead(app.ahead.id, app.ahead.section, app.ahead.vehicle);
+    }
+    if (app.peek.ask) {
+        app.peek.ask = false;
+        net::peek(app.peek.id, app.peek.section);
+    }
     if (app.picked) {
         app.picked = false;
         picks[app.pickedSection] = app.pick;

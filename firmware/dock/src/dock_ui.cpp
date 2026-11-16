@@ -47,6 +47,7 @@ struct { int x, y, w, h; } constexpr RECENTER = {W - 16 - 52, H - 20 - 48, 52, 4
 constexpr int ROUTE_ROW = 84, ROUTE_H = 70;   // the bus route list's pitch and row height
 constexpr uint32_t kRed = 0xff453a;
 constexpr uint32_t CASING = 0x050d1d;
+constexpr uint32_t kExtraMs = 30000;        // a peek or the stops ahead stays up 30 s (ecosystem spec 5.10)
 
 const Font* F(int w, int s) { return Canvas::font(w, s); }
 
@@ -197,6 +198,24 @@ void drawStrip(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     hit(a, MAP_BTN.x - 6, 0, MAP_BTN.w + 12, STRIP_H, Act::MapToggle);
 }
 
+// An arrival's big time: the clock time when scheduled, else "Due" or the minutes.
+void bigTime(const cta::StopRecord& r, int k, const Clock& c, char* out, size_t cap) {
+    const int min = cta::minutesLeft(r, k, c.now);
+    if (!r.arrivals[k].live) clockAt(r.ts + r.arrivals[k].min * 60, out, cap);
+    else if (min <= 1) snprintf(out, cap, "Due");
+    else snprintf(out, cap, "%d", min);
+}
+
+PlateStyle cardPlate(const Theme& t, bool edge4 = false) {
+    PlateStyle ps;
+    ps.fill = t.top; ps.fill2 = t.card;
+    ps.rim = t.outline ? t.outline : t.text;
+    ps.rimAlpha = t.outline ? 1 : 0.25f;
+    ps.rimW = t.outline ? 3 : 2;
+    if (edge4) ps.edge = 4;
+    return ps;
+}
+
 // ---------- one arrival tile ----------
 void tile(Canvas& cv, int x, int y, const cta::StopRecord& r, int k, bool lead, const Theme& t, bool stale,
           const Clock& c, uint32_t ms) {
@@ -212,9 +231,7 @@ void tile(Canvas& cv, int x, int y, const cta::StopRecord& r, int k, bool lead, 
     const bool sched = !ar.live;
     const int min = cta::minutesLeft(r, k, c.now);
     char big[8];
-    if (sched) clockAt(r.ts + ar.min * 60, big, sizeof(big));
-    else if (min <= 1) snprintf(big, sizeof(big), "Due");
-    else snprintf(big, sizeof(big), "%d", min);
+    bigTime(r, k, c, big, sizeof(big));
     const int sc = sched ? 3 : min <= 1 ? 4 : lead ? 5 : 4;
     const int minW = sched || min <= 1 ? 0 : static_cast<int>(ceilf(Canvas::measure(F(800, 13), "min"))) + 4;
     const int gw = sched || !stale ? 20 : 0;
@@ -257,10 +274,15 @@ void heading(const Section& s, char* out, size_t cap) {
 
 // ---------- one stop section: y = STRIP_H + i * SEC_H ----------
 void drawSection(Canvas& cv, App& a, const Data& d, const Clock& c, int i, uint32_t ms) {
-    const Section& s = d.sec[i];
     const int top = STRIP_H + i * SEC_H, x = CARD.x, y = top + CARD.dy, w = CARD.w, h = CARD.h;
-    if (!hasPick(s)) return drawEmpty(cv, a, i, x, y, w, h);
-    hit(a, x, y, w, h, Act::None, Act::OpenPicker, i);
+    if (!hasPick(d.sec[i])) return drawEmpty(cv, a, i, x, y, w, h);
+    // A tap flips the card to the other direction for a while (spec 5.10); a hold opens the picker.
+    hit(a, x, y, w, h, Act::Peek, Act::OpenPicker, i);
+    const bool peeking = a.peek.id && a.peek.section == i;
+    const bool peekIn = peeking && d.peek.id == a.peek.id && d.peek.state == Load::Ready;
+    Section shown = d.sec[i];
+    if (peekIn) { shown.pick = d.peek.pick; shown.rec = d.peek.rec; }
+    const Section& s = shown;
     const Theme& t = th(s.pick.route, isBus(s));
     const bool stale = staleSec(d, s, c);
     const float saved = cv.alpha;
@@ -283,7 +305,10 @@ void drawSection(Canvas& cv, App& a, const Data& d, const Clock& c, int i, uint3
         snprintf(buf, sizeof(buf), "%s LINE", up);
         cardText(cv, F(900, 16), buf, L, y + 24, t, Align::Left, Base::Middle);
     }
-    if (stale) {
+    if (peeking) {
+        const int cw = static_cast<int>(ceilf(Canvas::measure(F(900, 11), "OTHER WAY"))) + 12;
+        cv.chip("OTHER WAY", R - cw, y + 13, t.text, t.card);
+    } else if (stale) {
         snprintf(buf, sizeof(buf), "Updated %d min ago", ageMin(s, c));
         cardText(cv, F(800, 13), buf, R, y + 24, t, Align::Right, Base::Middle);
     }
@@ -300,19 +325,100 @@ void drawSection(Canvas& cv, App& a, const Data& d, const Clock& c, int i, uint3
     heading(s, head, sizeof(head));
     cardText(cv, F(900, 20), Canvas::fit(F(900, 20), head, w - 2 * PAD - 28, buf, sizeof(buf)), L + 26, y + 78, t);
     // row 4: the next three arrivals as tiles
-    if (s.rec.ts == 0 || s.rec.count == 0) {
+    if (peeking && !peekIn) {
+        const char* msg = d.peek.id == a.peek.id && d.peek.state == Load::Failed ? "Couldn\xE2\x80\x99t load the other way"
+                                                                                : "Loading the other way\xE2\x80\xA6";
+        cardText(cv, F(800, 16), msg, x + w / 2.f, y + TILE.dy + TILE.h / 2.f, t, Align::Center, Base::Middle);
+    } else if (s.rec.ts == 0 || s.rec.count == 0) {
         const char* msg = s.rec.ts == 0 ? (d.status[0] ? d.status : "Waiting for arrivals\xE2\x80\xA6") : "No arrivals right now";
         cardText(cv, F(800, 16), msg, x + w / 2.f, y + TILE.dy + TILE.h / 2.f, t, Align::Center, Base::Middle);
     } else {
-        for (int k = 0; k < 3 && k < s.rec.count; ++k)
-            tile(cv, L + k * (TILE.w + TILE_GAP), y + TILE.dy, s.rec, k, k == 0, t, stale, c, ms);
+        for (int k = 0; k < 3 && k < s.rec.count; ++k) {
+            const int tx = L + k * (TILE.w + TILE_GAP);
+            tile(cv, tx, y + TILE.dy, s.rec, k, k == 0, t, stale, c, ms);
+            // a tap on a time: that vehicle's stops ahead (spec 5.10); not on a peek, whose card a tap flips back
+            if (!peeking && s.rec.arrivals[k].vehicle[0]) hit(a, tx, y + TILE.dy, TILE.w, TILE.h, Act::Ahead, Act::None, i * 4 + k);
+        }
     }
     cv.alpha = saved;
 }
 
+// The tapped arrival on its card now, or -1 once the vehicle has dropped off it.
+int aheadIndex(const App& a, const Data& d) {
+    const cta::StopRecord& r = d.sec[a.ahead.section].rec;
+    for (int k = 0; k < r.count; ++k)
+        if (strcmp(r.arrivals[k].vehicle, a.ahead.vehicle) == 0) return k;
+    return -1;
+}
+
+// ---------- the stops ahead (spec 5.10): over the stops screen, dimmed; it takes every tap ----------
+void drawAhead(Canvas& cv, App& a, const Data& d, const Clock& c, int k) {
+    const Section& s = d.sec[a.ahead.section];
+    const cta::Arrival& ar = s.rec.arrivals[k];
+    a.nHits = 0;
+    hit(a, 0, 0, W, H, Act::CloseAhead);
+    cv.fillRect(0, 0, W, H, col::bg, 0.7f);
+    const Theme& t = th(s.pick.route, isBus(s));
+    const int x = 24, y = 112, w = W - 48, h = 576, L = x + PAD + 6, R = x + w - PAD - 6;
+    cv.plate(x, y, w, h, cardPlate(t));
+    char buf[64], up[32];
+    if (isBus(s)) {
+        const int lx = L + badge(cv, s.pick.route, L, y + 32, 24, t) + 8;
+        upper(s.pick.routeName, up, sizeof(up));
+        cardText(cv, F(900, 16), up, lx, y + 32, t, Align::Left, Base::Middle);
+    } else {
+        upper(lineName(s.pick.route), up, sizeof(up));
+        snprintf(buf, sizeof(buf), "%s LINE", up);
+        cardText(cv, F(900, 16), buf, L, y + 32, t, Align::Left, Base::Middle);
+    }
+    // the big time, as on its tile
+    char big[8];
+    bigTime(s.rec, k, c, big, sizeof(big));
+    const bool mins = ar.live && cta::minutesLeft(s.rec, k, c.now) > 1;
+    const int dw = cardDigits(cv, big, L, y + 62, 9, t);
+    if (mins) cardText(cv, F(900, 24), "min", L + dw + 10, y + 62 + 7 * 9, t, Align::Left, Base::Alphabetic);
+    if (ar.delayed) cv.chip("DELAYED", R - 80, y + 70, col::amber, 0x000000);
+    // the line's destination
+    cardArrow(cv, L + 11, y + 158, 11, t);
+    snprintf(buf, sizeof(buf), "To %s", ar.dest);
+    char fit[64];
+    cardText(cv, F(900, 24), Canvas::fit(F(900, 24), buf, R - L - 32, fit, sizeof(fit)), L + 32, y + 145, t);
+    cv.fillRect(L, y + 196, R - L, 2, t.text, 0.25f);
+    cardText(cv, F(900, 13), "NEXT STOPS", L, y + 214, t);
+    // its next stops, from the one request the tap made
+    const Ahead& ah = d.ahead;
+    const bool in = ah.id == a.ahead.id;
+    const char* msg = !in || ah.state == Load::Loading || ah.state == Load::Idle ? "Loading the stops ahead\xE2\x80\xA6"
+                    : ah.state == Load::Failed ? "Couldn\xE2\x80\x99t load the stops ahead" : nullptr;
+    if (msg) {
+        cardText(cv, F(800, 18), msg, x + w / 2.f, y + 340, t, Align::Center, Base::Middle);
+    } else {
+        const int gone = c.now > ah.ts ? static_cast<int>((c.now - ah.ts) / 60) : 0;
+        for (int j = 0; j < ah.n; ++j) {
+            const int yy = y + 244 + j * 56;
+            const int m = std::max(0, ah.stops[j].min - gone);
+            char when[16];
+            if (m == 0) snprintf(when, sizeof(when), "Due");
+            else snprintf(when, sizeof(when), "%d min", m);
+            const float ww = cardText(cv, F(900, 21), when, R, yy, t, Align::Right);
+            cardText(cv, F(900, 21), Canvas::fit(F(900, 21), ah.stops[j].name, R - L - ww - 16, fit, sizeof(fit)), L, yy, t);
+            if (j + 1 < ah.n) cv.fillRect(L, yy + 40, R - L, 1, t.text, 0.12f);
+        }
+    }
+    cardText(cv, F(800, 14), "Tap anywhere to close", x + w / 2.f, y + h - 38, t, Align::Center);
+}
+
 void drawHome(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
+    // The extras close after 30 s; the stops ahead also when the vehicle leaves the card or service.
+    if (a.peek.id && ms - a.peek.ms > kExtraMs) a.peek.id = 0;
+    int k = -1;
+    if (a.ahead.id) {
+        k = aheadIndex(a, d);
+        if (k < 0 || ms - a.ahead.ms > kExtraMs || (d.ahead.id == a.ahead.id && d.ahead.gone)) a.ahead.id = 0;
+    }
     drawStrip(cv, a, d, c, ms);
     for (int i = 0; i < cta::kDockStops; ++i) drawSection(cv, a, d, c, i, ms);
+    if (a.ahead.id) drawAhead(cv, a, d, c, k);
 }
 
 // ---------- stop picker (spec 7.2): Train or Bus → line or route → direction → stop ----------
@@ -325,16 +431,6 @@ void pickerHeader(Canvas& cv, App& a, const char* title, const char* sub) {
     const uint8_t steps[1] = {1};
     for (int k = 0; k < 4; ++k)
         cv.fillPixelShape(W - 24 - (4 - k) * 18, 38, 12, 12, 2, steps, 1, k < a.picker.step ? col::headlight : col::raised);
-}
-
-PlateStyle cardPlate(const Theme& t, bool edge4 = false) {
-    PlateStyle ps;
-    ps.fill = t.top; ps.fill2 = t.card;
-    ps.rim = t.outline ? t.outline : t.text;
-    ps.rimAlpha = t.outline ? 1 : 0.25f;
-    ps.rimW = t.outline ? 3 : 2;
-    if (edge4) ps.edge = 4;
-    return ps;
 }
 
 // A message in place of a list that's loading or failed (tap to try again).
@@ -879,6 +975,7 @@ const Hit* find(const App& a, float x, float y, bool hold) {
 }
 
 void openPicker(App& a, int section) {
+    a.peek.id = 0;   // the card may get a new stop
     a.screen = Screen::Picker;
     a.picker.step = 1;
     a.picker.section = section;
@@ -899,6 +996,25 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
             else { a.screen = Screen::Map; a.panX = a.panY = 0; }   // the map opens framed on the picks
             break;
         case Act::OpenPicker: openPicker(a, arg); break;
+        case Act::Ahead: {
+            const int i = arg / 4, k = arg % 4;
+            const cta::StopRecord& r = d.sec[i].rec;
+            if (k >= r.count || !r.arrivals[k].vehicle[0]) break;
+            a.ahead.section = i;
+            snprintf(a.ahead.vehicle, sizeof(a.ahead.vehicle), "%s", r.arrivals[k].vehicle);
+            a.ahead.id = ++a.asks;
+            a.ahead.ms = ms;
+            a.ahead.ask = true;
+            break;
+        }
+        case Act::CloseAhead: a.ahead.id = 0; break;
+        case Act::Peek:
+            if (a.peek.id && a.peek.section == arg) { a.peek.id = 0; break; }   // tapped again: back now
+            a.peek.section = arg;
+            a.peek.id = ++a.asks;
+            a.peek.ms = ms;
+            a.peek.ask = true;
+            break;
         case Act::Back:
             if (p.step > 1) { --p.step; p.scroll = 0; }
             else a.screen = Screen::Home;
@@ -1008,6 +1124,7 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
     cv.clear(col::bg);
     cv.alpha = 1;
     a.nHits = 0;
+    if (a.screen != Screen::Home) a.ahead.id = 0;   // the stops ahead belong to the stops screen
     if (!d.keys) {
         const char* body[] = {"This dock was built without", "CTA API keys."};
         drawMessage(cv, true, ms, "No API key", body, 2, "Add them to secrets.h and reflash");

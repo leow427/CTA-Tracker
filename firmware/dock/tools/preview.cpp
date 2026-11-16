@@ -158,6 +158,43 @@ void picker(dock::App& a, int step, bool bus, float scroll = 0) {
     a.picker.scroll = scroll;
 }
 
+// The touch extras (ecosystem spec 5.10): section i's first arrival's stops ahead, open and answered.
+void sampleAhead(dock::Data& d, dock::App& a, int i) {
+    for (int k = 0; k < 3; ++k) snprintf(d.sec[i].rec.arrivals[k].vehicle, sizeof(d.sec[i].rec.arrivals[k].vehicle), "%d", 811 + k);
+    a.ahead.section = i;
+    snprintf(a.ahead.vehicle, sizeof(a.ahead.vehicle), "811");
+    a.ahead.id = d.ahead.id = 7;
+    a.ahead.ms = 0;
+    d.ahead.state = dock::Load::Ready;
+    d.ahead.ts = kNow;
+    const bool bus = i == 2;
+    const char* trains[] = {"Addison", "Sheridan", "Wilson", "Lawrence", "Argyle"};
+    const char* buses[] = {"Clark & Addison", "Clark & Roscoe", "Clark & Belmont", "Clark & Wellington", "Clark & Diversey"};
+    const int mins[] = {0, 1, 3, 4, 6};
+    d.ahead.n = 5;
+    for (int k = 0; k < 5; ++k) {
+        snprintf(d.ahead.stops[k].name, sizeof(d.ahead.stops[k].name), "%s", bus ? buses[k] : trains[k]);
+        d.ahead.stops[k].min = static_cast<int16_t>(mins[k]);
+    }
+}
+
+// Section i peeking at the other way, answered.
+void samplePeek(dock::Data& d, dock::App& a, int i) {
+    a.peek.section = i;
+    a.peek.id = d.peek.id = 9;
+    a.peek.ms = 0;
+    d.peek.state = dock::Load::Ready;
+    d.peek.pick = d.sec[i].pick;
+    d.peek.rec = d.sec[i].rec;
+    const bool bus = i == 2;
+    snprintf(d.peek.pick.dir, sizeof(d.peek.pick.dir), "%s", bus ? "Northbound" : i == 0 ? "Howard" : "Kimball");
+    const char* dest = bus ? "Arthur" : i == 0 ? "Howard" : "Kimball";
+    for (int k = 0; k < d.peek.rec.count; ++k) {
+        snprintf(d.peek.rec.arrivals[k].dest, sizeof(d.peek.rec.arrivals[k].dest), "%s", dest);
+        d.peek.rec.arrivals[k].min = static_cast<int16_t>(2 + 7 * k);
+    }
+}
+
 const State kStates[] = {
     {"home_happy", [](dock::Data&, dock::App&, dock::PickerLists&, dock::Clock&) {}},
     {"home_hyped_rain", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.sec[0].rec.arrivals[0].min = 2; d.wmo = 61; d.tempC = 9; }},
@@ -195,6 +232,16 @@ const State kStates[] = {
     {"settings_confirm", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) {
          a.screen = dock::Screen::Settings; a.paired = true; a.pairAsk = true; }},
     {"settings_offline", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { a.screen = dock::Screen::Settings; d.wifiUp = false; }},
+    {"home_ahead", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { sampleAhead(d, a, 0); }},
+    {"home_ahead_bus", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { sampleAhead(d, a, 2); }},
+    {"home_ahead_loading", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) {
+         sampleAhead(d, a, 0); d.ahead.state = dock::Load::Loading; }},
+    {"home_ahead_failed", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) {
+         sampleAhead(d, a, 0); d.ahead.state = dock::Load::Failed; d.ahead.n = 0; }},
+    {"home_peek", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { samplePeek(d, a, 0); }},
+    {"home_peek_bus", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { samplePeek(d, a, 2); }},
+    {"home_peek_loading", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) {
+         samplePeek(d, a, 1); d.peek.state = dock::Load::Loading; }},
 };
 
 // ---------- the device's path (bands.cpp, display.cpp) ----------
@@ -374,6 +421,69 @@ bool settingsFlow() {
     return ok;
 }
 
+// The touch extras by touch (ecosystem spec 5.10): a time opens its stops ahead and asks once; a tap closes it, as do
+// 30 s and the vehicle leaving the card; a card's tap peeks the other way, a second tap or 30 s ends it; a hold still
+// opens the picker; nothing touches the picks.
+bool extrasFlow() {
+    static uint16_t fb[dock::W * dock::H];
+    static dock::Data d;
+    static dock::PickerLists pl;
+    sampleData(d);
+    for (int i = 0; i < 3; ++i)
+        for (int k = 0; k < 3; ++k) snprintf(d.sec[i].rec.arrivals[k].vehicle, sizeof(d.sec[i].rec.arrivals[k].vehicle), "%d", 100 * i + k);
+    dock::App a;
+    dock::Clock c;
+    c.now = kNow;
+    uint32_t ms = 1000;
+    auto frame = [&]() { ui::Canvas cv(fb, dock::W, dock::H); dock::draw(cv, a, d, pl, c, ms); };
+    auto press = [&](float x, float y, uint32_t held) {
+        frame();   // the hits are the last frame's
+        dock::pointerDown(a, x, y, ms);
+        ms += held;
+        dock::tick(a, ms);
+        dock::pointerUp(a, d, pl, x, y, ms);
+        ms += 500;
+    };
+    auto tap = [&](float x, float y) { press(x, y, 80); };
+    bool ok = true;
+    auto expect = [&](bool v, const char* what) { if (!v) { printf("extras flow: %s FAILED\n", what); ok = false; } };
+    // section 1's middle tile: card top 88, tiles at +108, the second at x 30 + 152
+    tap(240, 88 + 108 + 50);
+    expect(a.ahead.id && a.ahead.ask && a.ahead.section == 0 && strcmp(a.ahead.vehicle, "1") == 0, "a time asks for its stops ahead");
+    a.ahead.ask = false;
+    tap(240, 300);
+    expect(!a.ahead.id, "a tap closes the stops ahead");
+    tap(240, 88 + 108 + 50);
+    ms += 31000;
+    frame();
+    expect(!a.ahead.id, "the stops ahead close after 30 s");
+    tap(240, 88 + 108 + 50);
+    d.sec[0].rec.arrivals[1].vehicle[0] = 'x';
+    frame();
+    expect(!a.ahead.id, "the stops ahead close when the vehicle leaves the card");
+    d.sec[0].rec.arrivals[1].vehicle[0] = '1';
+    tap(240, 88 + 108 + 50);
+    d.ahead.id = a.ahead.id; d.ahead.state = dock::Load::Ready; d.ahead.gone = true;
+    frame();
+    expect(!a.ahead.id, "the stops ahead close when the vehicle leaves service");
+    // section 2's card outside its times
+    tap(240, 328 + 40);
+    expect(a.peek.id && a.peek.ask && a.peek.section == 1 && !a.ahead.id, "a card's tap peeks the other way");
+    a.peek.ask = false;
+    d.peek.id = a.peek.id; d.peek.state = dock::Load::Ready; d.peek.pick = d.sec[1].pick; d.peek.rec = d.sec[1].rec;
+    tap(240, 328 + 108 + 50);
+    expect(!a.ahead.id && !a.peek.id, "a second tap ends the peek, on its times too");
+    expect(!a.picked, "a peek saves no pick");
+    tap(240, 328 + 40);
+    ms += 31000;
+    frame();
+    expect(!a.peek.id, "the peek ends after 30 s");
+    press(240, 328 + 40, 900);
+    expect(a.screen == dock::Screen::Picker && a.picker.section == 1 && !a.picked, "a hold still opens the picker");
+    printf("extras flow: %s\n", ok ? "ok" : "FAILED");
+    return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -406,5 +516,6 @@ int main(int argc, char** argv) {
     }
     if (!sequenceMatches(false) || !sequenceMatches(true)) bad = true;
     if (!settingsFlow()) bad = true;
+    if (!extrasFlow()) bad = true;
     return bad ? 1 : 0;
 }

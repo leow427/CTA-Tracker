@@ -14,6 +14,10 @@ bool trainPositionsUrl(char* buf, size_t cap, const char* key, const char* route
 bool busPredictionsUrl(char* buf, size_t cap, const char* key, const char* const* stpids, size_t n);
 // 1–10 routes per call.
 bool busVehiclesUrl(char* buf, size_t cap, const char* key, const char* const* routes, size_t n);
+// The dock's stops ahead (ecosystem spec 5.10): Follow This Train by run number, bus predictions by vehicle ID.
+// False for an empty run or vehicle.
+bool trainFollowUrl(char* buf, size_t cap, const char* key, const char* run);
+bool busAheadUrl(char* buf, size_t cap, const char* key, const char* vid);
 bool busPatternsUrl(char* buf, size_t cap, const char* key, const char* route);
 // The dock's bus picker (spec 7.2): every route, a route's directions, and its stops one way.
 bool busRoutesUrl(char* buf, size_t cap, const char* key);

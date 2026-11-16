@@ -1,0 +1,10 @@
+{
+	"bustime-response": {
+		"error": [
+			{
+				"vid": "1",
+				"msg": "No data found for parameter"
+			}
+		]
+	}
+}

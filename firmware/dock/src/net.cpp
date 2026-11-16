@@ -26,6 +26,7 @@
 #include <new>
 #include <time.h>
 
+#include "ahead.h"
 #include "alerts_weather.h"
 #include "approach.h"
 #include "bus_parse.h"
@@ -82,6 +83,9 @@ volatile bool picksPending = false;
 struct Req { dock::Request what; char route[8]; char dir[40]; };
 Req pendingReq;
 volatile bool reqPending = false;
+struct Extra { uint32_t id; int section; char vehicle[cta::kVehicleLen + 1]; };   // the touch extras (spec 5.10)
+Extra pendingAhead, pendingPeek;
+volatile bool aheadPending = false, peekPending = false;
 volatile uint32_t nRequests = 0;
 volatile bool joinFailed = false;
 volatile bool scanWanted = false;   // the serial "w" check
@@ -103,6 +107,8 @@ struct Sec {
     bool rowsReady = false;          // trains at once; buses once getpatterns has answered
     uint32_t arrPolled = 0, posPolled = 0, patTried = 0;
     bool alerted = false;
+    bool hasOpp = false;             // a bus stop's closest stop the other way, from getpatterns (spec 5.10)
+    cta::PickedStop opp;
 };
 Sec secs[cta::kDockStops];
 uint32_t busPredPolled = 0, alertsPolled = 0, weatherPolled = 0, geoTried = 0;
@@ -580,6 +586,8 @@ void pollPatterns(int i, uint32_t now) {
     if (n < 0) return;
     s.nRows = n;
     s.rowsReady = true;
+    s.opp = s.pick;
+    s.hasOpp = cta::oppositeBusStop(body, bodyLen, s.pick.route, s.pick.id, s.pick.dir, s.opp);
     if (n) {
         for (int k = 0; k < 7; ++k) building->sec[i].zone[k] = {s.rows[0].lat[k], s.rows[0].lon[k]};
         const int m = cta::busPatternPath(body, bodyLen, s.rows[0].pid, building->busPath[i], dock::kMaxPath);
@@ -858,6 +866,86 @@ void serveRequest(const Req& r) {
     publishLists();
 }
 
+// ---------- the touch extras (ecosystem spec 5.10): one request each, on this task's one connection ----------
+void serveAhead(const Extra& r, uint32_t now) {
+    dock::Ahead& ah = building->ahead;
+    ah = dock::Ahead();
+    ah.id = r.id;
+    ah.state = dock::Load::Loading;
+    publish();
+    const Sec& s = secs[r.section];
+    const bool bus = isBus(s);
+    static char url[256];
+    int code = -1, n = -1;
+    if (hasPick(s) && (bus ? cta::busAheadUrl(url, sizeof(url), CTA_BUS_KEY, r.vehicle)
+                           : cta::trainFollowUrl(url, sizeof(url), CTA_TRAIN_KEY, r.vehicle)))
+        code = get(url);
+    if (code == 200)
+        n = bus ? cta::parseBusAhead(body, bodyLen, ah.stops, cta::kAheadStops)
+                : cta::parseTrainAhead(body, bodyLen, ah.stops, cta::kAheadStops);
+    uprintf("net: stops ahead (%s): HTTP %d, %d stops\n", bus ? "bus" : "train", code, n);
+    ah.n = static_cast<uint8_t>(n > 0 ? n : 0);
+    ah.gone = n == 0;
+    ah.ts = now;
+    ah.state = n >= 0 ? dock::Load::Ready : dock::Load::Failed;
+    publish();
+}
+
+void servePeek(const Extra& r, uint32_t now) {
+    dock::Peek& p = building->peek;
+    p = dock::Peek();
+    p.id = r.id;
+    p.state = dock::Load::Loading;
+    publish();
+    const Sec& s = secs[r.section];
+    static char url[256];
+    int code = -1;
+    bool ok = false;
+    if (hasPick(s) && !isBus(s)) {   // the station's other platform, from the train tables
+        if (cta::oppositeTrainPlatform(s.pick.route, s.pick.id, s.pick.dir, p.pick) &&
+            cta::trainArrivalsUrl(url, sizeof(url), CTA_TRAIN_KEY, p.pick.id, p.pick.route)) {
+            code = get(url);
+            snprintf(p.rec.id, sizeof(p.rec.id), "%s", p.pick.id);
+            snprintf(p.rec.route, sizeof(p.rec.route), "%s", p.pick.route);
+            snprintf(p.rec.name, sizeof(p.rec.name), "%s", p.pick.name);
+            snprintf(p.rec.dir, sizeof(p.rec.dir), "%.24s", p.pick.dir);
+            ok = code == 200 && cta::parseTrainArrivals(body, bodyLen, now, p.rec, p.pick.route);
+        }
+    } else if (hasPick(s) && s.hasOpp) {   // the closest stop the other way, found from the route's patterns
+        p.pick = s.opp;
+        const char* ids[1] = {p.pick.id};
+        if (cta::busPredictionsUrl(url, sizeof(url), CTA_BUS_KEY, ids, 1)) code = get(url);
+        const int got = code == 200 ? cta::parseBusPredictions(body, bodyLen, now, p.pick.route, busRecs, kMaxBusRecs) : -1;
+        ok = got >= 0;
+        p.rec.type = cta::Kind::Bus;
+        snprintf(p.rec.id, sizeof(p.rec.id), "%s", p.pick.id);
+        snprintf(p.rec.route, sizeof(p.rec.route), "%s", p.pick.route);
+        snprintf(p.rec.dir, sizeof(p.rec.dir), "%.24s", p.pick.dir);
+        snprintf(p.rec.name, sizeof(p.rec.name), "%s", p.pick.name);
+        p.rec.ts = now;   // no record for it: no buses predicted right now
+        for (int k = 0; k < got; ++k)
+            if (strncmp(busRecs[k].dir, p.pick.dir, cta::kNameLen) == 0) { p.rec = busRecs[k]; break; }
+    }
+    uprintf("net: other way for section %d: HTTP %d, %s\n", r.section + 1, code, ok ? "ok" : "failed");
+    p.state = ok ? dock::Load::Ready : dock::Load::Failed;
+    publish();
+}
+
+// A touch extra the loop asked for, if any: served. True if there was one.
+bool serveExtra(uint32_t now) {
+    Extra r;
+    bool isAhead = false;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    const bool any = aheadPending || peekPending;
+    if (aheadPending) { r = pendingAhead; aheadPending = false; isAhead = true; }
+    else if (peekPending) { r = pendingPeek; peekPending = false; }
+    xSemaphoreGive(mu);
+    if (!any) return false;
+    if (isAhead) serveAhead(r, now);
+    else servePeek(r, now);
+    return true;
+}
+
 void netTask(void*) {
     if (!wifiInit()) {
         uprintf("net: Wi-Fi didn't start\n");
@@ -967,6 +1055,7 @@ void netTask(void*) {
             continue;
         }
         if (building->status[0]) { setStatus(""); publish(); }
+        if (serveExtra(nowUnix())) continue;   // a tap waits on a person: before any poll
 #ifdef PERF_LOG
         if (perf::burstDue()) burstNext();
 #endif
@@ -1043,6 +1132,18 @@ void request(dock::Request what, const char* route, const char* dir) {
     reqPending = true;
     xSemaphoreGive(mu);
 }
+
+static void ask(Extra& slot, volatile bool& pending, uint32_t id, int section, const char* vehicle) {
+    if (!mu || section < 0 || section >= cta::kDockStops) return;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    slot.id = id;
+    slot.section = section;
+    snprintf(slot.vehicle, sizeof(slot.vehicle), "%s", vehicle ? vehicle : "");
+    pending = true;
+    xSemaphoreGive(mu);
+}
+void ahead(uint32_t id, int section, const char* vehicle) { ask(pendingAhead, aheadPending, id, section, vehicle); }
+void peek(uint32_t id, int section) { ask(pendingPeek, peekPending, id, section, nullptr); }
 
 bool read(dock::Data& out, uint32_t& version) {
     if (!published || version == pubVersion) return false;

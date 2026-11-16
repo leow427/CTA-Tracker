@@ -105,6 +105,18 @@ bool busVehiclesUrl(char* buf, size_t cap, const char* key, const char* const* r
         .done();
 }
 
+bool trainFollowUrl(char* buf, size_t cap, const char* key, const char* run) {
+    if (run == nullptr || !*run) return fail(buf, cap);
+    return Url(buf, cap)
+        .raw(kTrainBase).raw("ttfollow.aspx?key=").value(key).raw("&runnumber=").value(run).raw("&outputType=JSON")
+        .done();
+}
+
+bool busAheadUrl(char* buf, size_t cap, const char* key, const char* vid) {
+    if (vid == nullptr || !*vid) return fail(buf, cap);
+    return Url(buf, cap).raw(kBusBase).raw("getpredictions?key=").value(key).raw("&vid=").value(vid).raw("&format=json").done();
+}
+
 bool busPatternsUrl(char* buf, size_t cap, const char* key, const char* route) {
     return Url(buf, cap).raw(kBusBase).raw("getpatterns?key=").value(key).raw("&rt=").value(route).raw("&format=json").done();
 }

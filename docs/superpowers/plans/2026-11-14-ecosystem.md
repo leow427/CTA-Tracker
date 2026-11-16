@@ -1034,15 +1034,36 @@ if Thursday's full run struggles.
 **Files:** Modify `firmware/dock/src/dock_ui.cpp` (touch targets, the overlay), `firmware/dock/src/net.cpp` (the
 on-tap requests), `firmware/lib/cta` (parsers, with native tests in `firmware/native/test`).
 
-- [ ] **Step 1: The stops ahead.** Tap an arrival time → overlay with the vehicle's next stops and times
+- [x] **Step 1: The stops ahead.** Tap an arrival time → overlay with the vehicle's next stops and times
   (`ttfollow` by run number for trains, `getpredictions?vid=` for buses). Parser tests from saved real responses (no
   keys in fixtures). Closes on tap, after 30 s, or when the vehicle drops out.
-- [ ] **Step 2: The other direction.** Tap a stop card → 30 s peek at the other direction (trains: the opposite
+- [x] **Step 2: The other direction.** Tap a stop card → 30 s peek at the other direction (trains: the opposite
   platform from the dock's tables; buses: the closest stop on the same route going the other way). Saved pick, LED
   row and `picks_ver` unchanged; hold still opens the picker.
 - [ ] **Step 3: Verify** on the dock: both peeks on a train and a bus card; RAM low-water mark no worse than 5 KB
   below today's (83 KB); frame time unchanged when idle.
-- [ ] **Step 4: Commit:** `feat(dock): tap a time for the stops ahead, tap a card for the other direction`.
+- [x] **Step 4: Commit:** `feat(dock): tap a time for the stops ahead, tap a card for the other direction`.
+
+**As built (worker notes):**
+- Parsers and URLs in `firmware/lib/cta`: `ahead.h` (`parseTrainAhead`, `parseBusAhead`, `oppositeTrainPlatform`,
+  `oppositeBusStop`), `trainFollowUrl` and `busAheadUrl` in `urls.h`. Tests in `firmware/native/test/test_ahead`, from
+  real replies saved with the keys stripped: `fixtures/cta/train_follow*.json`, `bus_follow*.json`. Arrivals already
+  kept `rn` / `vid` (`Arrival::vehicle`).
+- "Gone": Train Tracker answers `errCd` 501 ("No trains with runnumber … were found"), Bus Tracker an error naming the
+  `vid`; both parse to 0 stops, and the overlay closes. Other errors show "Couldn't load the stops ahead".
+- Trains' other way: the closest platform (within 300 m, by `kPlatforms`) on the same line with another direction
+  label. Buses' other way: worked out once when `getpatterns` answers for the LED row (the closest stop within 500 m
+  on a pattern with another `rtdir`), so a tap is one `getpredictions?stpid=`. A route without one shows "Couldn't
+  load the other way".
+- Requests: `net::ahead` / `net::peek` queue one each (a newer tap replaces one not yet served); the network task
+  serves them before its next poll, on its one connection, and the answer rides in the snapshot (`Data::ahead`,
+  `Data::peek`) under the tap's id. No new buffers: `body` and `busRecs` as the polls use them.
+- Touch: a tile is its own target (tap only); the rest of a filled card taps to peek and holds for the picker. A
+  peeking card shows an "OTHER WAY" chip and taps anywhere to flip back. The stops ahead take every tap while up and
+  close when the screen leaves the stops. `tools/preview.cpp` renders both (`home_ahead*`, `home_peek*`) and checks
+  the gestures (`extrasFlow`).
+- Flashed 2026-11-16, idle, no taps (there is no serial touch command): internal free min 82.9 KB, frames 18–22 ms.
+  The taps on the dock are Step 3.
 
 ---
 
