@@ -689,7 +689,8 @@ bool relaying();                                        // a Bluetooth tick in t
 **Files:** `docs/ecosystem/day1-link.md`. (No power runs or power-model work: Leo, 2026-11-14.)
 
 - [x] **Step 1:** Dropped (battery tests removed).
-- [ ] **Step 2: RAM** (all three cases in Gates; 10 min each; off/on ×3 with no leak).
+- [x] **Step 2: RAM** (all three cases in Gates; 10 min each; off/on ×3 with no leak). *2026-11-15: (a) 85.5 KB,
+  (b) 85.5 KB (no `--burst`), (c) 86.4 KB; off/on ×3 no leak (`docs/ecosystem/day1-link.md`).*
 - [x] **Step 3:** Dropped (no battery tests). Note scroll fps and tap→screen from the serial profile instead.
 - [ ] **Step 4: Latency:** pin and follow (stopwatch on video, or a serial timestamp on receipt against the app's
   log); `nearby` → first card; a relayed card's age; reconnect after a wearable reboot; the fallback to HTTP after

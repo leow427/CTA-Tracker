@@ -251,3 +251,24 @@ Main at 4555726, Leo's iPhone 15 Pro bonded over Bluetooth, Trackie on screen, W
   the foreground (4555726).
 - **Not measured yet:** case (b), 10-minute windows, off/on ×3 with the phone, pin and follow latency, the HTTP
   fallback after `b`, and the no-Wi-Fi boot.
+
+### Wearable gates with Leo's iPhone, continued (W6c, 2026-11-15 evening)
+
+Main at fbeb68b–7cb3753, Leo's iPhone 15 Pro, Wi-Fi joined:
+
+| Check | Result |
+|---|---|
+| RAM case (a), 10 min relaying (Trackie on screen), with a pin and a follow | **85.5 KB** lowest; `CTA requests` flat; 102 `/stop`; no disconnects |
+| RAM case (b), 10 min with the phone locked (connected, not relaying, the wearable polling CTA itself) | **85.5 KB** lowest; Bluetooth stayed connected; polls every 60 s. Not done: `link_send.py --burst` on top |
+| Bluetooth off/on ×3 (serial `b`) with the phone | reconnected and bonded within 1 s each time; 124.5 KB free after each off (no leak) |
+| Reconnect after a wearable reboot | connected as it booted; pin and follow back 0.6 s after encryption |
+| Pin / follow on receipt | applied within 0.2 s of the write (`net: pinned …, following …`) |
+| Phone fetch → wearable card (after 770821b) | within about a second (Leo, watching both) |
+| Pair again (wearable Settings) → re-pair from the app | worked with the passkey; no Forget in iOS Settings needed; token and `nearby` within 0.8 s; no old pin |
+| Reset (`R`) → pairing by code from the Mac (W6d) | the right code gave 200 and set the token |
+| A code-paired wearable, then Bluetooth pairing from the app | worked directly (the app offers "Pair again"; no wearable Pair again needed) |
+| A passed follow | Home back to the closest stops after Arrived/Lost (30 s since 7cb3753; Leo 2026-11-15) |
+
+- **Not done (need another network or a later day):** the HTTP fallback after `b` (the home router blocks phone→board
+  traffic), app code pairing with the phone's Bluetooth off, a `/wifi` join from the app, and the no-Wi-Fi boot
+  with relayed cards (step 7 go/no-go, 11/20 18:00).
