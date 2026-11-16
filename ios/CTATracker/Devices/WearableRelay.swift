@@ -4,9 +4,9 @@ import Observation
 import os
 import UIKit
 
-/// The relay (plan, "Relay"; Task AB3): while the app is in the foreground and a wearable is on Bluetooth, every 30 s
-/// it sends `/relay` with the phone's time, then `/stop` for each of the wearable's stops (its last `nearby` plus the
-/// pin) fetched since its last send, and each at least every 60 s. Bluetooth only: on Wi-Fi the wearable polls CTA.
+/// The relay (plan, "Relay"; Task AB3): while the app is in the foreground and a wearable is on Bluetooth, it sends
+/// `/stop` for each of the wearable's stops (its last `nearby` plus the pin) as soon as the phone fetches it, and each
+/// at least every 60 s; `/relay` with the phone's time goes every 30 s. Bluetooth only: on Wi-Fi the wearable polls CTA.
 @Observable final class WearableRelay {
     nonisolated static let resendSec: TimeInterval = 60
 
@@ -15,7 +15,11 @@ import UIKit
     @ObservationIgnored private let arrivals: ArrivalsStore
     @ObservationIgnored private let index: StopIndex?
     @ObservationIgnored private var loop: Task<Void, Never>?
-    @ObservationIgnored private var lastSent: [String: (at: Date, fetched: Date)] = [:]   // "device|stop"
+    typealias Sent = [String: (at: Date, fetched: Date)]   // "device|stop"
+    @ObservationIgnored private var lastSent: Sent = [:]
+    /// The wearables the last tick finished (so they have had a `/relay`) and their stops: fresh fetches go to these.
+    @ObservationIgnored private var sending: [(String, [Stop])] = []
+    @ObservationIgnored private var bonded: Set<String> = []   // Bluetooth-connected ids, to spot a reconnect
     @ObservationIgnored private var lifecycle: [NSObjectProtocol] = []
     private let log = Logger(subsystem: "io.github.leow427.CTATracker", category: "relay")
 
@@ -24,6 +28,8 @@ import UIKit
         self.arrivals = arrivals
         self.index = index
         link.onSent = { [weak self] in if self?.running == true { self?.setActive(true) } }   // a fresh tick now
+        arrivals.onFetched = { [weak self] ids in Task { await self?.push(ids) } }
+        watchBluetooth()
         // Foreground only (plan, "iOS: what really works in the background").
         lifecycle = [(UIApplication.didBecomeActiveNotification, true), (UIApplication.willResignActiveNotification, false)]
             .map { name, active in
@@ -89,6 +95,16 @@ import UIKit
         wearables.filter { sentNearby[$0] != nil }
     }
 
+    /// The (wearable, stop) pairs a fetch of these IDs has new arrivals for.
+    nonisolated static func pushes(_ fetched: Set<String>, to sending: [(String, [Stop])]) -> [(String, Stop)] {
+        sending.flatMap { id, stops in stops.filter { fetched.contains($0.id) }.map { (id, $0) } }
+    }
+
+    /// Drops these wearables' sends: after a reboot or reconnect their cards are empty (RAM only).
+    nonisolated static func forgetting(_ devices: Set<String>, in sent: Sent) -> Sent {
+        sent.filter { !devices.contains(String($0.key.prefix { $0 != "|" })) }
+    }
+
     nonisolated static func due(fetched: Date?, last: (at: Date, fetched: Date)?, now: Date) -> Bool {
         guard let fetched else { return false }
         guard let last else { return true }
@@ -111,23 +127,51 @@ import UIKit
         let stale = Set(all.map(\.id)).filter { arrivals.fetched[$0].map { now.timeIntervalSince($0) >= Config.relayTickSec } ?? true }
         if !stale.isEmpty { await arrivals.refresh(only: stale) }
 
+        // A wearable new since the last finished tick (just connected, or back after a reboot) gets every stop.
+        lastSent = Self.forgetting(Set(wearables).subtracting(sending.map(\.0)), in: lastSent)
+
         // Cancelled (the app went to the background, or a new stop set restarted the loop): send nothing more.
         for (id, stops) in stopsByDevice {
             guard !Task.isCancelled else { return }
             await send("/relay", BLEMessage.encode(Self.tick(now: Date()), limit: BLEFrames.maxMessage), to: id)
             for stop in stops {
                 guard !Task.isCancelled else { return }
-                let key = "\(id)|\(stop.id)", fetched = arrivals.fetched[stop.id], now = Date()
-                guard let fetched, Self.due(fetched: fetched, last: lastSent[key], now: now) else { continue }
-                let records = Self.records(for: stop, predictions: arrivals.predictions[stop.id] ?? [], fetched: fetched) {
-                    !(arrivals.alerts[$0] ?? []).isEmpty
-                }
-                let body = RelayStop(id: stop.id, type: stop.kind == .bus ? .bus : .train, records: records)
-                if await send("/stop", BLEMessage.encode(body, limit: BLEFrames.maxMessage), to: id) {
-                    lastSent[key] = (now, fetched)
-                }
+                await sendStop(stop, to: id)
             }
         }
+        sending = stopsByDevice
+    }
+
+    /// New arrivals go straight on to the wearables showing that stop, not at the next tick.
+    private func push(_ fetched: Set<String>) async {
+        for (id, stop) in Self.pushes(fetched, to: sending) where running {
+            await sendStop(stop, to: id)
+        }
+    }
+
+    // shortcut: a push and a tick racing on one stop may both send it; the wearable keeps the newest, so it's harmless.
+    private func sendStop(_ stop: Stop, to id: String) async {
+        let key = "\(id)|\(stop.id)", fetched = arrivals.fetched[stop.id], now = Date()
+        guard let fetched, Self.due(fetched: fetched, last: lastSent[key], now: now) else { return }
+        let records = Self.records(for: stop, predictions: arrivals.predictions[stop.id] ?? [], fetched: fetched) {
+            !(arrivals.alerts[$0] ?? []).isEmpty
+        }
+        let body = RelayStop(id: stop.id, type: stop.kind == .bus ? .bus : .train, records: records)
+        if await send("/stop", BLEMessage.encode(body, limit: BLEFrames.maxMessage), to: id) {
+            lastSent[key] = (now, fetched)
+        }
+    }
+
+    /// A wearable that (re)connects is sent its stops at once, all of them, rather than at the next tick.
+    private func watchBluetooth() {
+        let now = withObservationTracking { Set(link.ble.connected.keys) } onChange: { [weak self] in
+            Task { @MainActor in self?.watchBluetooth() }
+        }
+        let back = now.subtracting(bonded)
+        bonded = now
+        guard !back.isEmpty else { return }
+        sending.removeAll { back.contains($0.0) }   // no pushes until its tick has sent `/relay` and every stop
+        if running { setActive(true) }
     }
 
     /// Over the bond only, never HTTP. A body too big to frame is skipped; the next tick tries again.

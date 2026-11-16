@@ -238,8 +238,8 @@ replaces it there.
 
 - **Phone side**, while the app is in the foreground and the wearable is connected over Bluetooth:
   - every 30 s, `POST /relay {now, wmo, temp}`;
-  - then `POST /stop` for each of the wearable's stops (the last `nearby` the app sent, plus the pin) whose
-    arrivals were fetched since the last send.
+  - `POST /stop` for each of the wearable's stops (the last `nearby` the app sent, plus the pin) as soon as the
+    phone fetches its arrivals.
   - Each stop is sent at least every 60 s.
   - Records: one per line and direction, built with `StopRecord.make` from the app's predictions, with `veh`. Train
     records are keyed (station ID, line, the `stops.json` direction label), as the wearable's train cards are (base
@@ -876,7 +876,7 @@ the Bluetooth connection; the last `NearbyMessage` sent and `pinned` are the sto
 @Observable final class WearableRelay {
     func update(stops nearby: NearbyMessage?, pin: ConfigStop?)    // what the wearable shows
     func setActive(_ active: Bool)                                  // foreground && BLE-connected
-    // every Config.relayTickSec: /relay {now, weather}, then /stop for each stop fetched since its last send;
+    // every Config.relayTickSec: /relay {now, weather}; /stop for each stop as soon as the phone fetches it;
     // every stop at least every 60 s
 }
 ```
@@ -891,6 +891,12 @@ weather: the app has no weather fetch yet, so `/relay` carries `now` only. Nothi
 `nearby` this launch (a bare `/relay` would stop its own polling); a new `nearby`, pin or `/follow` restarts the loop
 for an immediate tick, and a `/follow`'s stop is relayed like the pin. For W6b: a stop whose arrivals ran out comes
 as `records: []`, with no `ts` to compare; it should clear that stop's cards.
+
+**Changed 2026-11-15 (Leo: the wrist ran up to a minute behind the phone):** `/stop` no longer waits for the 30 s
+tick. `ArrivalsStore.onFetched` tells the relay which fetch IDs got new arrivals, and it sends each to the wearables
+showing that stop at once (only wearables a tick has already sent `/relay`). The tick keeps `/relay`, the fetch of
+stops the list doesn't cover, and the 60 s resend. A wearable that connects or reconnects (its cards are RAM only)
+has its sends forgotten and gets a tick at once, so every stop goes out again.
 
 - [x] **Step 1: Pure tests first** (`ios/CTATrackerTests/WearableRelayTests.swift`, or CTAKit if the record
   building lives there):

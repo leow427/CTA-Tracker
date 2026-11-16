@@ -321,9 +321,10 @@ CTA-Pet-xxxx in iOS Settings → Bluetooth").
 Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates pass by 11/20 18:00.
 
 - While the app is in the foreground and the wearable is connected over Bluetooth, the app sends `POST /relay` every
-  30 s (the time, and the weather if it has it), then `POST /stop` for each of the wearable's stops (the last
-  `nearby` plus the pin) whose arrivals it fetched since the last send, each stop at least every 60 s. The relay
-  rides the app's own arrivals fetches, so a stop both on screen and on the wrist costs one request.
+  30 s (the time, and the weather if it has it), and `POST /stop` for each of the wearable's stops (the last
+  `nearby` plus the pin) as soon as the phone fetches its arrivals, each stop at least every 60 s. A wearable that
+  connects or reconnects gets all its stops at once. The relay rides the app's own arrivals fetches, so a stop both
+  on screen and on the wrist costs one request.
 - Records are base spec 6.2 stop records with the vehicle (`veh`), one per line and direction, keyed as the wearable's
   own cards, so Follow (5.7) runs on relayed data too.
 - While relaying, the wearable polls nothing (no CTA, alerts or weather). It resumes its own polling, if it has

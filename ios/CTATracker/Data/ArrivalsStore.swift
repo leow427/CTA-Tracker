@@ -23,6 +23,7 @@ import Observation
         }
     }
     private var fetchedSlots: [Slot] { slots + extra }
+    @ObservationIgnored var onFetched: ((Set<String>) -> Void)?   // the relay sends these fetch IDs on at once
     private var poll: Task<Void, Never>?
     private var pending: Set<String> = []          // added stops waiting for their first fetch
     private var pendingFetch: Task<Void, Never>?
@@ -153,6 +154,7 @@ import Observation
         let got = results ?? [:]
         for (id, r) in got { book.record([id: r.preds], at: r.at) }
         book.fail(asked.subtracting(got.keys))
+        if !got.isEmpty { onFetched?(Set(got.keys)) }
         if subset && asked.isEmpty { return }
         failing = !asked.isEmpty && got.isEmpty
     }

@@ -85,6 +85,21 @@ struct WearableRelayTests {
         #expect(WearableRelay.due(fetched: t, last: last, now: t.addingTimeInterval(60)))   // at least every 60 s
     }
 
+    @Test func aFetchIsPushedToEachWearableShowingThatStop() throws {
+        let belmont = try #require(index.stop(id: "41320")), bus = try #require(index.stops.first { $0.kind == .bus })
+        let sending = [("c3d4", [belmont, bus]), ("e5f6", [bus])]
+        let pushed = WearableRelay.pushes([bus.id, "nope"], to: sending)
+        #expect(pushed.map { "\($0.0)|\($0.1.id)" } == ["c3d4|\(bus.id)", "e5f6|\(bus.id)"])
+        #expect(WearableRelay.pushes([belmont.id], to: []).isEmpty)   // no wearable ticked yet: nothing pushed
+    }
+
+    @Test func aReconnectedWearableForgetsItsSends() {
+        let sent: WearableRelay.Sent = ["c3d4|41320": (fetched, fetched), "c3d4|1234": (fetched, fetched),
+                                        "e5f6|41320": (fetched, fetched)]
+        #expect(WearableRelay.forgetting(["c3d4"], in: sent).keys.sorted() == ["e5f6|41320"])
+        #expect(WearableRelay.forgetting([], in: sent).count == 3)
+    }
+
     @Test func tickPeriodIsTheSpecs() {
         #expect(Config.relayTickSec == 30 && WearableRelay.resendSec == 60)
     }
