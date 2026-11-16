@@ -42,7 +42,7 @@ Arduino APIs (`MDNS.begin`, ArduinoJson) were written for the Arduino build; bui
 
 ## Global Constraints
 
-- Showcase on one network: the campus IoT network (slot 0, home, on the wearable); development on Leo's home network.
+- Showcase on one network: a home network Leo has access to, with the dock and the phone on it (Leo, 2026-11-15: no campus network, no hotspot); development on Leo's home network.
   **Never write either network's name into a tracked file**, a test, a fixture, or a log line that gets committed.
 - Internal RAM floor: 40 KB free at the worst moment, logged with `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`.
 - All new board work runs off the dock's frame loop (core 1): HTTP handlers on the httpd task, hand-offs to the loop
@@ -131,13 +131,13 @@ Approved by Leo, 2026-11-15. Showcase 2026-11-23, dry run 11/22. **Day 1 (11/14�
 
 | Day | Work |
 |---|---|
-| Mon 11/16 | The biggest risk first, the phone reaching the dock: put the dock and wearable on Leo's iPhone hotspot (its network in the untracked `firmware/secrets.h`), pair the dock from the app by code, test the wearable's HTTP fallback after `b` there and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
+| Mon 11/16 | The biggest risk first, the phone reaching the dock: on the home network (Leo, 2026-11-15: the dock and the phone stay on the home network; no hotspot). Day 1 found the phone's connections never reached either board there (Task 1). Retry from the app (Bonjour finds the dock, `GET /info`, iOS's Local Network permission); if it's still blocked, find the router setting (client isolation, the 2.4/5 GHz bands kept apart, mDNS) on the home network and on the showcase network. Then pair the dock from the app by code, test the wearable's HTTP fallback after `b` and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
 | Tue 11/17 | Task 14 (dock stops from the app, both ways). Task 13 (one Trackie: presets, resend on `.resendState`, uncomment the wearable's `ui::petPalette565 = petPalette`). |
 | Wed 11/18 | Task 17 (find my handheld) and the step 8 docking check. Draft the demo script (Task 21 and BLE plan X2 Step 2). |
-| Thu 11/19 | First full run of showcase steps 1–8 on the hotspot; fix list. |
+| Thu 11/19 | First full run of showcase steps 1–8 on the home network; fix list. |
 | Fri 11/20 | Step 7 go/no-go at 18:00 (no-Wi-Fi wearable boot with relayed cards, serial `W` demo). Fixes. B2 dock map fps if time. |
 | Sat 11/21 | Task 20 extras only if the full run passed twice. Final READMEs. Feature freeze 18:00. |
-| Sun 11/22 | Dry run on the campus network, twice, from `docs/ecosystem/demo-script.md`. Fix only what breaks. |
+| Sun 11/22 | Dry run on the showcase network, twice, from `docs/ecosystem/demo-script.md`. Fix only what breaks. |
 | Mon 11/23 | Showcase. |
 
 Merge order onto `main`: each track rebases on `main` before merging. Finished, reviewed work is committed, pushed
@@ -173,8 +173,8 @@ and merged to `main` without asking (Leo, 2026-11-14).
   `http://<ip>/info` in Safari; the dock fetches the wearable's `/info` (serial `n <ip>`). Repeat on the campus
   network when on campus; record pass/fail only.
   *Result:* at home the Mac and both boards reach each other, but **the iPhone check failed**: its TCP never reached
-  either board (likely the router keeping the phone and the 2.4 GHz boards apart). Campus is still to test (on
-  campus or at the 11/22 dry run); the backup is the iPhone's Personal Hotspot.
+  either board (likely the router keeping the phone and the 2.4 GHz boards apart). The showcase runs on a home network
+  Leo has access to (Leo, 2026-11-15; no campus, no hotspot): 11/16 makes the phone reach the dock there.
 - [x] **Step 5:** Write `docs/ecosystem/day1-link.md` (RAM numbers, library, mDNS and reachability per network as
   "home" / "campus", the decision). Commit the doc only: `spike/link` stays local.
 
@@ -591,7 +591,7 @@ token and takes the same 1 KB limit.
 - [ ] **Step 4: Verify on the board:** fresh dock (`R`) shows a code; `link_send.py cta-dock-xxxx.local pair <code>`
   answers 200 and then `config` with that token is accepted; a second `pair` is 409; after a reset, 5 wrong codes
   give 403 ×5 then 423 with "Too many tries", and a new code after 30 s. Then pair the dock from the app by code
-  (Task 12's flow; 11/16 on the hotspot).
+  (Task 12's flow; 11/16 on the home network).
 - [x] **Step 5: Commit:** `feat(dock): pair over the network with the code on screen`. *(9735f8e)*
 
 ### Task 8: The wearable on the network (Track H)
@@ -716,7 +716,7 @@ void setFollow(const cta::FollowMsg* f);         // nullptr clears the follow; a
   digits until it pairs; 5 wrong tries → "Too many tries, new code in N s"; on Ok, save the token and go Home.
 - [ ] **Step 2: Verify on the board:** the same checks as Task 7's Step 4 against `cta-pet-xxxx.local`.
   *2026-11-15: after `R`, the right code from the Mac gave 200 and set the token (`docs/ecosystem/day1-link.md`).
-  Left: app code pairing with the phone's Bluetooth off (11/16, hotspot).*
+  Left: app code pairing with the phone's Bluetooth off (11/16, home network).*
 - [x] **Step 3: Commit:** `feat(handheld): pair over the network with the code on screen`. *(c950a87, as W6d)*
 
 ### Task 10: App device discovery and the link client (Track A)
@@ -782,7 +782,7 @@ enum TokenStore { static func token() -> String?; static func setToken(_ t: Stri
 > which hooks into this found card and flow shell. **Keep `NSBluetoothAlwaysUsageDescription`**; don't drop it.
 
 **Built as AB2 (3dc686e)** with the Bluetooth branch; the steps below are the code flow it contains. The dock's code
-pairing from the app is still unverified on the board (11/16, hotspot).
+pairing from the app is still unverified on the board (11/16, home network).
 
 **Files:** Create `ios/CTATracker/Devices/FoundCard.swift`, `SetupFlow.swift`; modify `DeviceLink.swift` (unpaired
 boards found by Bonjour, `pair`), and in coordination with Track K
@@ -802,11 +802,11 @@ boards found by Bonjour, `pair`), and in coordination with Track K
   code will appear on the device." 409: "Already set up. Start pairing again from <device>'s Settings." On 200 the
   board joins `KnownDevices` and polling.
 - [ ] **Step 2: Verify:** against `link_send.py --serve` first, then reset a real board (`R`) and set it up from the
-  card on the home network (or the hotspot, if the phone still can't reach the boards there; Task 1); both boards
+  card on the home network (Task 1: day 1's Safari test failed there; 11/16 retries from the app); both boards
   end up online with the same token.
   *2026-11-15: the wearable over Bluetooth passes, including Pair again → re-pair from the app with no Forget in
-  iOS Settings (`docs/ecosystem/day1-link.md`). Left for 11/16 on the hotspot: the dock by code from the app (home
-  Wi-Fi blocks phone → board), and the wearable by code with the phone's Bluetooth off.*
+  iOS Settings (`docs/ecosystem/day1-link.md`). Left for 11/16 on the home network: the dock by code from the app (day 1's Safari test
+  couldn't load the board's pages), and the wearable by code with the phone's Bluetooth off.*
 - [x] **Step 3: Commit:** `feat(ios): set up the dock and wearable with the code on screen`. *(3dc686e, as AB2)*
 
 ### Task 13: One Trackie and device settings (Track A)
@@ -1007,11 +1007,11 @@ records); 19b `ios/CTATracker/Devices/HandheldRelay.swift`.
 **Files:** Modify base spec §8.3, §9.5, §10 (point to the ecosystem spec), `firmware/handheld/mock/README.md`,
 `firmware/dock/` README section (the wearable README's Bluetooth section is done, e4efe9d); create
 `docs/ecosystem/demo-script.md` (showcase steps 1–8, step 7 only if its 11/20 go/no-go passed, with the exact taps,
-the reset step before pairing, the hotspot backup, and what to do if a step fails; no network names). Drafted 11/18
+the reset step before pairing, and what to do if a step fails; no network names). Drafted 11/18
 with BLE plan X2 Step 2.
 
 - [ ] **Step 1:** Write them. Check `git diff` for network names, home paths, tokens.
-- [ ] **Step 2: Verify:** run the script end to end on the home network, then on campus (11/22), twice each.
+- [ ] **Step 2: Verify:** run the script end to end on the showcase network (11/22), twice.
 - [ ] **Step 3: Commit:** `docs: ecosystem demo script, base spec points to the ecosystem design`.
 
 ---

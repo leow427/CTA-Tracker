@@ -239,8 +239,8 @@ gets the matching encoders next to `BLEMessages.swift`.
 - **Settings → Devices** lists each device from its `info`: online or not connected, last update, Wi-Fi network,
   and (wearable) battery and charging. A device's page has its stops (dock) and Forget.
 - **F1:** both devices take up to 5 networks: the dock from `secrets.h`; the wearable from the app over Bluetooth,
-  with `secrets.h` as the fallback list when it has none saved. Home and campus, plus the phone's hotspot as the
-  backup. Slot 0 is home on the wearable, used by docked detection (8.4). Each joins the strongest network in range
+  with `secrets.h` as the fallback list when it has none saved. Home, and the showcase network (a home network Leo
+  has access to; Leo, 2026-11-15). Slot 0 is home on the wearable, used by docked detection (8.4). Each joins the strongest network in range
   and moves to the next strongest when the link drops, as `todo.md` F1 describes.
 - iOS needs `NSLocalNetworkUsageDescription` and `NSBonjourServices` (`_ctatracker._tcp`) in the app's Info.plist,
   `NSBluetoothAlwaysUsageDescription`, and the `bluetooth-central` background mode (it keeps the connection and the
@@ -400,8 +400,7 @@ iOS map), and the bugs B1 and B2. They're planned separately, but they touch thi
 | iOS background limits | The relay runs only with the app in the foreground (Auto-Lock off on the demo iPhone). In the background the connection and status stay; a force-quit app is never relaunched (base spec 9.5), and the wearable falls back to its own Wi-Fi polling if it has Wi-Fi. |
 | Re-pairing after a reset: iOS can't remove a bond from an app, and a wearable that forgot its bond gets refused | A reset gives the wearable a new random Bluetooth address, so the iPhone sees a new device (unverified). If that fails, the demo script adds "Forget CTA-Pet-xxxx in iOS Settings → Bluetooth"; pairing by code is the last resort. |
 | The phone can't reach the boards on a network | The wearable no longer needs it: Bluetooth doesn't go through the router. The dock still does. **Happened at home** on day 1: the Mac and both boards reached each other, but the iPhone's connections never reached either board, likely the router keeping the phone apart from the 2.4 GHz boards. Campus is checked on campus or at the 11/22 dry run; if it fails there too, the phone's hotspot is the demo network (compiled into both boards' `secrets.h` lists). |
-| The campus IoT network blocks devices from reaching each other or blocks multicast (common on campus networks; the phone can join it, Leo, 2026-11-14) | The showcase runs on the campus IoT network, and Leo develops and tests on his home network (2026-11-14; network names stay out of the repo). Day 1 checks both (section 10). Both go in the wearable's saved list (F1); for the showcase the campus network is slot 0, home, so docking works there (8.4). The app remembers each device's last IP address and tries it directly, and a device page shows its address, so blocked mDNS alone isn't fatal. If the boards and the phone can't reach each other there at all, the phone's hotspot is the demo network. Assumed: the IoT network takes a password only (my call); one that signs in with a username (PEAP, which the wearable's `WIFI_EAP_USER` already supports) goes in `secrets.h` the same way. |
-| The fallback hotspot is the same iPhone that runs the app | Whether the app can reach boards on its own hotspot is untested; check it before the 11/22 dry run, since home already failed the phone check. |
+| The showcase network keeps the phone and the dock apart | The showcase runs on a home network Leo has access to, with the dock and the phone on it (Leo, 2026-11-15; no campus network, no hotspot; names stay out of the repo). 11/16 gets the phone reaching the dock at home; check the showcase network before the 11/22 dry run, and fix its router setting if needed. |
 | iOS local network permission is denied | The app explains it and links to Settings, the way it handles location. |
 | A device reboots mid-demo | Everything the app sent that must survive is in flash (token, picks, pet, settings, nearby); the pin and follow are re-sent by the app when it sees the device come back (my call). |
 
@@ -445,7 +444,7 @@ within `docs/handheld-ui.md`, and the setup screens' look within app spec §4.6.
    running, the HTTP server, and mDNS, all at once, with internal RAM logged. Decide BLE or the fallback (section 7)
    here. On both the campus IoT network and the home network, check that the iPhone can find the boards by mDNS
    and reach them by IP, and that the two boards can reach each other; this settles which network the demo uses.
-   *Done 2026-11-14:* the fallback (4.1); home failed the phone check, campus is still to test
+   *Done 2026-11-14:* the fallback (4.1); home failed the phone check; the showcase network (a home network, not campus: Leo 2026-11-15) is checked before 11/22
    (`docs/ecosystem/day1-link.md`).
 2. The network layer on both boards (server, mDNS, token, `info`, `config`) and the app's device discovery, Devices
    list, and setup flow (step 1).
