@@ -270,10 +270,13 @@ import SwiftUI
         }
     }
 
-    /// Replaces one section of the dock, keeping the other two as the dock last reported them; true when it took it.
+    /// Replaces one section of the dock, keeping the other two as the dock has them now; true when it took it.
     /// The dock raises `picks_ver`, and the `.fetchConfig` that follows reads back what it saved.
     func sendToDock(_ stop: ConfigStop, section: Int, dock id: String) async -> Bool {
-        guard let current = dockPicks[id] else { return false }   // never blank the other two sections
+        // Read fresh, not dockPicks: a pick just made on the dock must not be overwritten (spec 5.3). No read, no
+        // send: never blank the other two sections.
+        guard let fresh: DockConfig = try? await devices.get("/config", from: id), let stops = fresh.stops else { return false }
+        let current = DockConfig.padded(stops)
         let picks = DockConfig.replacing(current, section: section, with: stop)
         do { try await devices.post("/config", DockConfig(stops: picks), to: id) } catch { return false }
         dockPicks[id] = picks
