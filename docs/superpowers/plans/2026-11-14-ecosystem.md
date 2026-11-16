@@ -843,8 +843,9 @@ Also: resend pet and settings on `.resendState`, and uncomment the wearable's `u
 one opens the search picker; a chosen card sends all 3 sections (platform IDs for trains).
 
 - [x] **Step 1:** Build it; on `.fetchConfig` read `GET /config` and refresh the sections.
-- [ ] **Step 2: Verify:** pick in the app → dock section and LED row change; pick on the dock → the app's page shows
-  it within 3 s.
+- [x] **Step 2: Verify:** pick in the app → dock section and LED row change; pick on the dock → the app's page shows
+  it within 3 s. *Done 2026-11-16 on Leo's phone and the dock (lab network): picker, Send to dock, and a pick on the
+  dock all worked.*
 - [x] **Step 3: Commit:** `feat(ios): pick the dock's stops from the app, and send a stop to the dock`.
 
 **As built:** `AppModel.dockPicks` holds each dock's 3 sections (read on `.fetchConfig`, retried while online);
