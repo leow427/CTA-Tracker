@@ -277,6 +277,8 @@ Main at fbeb68b–7cb3753, Leo's iPhone 15 Pro, Wi-Fi joined:
 
 ### Phone ↔ dock on a lab network (day 2, 2026-11-16)
 
+This lab network is the showcase network (Leo, 2026-11-16).
+
 Main at f6abced, Leo's iPhone 15 Pro and the dock on a WPA2-Personal lab network (not the home network):
 
 | Check | Result |

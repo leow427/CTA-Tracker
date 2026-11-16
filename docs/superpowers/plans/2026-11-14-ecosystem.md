@@ -42,7 +42,7 @@ Arduino APIs (`MDNS.begin`, ArduinoJson) were written for the Arduino build; bui
 
 ## Global Constraints
 
-- Showcase on one network: a home network Leo has access to, not his own (Leo, 2026-11-15: no campus network, no hotspot), with the dock and the phone on it; development on Leo's home network. The dock needs both networks (one `secrets.h` network today), and the wearable's saved list gets the showcase network from the app.
+- Showcase on one network: the lab network checked on 11/16 (Leo, 2026-11-16; this replaces "a home network" from 11/15; no hotspot), with the dock and the phone on it. There the phone reaches the dock and pairs it, but the access point refuses the wearable until its MAC is registered; development on Leo's home network. The dock needs both networks (one `secrets.h` network today), and the wearable's saved list gets the showcase network from the app.
   **Never write either network's name into a tracked file**, a test, a fixture, or a log line that gets committed.
 - Internal RAM floor: 40 KB free at the worst moment, logged with `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`.
 - All new board work runs off the dock's frame loop (core 1): HTTP handlers on the httpd task, hand-offs to the loop
