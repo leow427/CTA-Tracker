@@ -27,7 +27,11 @@ import UIKit
         self.link = link
         self.arrivals = arrivals
         self.index = index
-        link.onSent = { [weak self] in if self?.running == true { self?.setActive(true) } }   // a fresh tick now
+        // A new list wipes the wearable's cards (firmware `Store::setNearby`): resend every stop, in a fresh tick now.
+        link.onSent = { [weak self] in
+            self?.lastSent = [:]
+            if self?.running == true { self?.setActive(true) }
+        }
         arrivals.onFetched = { [weak self] ids in Task { await self?.push(ids) } }
         watchBluetooth()
         // Foreground only (plan, "iOS: what really works in the background").
@@ -149,7 +153,6 @@ import UIKit
         }
     }
 
-    // shortcut: a push and a tick racing on one stop may both send it; the wearable keeps the newest, so it's harmless.
     private func sendStop(_ stop: Stop, to id: String) async {
         let key = "\(id)|\(stop.id)", fetched = arrivals.fetched[stop.id], now = Date()
         guard let fetched, Self.due(fetched: fetched, last: lastSent[key], now: now) else { return }
@@ -157,8 +160,10 @@ import UIKit
             !(arrivals.alerts[$0] ?? []).isEmpty
         }
         let body = RelayStop(id: stop.id, type: stop.kind == .bus ? .bus : .train, records: records)
-        if await send("/stop", BLEMessage.encode(body, limit: BLEFrames.maxMessage), to: id) {
-            lastSent[key] = (now, fetched)
+        // Claimed before the await, so a push and a tick racing on this stop send it once.
+        let previous = lastSent.updateValue((now, fetched), forKey: key)
+        if !(await send("/stop", BLEMessage.encode(body, limit: BLEFrames.maxMessage), to: id)) {
+            lastSent[key] = previous
         }
     }
 
