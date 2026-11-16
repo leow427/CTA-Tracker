@@ -86,6 +86,12 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
   (spec and firmware change).
 - **Rewrite git history for the network name in old commit f9ed1e2?** The repo is public. Leo's call.
 
+## Found 2026-11-16
+
+- **The setup flow's Wi-Fi step says "Couldn't join. Check the password." for every failure.** On a lab network the
+  access point refused the wearable before any password (reason 2). Report the board's reason instead (it would need
+  the disconnect reason in `info.wifi`).
+
 ## Features
 
 Ranked by importance, most important first (do F1 first). Labels: F = feature, B = bug.

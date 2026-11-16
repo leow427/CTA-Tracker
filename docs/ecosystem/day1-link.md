@@ -274,3 +274,19 @@ Main at fbeb68b–7cb3753, Leo's iPhone 15 Pro, Wi-Fi joined:
 - **Not done (need another network or a later day):** the HTTP fallback after `b` (the home router blocks phone→board
   traffic), app code pairing with the phone's Bluetooth off, a `/wifi` join from the app, and the no-Wi-Fi boot
   with relayed cards (step 7 go/no-go, 11/20 18:00).
+
+### Phone ↔ dock on a lab network (day 2, 2026-11-16)
+
+Main at f6abced, Leo's iPhone 15 Pro and the dock on a WPA2-Personal lab network (not the home network):
+
+| Check | Result |
+|---|---|
+| The app finds the dock (Bonjour, `GET /info`, Local Network) | online within about 12 s of opening the app; stayed online |
+| Pair again on the dock → the found card → code | worked: the card showed, the code paired (`pair again: token forgotten`, then `paired` 9 s later) |
+| Settings → Devices (Task 11) | the dock shows "Online via Wi-Fi" |
+| The wearable joining the lab network from the app (`/wifi` over Bluetooth) | **failed**: the access point drops it at authentication (reason 2), before the password, with the factory MAC and the replacement one alike; the network is in reach (RSSI −38 to −48, WPA2). Likely a MAC allow-list the dock is on. Not pursued (Leo) |
+
+- So phone → board traffic works on this network; day 1's failure at home is the home router.
+- **Moved to home (Leo, 2026-11-16):** the wearable's HTTP fallback, app code pairing with Bluetooth off, and a
+  `/wifi` join from the app. At home they depend on the router letting the phone reach the boards (Mon item in the
+  plan).
