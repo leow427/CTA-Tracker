@@ -42,7 +42,7 @@ Arduino APIs (`MDNS.begin`, ArduinoJson) were written for the Arduino build; bui
 
 ## Global Constraints
 
-- Showcase on one network: a home network Leo has access to, with the dock and the phone on it (Leo, 2026-11-15: no campus network, no hotspot); development on Leo's home network.
+- Showcase on one network: a home network Leo has access to, not his own (Leo, 2026-11-15: no campus network, no hotspot), with the dock and the phone on it; development on Leo's home network. The dock needs both networks (one `secrets.h` network today), and the wearable's saved list gets the showcase network from the app.
   **Never write either network's name into a tracked file**, a test, a fixture, or a log line that gets committed.
 - Internal RAM floor: 40 KB free at the worst moment, logged with `heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`.
 - All new board work runs off the dock's frame loop (core 1): HTTP handlers on the httpd task, hand-offs to the loop
@@ -131,10 +131,10 @@ Approved by Leo, 2026-11-15. Showcase 2026-11-23, dry run 11/22. **Day 1 (11/14�
 
 | Day | Work |
 |---|---|
-| Mon 11/16 | The biggest risk first, the phone reaching the dock: on the home network (Leo, 2026-11-15: the dock and the phone stay on the home network; no hotspot). Day 1 found the phone's connections never reached either board there (Task 1). Retry from the app (Bonjour finds the dock, `GET /info`, iOS's Local Network permission); if it's still blocked, find the router setting (client isolation, the 2.4/5 GHz bands kept apart, mDNS) on the home network and on the showcase network. Then pair the dock from the app by code, test the wearable's HTTP fallback after `b` and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
+| Mon 11/16 | The biggest risk first, the phone reaching the dock: on the home network (Leo, 2026-11-15: the dock and the phone stay on the home network; no hotspot). Day 1 found the phone's connections never reached either board there (Task 1). Retry from the app (Bonjour finds the dock, `GET /info`, iOS's Local Network permission); if it's still blocked, find the router setting (client isolation, the 2.4/5 GHz bands kept apart, mDNS). Book a visit to the showcase network (a different home network) before 11/19 to run the same check there. Then pair the dock from the app by code, test the wearable's HTTP fallback after `b` and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
 | Tue 11/17 | Task 14 (dock stops from the app, both ways). Task 13 (one Trackie: presets, resend on `.resendState`, uncomment the wearable's `ui::petPalette565 = petPalette`). |
 | Wed 11/18 | Task 17 (find my handheld) and the step 8 docking check. Draft the demo script (Task 21 and BLE plan X2 Step 2). |
-| Thu 11/19 | First full run of showcase steps 1–8 on the home network; fix list. |
+| Thu 11/19 | The dock joins the stronger of the home and showcase networks from `secrets.h` (small; or rebuild it for the showcase network). First full run of showcase steps 1–8, on the showcase network if Leo can be there, else at home; fix list. |
 | Fri 11/20 | Step 7 go/no-go at 18:00 (no-Wi-Fi wearable boot with relayed cards, serial `W` demo). Fixes. B2 dock map fps if time. |
 | Sat 11/21 | Task 20 extras only if the full run passed twice. Final READMEs. Feature freeze 18:00. |
 | Sun 11/22 | Dry run on the showcase network, twice, from `docs/ecosystem/demo-script.md`. Fix only what breaks. |
