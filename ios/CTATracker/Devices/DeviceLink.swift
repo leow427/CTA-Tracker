@@ -128,6 +128,8 @@ import os
         devices.removeAll { $0.id == id }
         watches[id] = nil
         online[id] = nil
+        sentNearby[id] = nil   // a re-setup starts clean: no stale /stop or /relay for the old pin and list
+        sentPin[id] = nil
     }
 
     // MARK: - Pure parts (tested)

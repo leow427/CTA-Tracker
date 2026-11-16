@@ -26,6 +26,9 @@ struct DeviceList: View {
                     Text(Self.status(online: info != nil, transport: link.transport(of: device.id)))
                         .font(.subheadline)
                         .foregroundStyle(info != nil ? Theme.live : Theme.secondaryText)
+                    if let info, let detail = Self.detail(info) {
+                        detail.font(.subheadline).foregroundStyle(Theme.secondaryText)
+                    }
                 }
             } icon: {
                 Image(systemName: device.kind == .dock ? "tv" : "pawprint.fill")
@@ -34,6 +37,18 @@ struct DeviceList: View {
             if let info, let battery = Self.battery(info.battery, charging: info.charging) {
                 Text(battery).font(.subheadline).foregroundStyle(Theme.secondaryText)
             }
+        }
+    }
+
+    /// "network · updated 2 minutes ago", either half when only it is known.
+    private static func detail(_ info: InfoMessage) -> Text? {
+        let ssid = info.wifi.connected ? info.wifi.ssid : nil
+        let updated = info.lastUpdate > 0 ? Date(timeIntervalSince1970: TimeInterval(info.lastUpdate)) : nil
+        switch (ssid, updated) {
+        case let (ssid?, updated?): return Text("\(ssid) · updated \(updated, format: .relative(presentation: .named))")
+        case let (ssid?, nil): return Text(ssid)
+        case let (nil, updated?): return Text("Updated \(updated, format: .relative(presentation: .named))")
+        case (nil, nil): return nil
         }
     }
 

@@ -55,9 +55,9 @@ struct DevicePage: View {
             }
         }
         .navigationTitle(device.name)
-        .task(id: info != nil) {
+        .task(id: info?.picksVer) {   // a pick on the dock raises picks_ver (spec 4.4), like DeviceWatch's .fetchConfig
             guard !wearable, info != nil else { return }
-            if let config: ConfigMessage = try? await link.get("/config", from: device.id) { stops = config.stops ?? [] }
+            if let config: DockConfig = try? await link.get("/config", from: device.id) { stops = config.picked }
         }
         .confirmationDialog("Forget \(device.name)?", isPresented: $confirming, titleVisibility: .visible) {
             Button("Forget", role: .destructive) {
@@ -76,4 +76,14 @@ struct DevicePage: View {
                 + "“\(bluetoothName)” in iOS Settings → Bluetooth."
             : "The dock stays paired until you tap Pair again on it."
     }
+}
+
+/// The dock's `GET /config` stops: always 3 slots, `{}` for an empty one (firmware picks.cpp `encodePicks`).
+nonisolated struct DockConfig: Decodable {
+    private struct Slot: Decodable {
+        let stop: ConfigStop?
+        init(from decoder: Decoder) throws { stop = try? ConfigStop(from: decoder) }
+    }
+    private let stops: [Slot]?
+    var picked: [ConfigStop] { stops?.compactMap(\.stop) ?? [] }
 }
