@@ -254,7 +254,8 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         // stronger one. Compare `info.wifi.ssid` if that misleads.
         let deadline = ContinuousClock.now + .seconds(Self.wifiSec)
         var joined = false
-        if (try? await link.post("/wifi", wifi, to: id)) != nil {
+        let sent = (try? await link.post("/wifi", wifi, to: id)) != nil
+        if sent {
             while !joined && ContinuousClock.now < deadline && !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 joined = link.online[id]?.wifi.connected == true
@@ -264,15 +265,18 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
             networks.append(name)
             ssid = ""
             link.setWifiSlots(firstSlot + networks.count, of: id)
-        } else { message = Self.wifiMessage(link.online[id]?.wifi.fail) }
+        } else { message = Self.wifiMessage(link.online[id]?.wifi.fail, sent: sent) }
     }
 
-    /// The board's reason for a failed join (`info.wifi.fail`); an old board without it gets the generic line.
-    nonisolated static func wifiMessage(_ fail: String?) -> String {
-        switch fail {
+    /// The board's reason for a failed join (`info.wifi.fail`); an old board without it gets the generic line. When
+    /// the write never reached the board, its `fail` is from an earlier try, so it isn't used.
+    nonisolated static func wifiMessage(_ fail: String?, sent: Bool) -> String {
+        guard sent else { return "Couldn't reach Trackie. Keep it close and try again." }
+        return switch fail {
         case "password": "Wrong password."
-        case "no_network": "Couldn't find that network nearby."
-        case "refused": "The network turned Trackie away. Some networks only let in devices they know: ask its admin to allow Trackie."
+        case "no_network": "Couldn't find that network nearby. Trackie needs 2.4 GHz Wi-Fi."
+        // Reason 2 (AUTH_EXPIRE) is both an allow-list and an auth timeout, so the line names both fixes.
+        case "refused": "Trackie couldn't get in. Move it closer to the router, or ask the network's admin to allow Trackie."
         default: "Couldn't join. Check the password."
         }
     }
@@ -320,7 +324,7 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         case "wifi": method = .bluetooth(UUID()); step = .wifi; networks = ["Home"]; ssid = "Campus"
         case let d where d.hasPrefix("wifi-"):
             method = .bluetooth(UUID()); step = .wifi; networks = ["Home"]; ssid = "Campus"
-            message = Self.wifiMessage(String(d.dropFirst(5)))
+            message = Self.wifiMessage(String(d.dropFirst(5)), sent: true)
         case "asking": asking = true
         case "pet": step = .pet
         case "ready": step = .ready

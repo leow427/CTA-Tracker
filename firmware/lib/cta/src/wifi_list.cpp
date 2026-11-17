@@ -29,7 +29,7 @@ WifiFail wifiFailFor(uint16_t reason) {
         case 204:   // HANDSHAKE_TIMEOUT: the guide's wrong-password codes (202 AUTH_FAIL isn't one: it's Other)
             return WifiFail::Password;
         case 201: return WifiFail::NoNetwork;   // NO_AP_FOUND
-        case 2:     // AUTH_EXPIRE: what a lab access point with a device allow-list sent
+        case 2:     // AUTH_EXPIRE: a lab access point's device allow-list sent it, but an auth timeout at the edge of range does too
         case 3:     // AUTH_LEAVE
         case 9:     // ASSOC_NOT_AUTHED
         case 30:    // NOT_AUTHORIZED_THIS_LOCATION

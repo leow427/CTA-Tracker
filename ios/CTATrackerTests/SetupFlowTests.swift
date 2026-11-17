@@ -54,11 +54,18 @@ struct SetupFlowTests {
     }
 
     @Test func wifiMessageFollowsTheBoardsReason() {
-        #expect(SetupFlow.wifiMessage("password") == "Wrong password.")
-        #expect(SetupFlow.wifiMessage("no_network") == "Couldn't find that network nearby.")
-        #expect(SetupFlow.wifiMessage("refused").hasPrefix("The network turned Trackie away."))
+        #expect(SetupFlow.wifiMessage("password", sent: true) == "Wrong password.")
+        #expect(SetupFlow.wifiMessage("no_network", sent: true) == "Couldn't find that network nearby. Trackie needs 2.4 GHz Wi-Fi.")
+        #expect(SetupFlow.wifiMessage("refused", sent: true).hasPrefix("Trackie couldn't get in."))
         // other, unknown, or an old board that doesn't say: today's line
-        for fail in ["other", "later", nil] { #expect(SetupFlow.wifiMessage(fail) == "Couldn't join. Check the password.") }
+        for fail in ["other", "later", nil] { #expect(SetupFlow.wifiMessage(fail, sent: true) == "Couldn't join. Check the password.") }
+    }
+
+    @Test func wifiMessageIgnoresAStaleReasonWhenTheWriteFailed() {
+        // The board never got this network, so its fail is from the last try.
+        for fail in ["refused", "password", nil] {
+            #expect(SetupFlow.wifiMessage(fail, sent: false) == "Couldn't reach Trackie. Keep it close and try again.")
+        }
     }
 
     // MARK: Steps

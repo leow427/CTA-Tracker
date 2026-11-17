@@ -232,9 +232,11 @@ gets the matching encoders next to `BLEMessages.swift`.
   failed join shows the wearable's reason, `info.wifi.fail`, sent only while it isn't joined and has one (cleared when
   it joins or a network is added). The firmware buckets the driver's disconnect reason (`cta::wifiFailFor`, codes from
   ESP-IDF 5.4's Wi-Fi guide): `password` (15, 204) "Wrong password."; `no_network` (201, or no saved network in reach)
-  "Couldn't find that network nearby."; `refused` (2, 3, 9, 30, 203; a lab access point with a device allow-list sent
-  2) "The network turned Trackie away. Some networks only let in devices they know: ask its admin to allow Trackie.";
-  `other`, or no `fail` (an older board), "Couldn't join. Check the password." The password is never stored or logged
+  "Couldn't find that network nearby. Trackie needs 2.4 GHz Wi-Fi."; `refused` (2, 3, 9, 30, 203; a lab access point
+  with a device allow-list sent 2, which an auth timeout at the edge of range also sends) "Trackie couldn't get in. Move
+  it closer to the router, or ask the network's admin to allow Trackie."; `other`, or no `fail` (an older board),
+  "Couldn't join. Check the password." When the `POST /wifi` itself fails, `fail` is from an earlier try, so the app
+  says "Couldn't reach Trackie. Keep it close and try again." instead. The password is never stored or logged
   on the phone, and the wearable never logs a network's name.
 - **Pet** (first device only) → **Ready.**
 - **The fallback:** when Bluetooth isn't available (off or not allowed on the phone, or the wearable not seen) or the
