@@ -131,7 +131,7 @@ Replaces the look in app spec 5.1. Contents, grouping, and live tracking (5.2) a
   3. A row of departure tiles that scrolls sideways: the next arrival largest and brightest, the later ones in a darker shade, each with minutes and the live glyph or a Sched label.
   4. A chip row: Delayed, ⚠ alert (tap to expand the text), ★, and "updated 12 s ago".
   5. "Also at this stop": the other groups as compact tiles. Tapping one makes it the top group and points the live map at its line.
-- **Vehicles:** pixel sprites as Mapbox view annotations, never rotated, with a separate heading arrow (app spec 4.6). They glide to each new position over about 1 s.
+- **Vehicles:** pixel sprites as Mapbox view annotations, never rotated, with a separate heading arrow (app spec 4.6). They glide to each new position over about 1 s. *As built (F6, 2026-11-17): a Mapbox symbol layer, not view annotations, so ~25 vehicles cost nothing per frame; they jump between 30 s fetches. See app spec 5.2, "As built".*
 
 ## 5. Visual design
 

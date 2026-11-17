@@ -19,7 +19,8 @@ struct MapScreen: View {
                            threeD: threeD, puck: model.location.puck,
                            bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
                            onCenter: { model.center = $0 },   // after a pan the list follows the center of the visible map
-                           onStopTap: { model.openStop = $0 })
+                           onStopTap: { model.openStop = $0 },
+                           live: live, onVehicleTap: { id in withAnimation(Theme.snappy) { model.live.toggleFocus(id) } })
                 wash.allowsHitTesting(false)
                 // Its own hosting controller, so the environment is passed in.
                 PassThroughHost(openAbove: { [model] in model.detailStop == nil ? model.listTop : model.detailTop }) {
@@ -43,6 +44,47 @@ struct MapScreen: View {
         .onChange(of: scenePhase, initial: true) { model.location.setActive(scenePhase != .background) }
         .onChange(of: fixKey, initial: true) { followFix() }
         .onChange(of: model.following) { followFix() }
+        .onChange(of: model.detailStop == nil) { _, closed in if closed { model.live.reset() } }
+        #if DEBUG
+        .task { await debugTour() }
+        #endif
+    }
+
+    #if DEBUG
+    /// Simulator screenshots without taps: `-debugOpenStop <id>` opens a stop; then `-debugFocus <n>` focuses its nth
+    /// departure's vehicle (0 = next) or `-debugFocus away` a vehicle headed elsewhere, as a tap would; `-debugClear 1`
+    /// taps it again 10 s later.
+    private func debugTour() async {
+        let d = UserDefaults.standard
+        guard let id = d.string(forKey: "debugOpenStop") else { return }
+        try? await Task.sleep(for: .seconds(3))
+        model.openStop = id
+        guard let pick = d.string(forKey: "debugFocus") else { return }
+        for _ in 0..<30 where live.vehicles.isEmpty { try? await Task.sleep(for: .seconds(1)) }
+        try? await Task.sleep(for: .seconds(4))
+        let layer = live
+        let target = Int(pick).map { layer.next.indices.contains($0) ? layer.next[$0] : nil }
+            ?? layer.vehicles.first { layer.away.contains($0.id) }?.id
+        guard let target else { return }
+        withAnimation(Theme.snappy) { model.live.toggleFocus(target) }
+        guard d.bool(forKey: "debugClear") else { return }
+        try? await Task.sleep(for: .seconds(10))
+        withAnimation(Theme.snappy) { model.live.toggleFocus(target) }
+    }
+    #endif
+
+    /// The open line's vehicles (F6), once their first fetch for the shown line lands.
+    private var live: LiveLayer {
+        let feed = model.live
+        guard model.detailStop != nil, let hero = model.detailHero, feed.route == hero.line.route,
+              let vehicles = feed.vehicles else { return LiveLayer() }
+        // The shown group's next departures, as the page's tiles list them.
+        let next = (arrivals.predictions[model.detailStop?.id ?? ""] ?? [])
+            .filter { $0.stopID == hero.stopID && $0.route == hero.line.route && $0.at > .now }
+            .sorted { $0.at < $1.at }.compactMap(\.vehicle)
+        return LiveLayer(route: hero.line.route, bus: hero.kind == .bus, vehicles: vehicles,
+                         away: Set(vehicles.map(\.id).filter { feed.places[$0]?.toward == false }),
+                         focus: feed.focus, next: next)
     }
 
     /// Under the list, a subtle wash in a darker shade of the map's navy: clear in the top fifth, deepening to mostly

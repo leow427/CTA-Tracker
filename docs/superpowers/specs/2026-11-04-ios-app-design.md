@@ -160,6 +160,36 @@ Apple builds the structure; pixel art carries the character.
 - **Stops polling** when the user goes back, the app leaves the foreground, or the phone locks.
 - **Cost:** 2 calls every 30 s (positions, plus this stop's arrivals). List polling is paused meanwhile.
 
+**As built (F6, 2026-11-17).** This replaces the bullets above where they differ.
+
+- **What shows:** every train or bus on the shown group's line, both directions, as pixel art matching the stop icons
+  (`StopArt.train`: the station's tram without its tunnel, in the line color; `StopArt.busVehicle`: a white bus), with
+  the stops' white halo, never rotated. A small white arrowhead rides around each one on the side it's heading
+  (`ttpositions` `heading`, `getvehicles` `hdg`). Vehicles not headed for the open stop are at half opacity. They sit
+  over the other stop icons; the open stop has its own layer on top of them.
+- **Focus:** tapping a departure tile, or a vehicle on the map, focuses that vehicle: the map flies to it, it's drawn
+  bigger (two more device pixels per art pixel) and on top, the rest dim, and the tile gets a headlight-yellow rim.
+  Under the tiles a plate in the line's shade says where it is: "At Fullerton", "Between Belmont and Wellington,
+  3 stops away", with "To Howard" under it. Tapping it again clears the focus; tapping another moves it. The camera
+  follows the focused vehicle's new positions until the user pans.
+- **Matching:** a tile's arrival carries Train Tracker's run number (`rn`) or Bus Tracker's vehicle ID (`vid`), the
+  same ID the positions feeds use (`Prediction.vehicle(in:)`).
+- **Where it is** (`VehiclePlace` in CTAKit): a train by its next stop (`nextStpId`) in the line's platform sequences
+  (`train_lines.json`, the firmware's `kTrainLines`), "at" a station when within 150 m of it; a bus by its distance along
+  its pattern (`pdist` against `getpatterns`, fetched once per route per session), "at" a stop within 200 ft. "N stops
+  away" counts the stops it still has to reach up to and including the open one; a vehicle the open stop isn't ahead
+  of gets no count.
+- **Dropped out:** if the focused vehicle isn't in a fetch the page says "Lost this train: it stopped sharing its
+  position" (or "isn't sharing its position yet" if it never was), instead of an old position. A failing feed keeps
+  the last positions for 90 s, then shows none ("Can't get train positions right now").
+- **Framing:** on opening, the stop and the next **2** vehicles headed for it (3 often reached 20 minutes out and framed
+  half the city); clearing a focus goes back to that.
+- **Motion:** markers jump to each new position every 30 s; the 1 s glide is not built (it needs per-frame work).
+- **Polling:** a task on the stop page, keyed by the shown line and the scene phase, so it stops when the page closes,
+  the line changes, or the app leaves the foreground. At most one positions call per 30 s (`Config.livePollSec`).
+- **Cost while a stop is open:** about 4 calls a minute: the stop's arrivals and the line's positions, each every
+  30 s, plus one `getpatterns` per bus route per session.
+
 ## 6. Devices, setup, and settings
 
 > **Changed for the showcase (2026-11-14).** No Bluetooth: the app finds devices by Bonjour, and setup is Pair (type the code shown on the device, sent with `POST /pair`) → Pet → done, with no Wi-Fi step and no bond to forget in iOS Settings. The first-launch Bluetooth line and prompt (section 3) go too. See the ecosystem spec (`2026-11-14-ecosystem-design.md`), sections 4.3 and 5.1; Bluetooth is future work there (section 12).

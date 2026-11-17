@@ -23,11 +23,17 @@ struct DioramaMap: View {
     let onCenter: (CLLocationCoordinate2D) -> Void
     /// A stop icon was tapped: its stop ID.
     let onStopTap: (String) -> Void
+    /// The open stop's line: its trains or buses (F6).
+    var live = LiveLayer()
+    /// A vehicle was tapped: its ID.
+    var onVehicleTap: (String) -> Void = { _ in }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
     @State private var viewport = Viewport.camera(center: AppModel.loop, zoom: 14.5, bearing: 0, pitch: Self.pitch3D)
     @State private var beforeFocus: (viewport: Viewport, following: Bool)?
+    /// The camera keeps up with the focused vehicle until the user moves the map.
+    @State private var trackVehicle = true
 
     static let pitch3D: CGFloat = 55
     private var pitch: CGFloat { threeD ? Self.pitch3D : 0 }
@@ -53,15 +59,32 @@ struct DioramaMap: View {
                     .lineOcclusionOpacity(0.35)
                     .slot(.middle)
                 let art = stationArt()
-                ForEvery(art.icons + StopIcons.images(busStops, displayScale: displayScale), id: \.id) { $0.image }
+                ForEvery(art.icons + StopIcons.images(busStops, displayScale: displayScale) + vehicleImages, id: \.id) { $0.image }
                 GeoJSONSource(id: "stations").data(.featureCollection(art.features))
                 GeoJSONSource(id: "buses").data(.featureCollection(features(busStops)))
                 // Crowded stations (the Loop zoomed out) drop instead of piling up, the open one last.
                 stopLayer("stations").iconAllowOverlap(false).symbolSortKey(Exp(.get) { "rank" })
                 // The few listed bus stops always show, even beside a station, without pushing stations out.
                 stopLayer("buses").iconAllowOverlap(true).iconIgnorePlacement(true)
+                // The open line's vehicles over the other stops, all shown, the focused one on top; its heading arrow
+                // rides around it. The open stop goes over them all (its own layer), so it never hides under a train.
+                GeoJSONSource(id: "vehicles").data(.featureCollection(vehicleFeatures))
+                vehicleLayer("vehicle-arrows")
+                    .iconImage(Exp(.get) { "arrow" })
+                    .iconRotate(Exp(.get) { "heading" })
+                    // Flat, the map turns it with any bearing; tilted, map alignment skews it off the glyph, so it turns
+                    // on screen (north is up there: tilted views keep bearing 0 unless the user twists the map).
+                    .iconRotationAlignment(threeD ? .viewport : .map)
+                vehicleLayer("vehicles").iconImage(Exp(.get) { "icon" })
+                GeoJSONSource(id: "open").data(.featureCollection(features(focus.map { [$0] } ?? [])))
+                stopLayer("open").iconAllowOverlap(true).iconIgnorePlacement(true)
                 TapInteraction(.layer("stations")) { feature, _ in tapped(feature) }
                 TapInteraction(.layer("buses")) { feature, _ in tapped(feature) }
+                TapInteraction(.layer("open")) { feature, _ in tapped(feature) }
+                TapInteraction(.layer("vehicles")) { feature, _ in
+                    if case .string(let id)? = feature.properties["id"] { onVehicleTap(id) }
+                    return true
+                }
             }
             .mapStyle(threeD ? Self.navy3D : Self.navy2D)
             .locationDataModel(puck)
@@ -76,7 +99,7 @@ struct DioramaMap: View {
                 // A tap (on a stop, say) doesn't move the camera, so it keeps following; but Mapbox cancels camera
                 // animations on every tap, which idles a follow still flying in (on the next main-queue turn), so
                 // follow again after that.
-                onBegin: { if $0 != .singleTap { following = false } },
+                onBegin: { if $0 != .singleTap { following = false; trackVehicle = false } },
                 onEnd: { gesture, _ in
                     guard gesture == .singleTap else { return }
                     DispatchQueue.main.async { if following { move(to: follow) } }
@@ -100,6 +123,14 @@ struct DioramaMap: View {
         .ignoresSafeArea()
         .onChange(of: following, initial: true) { if following { move(to: follow) } }
         .onChange(of: focus?.id) { showFocus() }
+        // A tapped tile or vehicle: fly to it; cleared, back to the stop and its next vehicles.
+        .onChange(of: live.focus) { old, new in
+            trackVehicle = true
+            if new != nil { showVehicle() } else if old != nil { overview() }
+        }
+        .onChange(of: live.focused) { old, new in if old?.id == new?.id, new != nil, trackVehicle { showVehicle() } }
+        // The open line's first positions: frame the stop and the next vehicles headed for it (app spec 5.2, with 2).
+        .onChange(of: overviewKey) { if live.focus == nil { overview() } }
     }
 
     /// The logo and info button sit just above the covered part; over stop detail, also above its header.
@@ -123,6 +154,71 @@ struct DioramaMap: View {
             following = before.following
             if !following { move(to: before.viewport) }   // following re-follows through its own onChange
         }
+    }
+
+    // MARK: - Vehicles (F6)
+
+    private var vehicleImages: [(id: String, image: StyleImage)] {
+        live.route.isEmpty ? [] : StopIcons.vehicleImages(route: live.route, bus: live.bus, displayScale: displayScale)
+    }
+
+    /// Each vehicle with its icon, heading, and opacity: the focused one big and on top, the rest dimmed while one is
+    /// focused, and those not headed for the open stop dimmed always.
+    private var vehicleFeatures: FeatureCollection {
+        FeatureCollection(features: live.vehicles.map { v in
+            let focused = v.id == live.focus
+            var f = Feature(geometry: .point(Point(CLLocationCoordinate2D(latitude: v.lat, longitude: v.lon))))
+            f.properties = ["id": .string(v.id),
+                            "icon": .string(StopIcons.vehicleID(route: live.route, bus: live.bus, big: focused)),
+                            "arrow": .string(StopIcons.headingID(big: focused)),
+                            "heading": .number(v.heading),
+                            "opacity": .number(focused || (live.focus == nil && !live.away.contains(v.id)) ? 1 : 0.5),
+                            "rank": .number(focused ? 1 : 0)]
+            return f
+        })
+    }
+
+    /// A vehicle layer: every one shown, flat to the screen, the focused one drawn last.
+    private func vehicleLayer(_ id: String) -> SymbolLayer {
+        SymbolLayer(id: id, source: "vehicles")
+            .iconPitchAlignment(.viewport)
+            .iconRotationAlignment(.viewport)
+            .iconOpacity(Exp(.get) { "opacity" })
+            .iconAllowOverlap(true).iconIgnorePlacement(true)
+            .symbolSortKey(Exp(.get) { "rank" })
+            .iconEmissiveStrength(1)
+            .slot(.top)
+    }
+
+    /// The open stop's next departures' vehicles that are on the map, at most 2: a third is often 20 minutes out,
+    /// which framed half the city.
+    private var nextCoordinates: [CLLocationCoordinate2D] {
+        Array(live.next.compactMap { id in live.vehicles.first { $0.id == id } }.prefix(2)
+            .map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) })
+    }
+
+    /// Changes when the open stop or line changes and when its first vehicles show up, not on every refresh.
+    private var overviewKey: String {
+        "\(focus?.id ?? "")|\(live.route)|\(nextCoordinates.isEmpty)"
+    }
+
+    private func showVehicle() {
+        guard let v = live.focused else { return }   // not on the map: the page says why
+        move(to: .camera(center: CLLocationCoordinate2D(latitude: v.lat, longitude: v.lon), zoom: Self.zoom,
+                         bearing: 0, pitch: pitch))
+    }
+
+    /// The stop and its next vehicles in view, under the hero's buttons; just the stop when none are on the map.
+    private func overview() {
+        guard let stop = focus else { return }
+        let here = CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lon)
+        let next = nextCoordinates
+        guard !next.isEmpty else {
+            return move(to: .camera(center: here, zoom: Self.zoom, bearing: 0, pitch: pitch))
+        }
+        move(to: .overview(geometry: MultiPoint([here] + next), bearing: 0, pitch: pitch,
+                           geometryPadding: EdgeInsets(top: 150, leading: 48, bottom: 140, trailing: 64),
+                           maxZoom: Self.zoom))
     }
 
     /// Stops as points with their id, icon, and rank (the open stop first in collisions).
@@ -224,4 +320,17 @@ struct DioramaMap: View {
             7 + extra
         }
     }
+}
+
+/// The open stop's line on the map (F6): its vehicles, which are headed elsewhere, the focused one, and the open stop's
+/// next departures' vehicles, framed with the stop.
+struct LiveLayer: Equatable {
+    var route = ""
+    var bus = false
+    var vehicles: [Vehicle] = []
+    var away: Set<String> = []
+    var focus: String?
+    var next: [String] = []
+
+    var focused: Vehicle? { vehicles.first { $0.id == focus } }
 }

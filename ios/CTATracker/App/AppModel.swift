@@ -12,6 +12,8 @@ import SwiftUI
     let location = LocationService()
     /// The dock and wearable on this Wi-Fi (ecosystem spec 4.2), polled only while the app is active.
     let devices = DeviceLink()
+    /// The open stop's line on the map (F6), polled while stop detail is open.
+    let live = LiveVehicles()
     @ObservationIgnored private var lifecycle: [NSObjectProtocol] = []
     /// At most one mirrored `nearby` per 10 s (spec 5.5); `flushNearby` sends a held one once it's due.
     @ObservationIgnored private var throttle = NearbyThrottle()

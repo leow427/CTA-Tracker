@@ -1,6 +1,7 @@
 import CTAKit
 import MapboxMaps
 import SwiftUI
+import UIKit
 
 /// The map's stop icons (F7, grids in `StopArt`): a pixel tram in its tunnel in its line's color for a station, or a
 /// cream tram whose arch is split into one run per line for a station on several lines, and a pixel bus in the bus
@@ -49,13 +50,76 @@ enum StopIcons {
         guard let grid = stop.kind == .bus ? PetSprites.grid(StopArt.bus, chars: StopArt.chars)
                                            : StopArt.stationGrid(lines: lines.count),
               let art = PetSprites.image(grid: StopArt.haloed(grid), palette: palette) else { return nil }
-        return upscaled(art, displayScale: max(1, displayScale))
+        return upscaled(art, pixel: pixel(displayScale), displayScale: max(1, displayScale))
     }
 
-    /// Nearest-neighbor upscale to a whole number of device pixels per art pixel, tagged with the screen's scale,
-    /// so Mapbox draws it 1:1 and never smooths the art.
-    private static func upscaled(_ art: CGImage, displayScale: CGFloat) -> UIImage? {
-        let pixel = max(1, Int(points * displayScale / CGFloat(art.width)))
+    /// Device pixels per art pixel for the 18-pixel stop icons (5 on 3×, 3 on 2×); vehicles use the same.
+    private static func pixel(_ displayScale: CGFloat) -> Int { max(1, Int(points * max(1, displayScale) / 18)) }
+
+    // MARK: - Vehicles (F6)
+
+    /// A vehicle's image id: "veh-" plus the train's route, or "veh-bus"; "-big" for the focused one.
+    static func vehicleID(route: String, bus: Bool, big: Bool) -> String {
+        "veh-" + (bus ? "bus" : route) + (big ? "-big" : "")
+    }
+
+    /// The open line's vehicle images (normal and focused) and the heading arrows that ring them. A train is its
+    /// line's tram, a bus a white bus (bus surfaces are white, revision 4), both with the stops' white halo; the
+    /// focused one is drawn two device pixels bigger per art pixel, still whole and unsmoothed.
+    static func vehicleImages(route: String, bus: Bool, displayScale: CGFloat) -> [(id: String, image: StyleImage)] {
+        [false, true].flatMap { big in
+            [(vehicleID(route: route, bus: bus, big: big), { vehicleArt(route: route, bus: bus, big: big, displayScale: displayScale) }),
+             (headingID(big: big), { heading(big: big, displayScale: displayScale) })]
+        }.compactMap { id, draw in
+            let key = "\(id)@\(displayScale)"
+            if cache[key] == nil { cache[key] = draw().map { StyleImage(id: id, image: $0) } }
+            return cache[key].map { (id, $0) }
+        }
+    }
+
+    static func headingID(big: Bool) -> String { big ? "heading-big" : "heading" }
+
+    /// The vehicle's art at 1 px per art pixel, for the page's focus line.
+    static func vehicleGlyph(route: String, bus: Bool) -> CGImage? {
+        PetSprites.image(grid: StopArt.haloed(bus ? StopArt.busVehicle : StopArt.train), palette: vehiclePalette(route, bus: bus))
+    }
+
+    private static func vehiclePalette(_ route: String, bus: Bool) -> [UInt32] {
+        let body = bus ? 0xF4F7FA : LineColors.rgb(route)
+        return [0, LineColors.navy, body, glass, white, Theme.headlightRGB, white, body]
+    }
+
+    private static func vehicleArt(route: String, bus: Bool, big: Bool, displayScale: CGFloat) -> UIImage? {
+        vehicleGlyph(route: route, bus: bus).flatMap {
+            upscaled($0, pixel: pixel(displayScale) + (big ? 2 : 0), displayScale: max(1, displayScale))
+        }
+    }
+
+    /// A small white arrowhead with a navy edge at the top of a clear square, so rotating the square by the vehicle's
+    /// heading puts the arrow just outside the glyph on the side it's heading (app spec 4.6: the pixel art itself is
+    /// never rotated).
+    private static func heading(big: Bool, displayScale: CGFloat) -> UIImage? {
+        let side: CGFloat = big ? 66 : 50, w: CGFloat = 10, h: CGFloat = 7
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = max(1, displayScale)
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: side / 2, y: 1.5))
+            path.addLine(to: CGPoint(x: side / 2 + w / 2, y: 1.5 + h))
+            path.addLine(to: CGPoint(x: side / 2 - w / 2, y: 1.5 + h))
+            path.close()
+            path.lineJoinStyle = .round
+            path.lineWidth = 2
+            UIColor(Color(rgb: LineColors.navy)).setStroke()
+            UIColor.white.setFill()
+            path.stroke()
+            path.fill()
+        }
+    }
+
+    /// Nearest-neighbor upscale to `pixel` device pixels per art pixel, tagged with the screen's scale, so Mapbox
+    /// draws it 1:1 and never smooths the art.
+    private static func upscaled(_ art: CGImage, pixel: Int, displayScale: CGFloat) -> UIImage? {
         let (w, h) = (art.width * pixel, art.height * pixel)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,

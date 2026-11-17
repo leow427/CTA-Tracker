@@ -198,6 +198,12 @@ current theme, which matches the app since 2026-11-11 (white bus cards, light gr
 
 ### F6. Trains and buses on the iOS map: a stop shows its line's vehicles, a tap focuses one
 
+**Status (2026-11-17): built** on a worktree branch, checked on the simulator with live CTA data (Red at Belmont,
+22 at Clark & Belmont); not yet on a phone. Opening a stop polls its line's positions every 30 s; tapping a tile or a
+vehicle focuses it ("Between North/Clybourn and Fullerton, 2 stops away · To Howard"); a vehicle that leaves the feed
+reads "Lost this train". See app spec 5.2 (as built). Not done: markers jump between fetches instead of gliding
+(that would need per-frame work).
+
 Today, tapping a card (e.g. the Red Line at a station) opens stop detail with the next few arrivals as minute
 tiles, and the map shows no vehicles.
 

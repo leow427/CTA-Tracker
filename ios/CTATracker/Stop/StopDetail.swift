@@ -17,6 +17,7 @@ struct StopDetail: View {
     @Environment(AppModel.self) private var model
     @Environment(ArrivalsStore.self) private var arrivals
     @Environment(\.listMetrics) private var metrics
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selected: Line?
     @State private var shown = false   // rises in over the map (the list pushes it without a system transition)
     /// A bus stop's twin across the street: the same route the other way (`OppositeStop`), found once per line.
@@ -36,9 +37,19 @@ struct StopDetail: View {
                 hero(stop, chosen: chosen)
                 opposite = chosen.flatMap { line in model.index.flatMap { OppositeStop.find(for: stop, line: line, in: $0) } }
             }
+            // The shown line's trains or buses on the map (F6), only while this page is open and the app is active.
+            .task(id: livePoll) {
+                guard let hero = model.detailHero, scenePhase == .active else { return }
+                await model.live.poll(route: hero.line.route, kind: hero.kind, target: hero.stopID, index: model.index)
+            }
         } else {
             EmptyState(title: "No arrivals")
         }
+    }
+
+    /// Restarts the vehicle poll when the shown line changes, and stops it in the background.
+    private var livePoll: String {
+        model.detailHero.map { "\($0.line.route)|\($0.kind)|\($0.stopID)|\(scenePhase == .active)" } ?? ""
     }
 
     /// Ticks when the page can next read differently (`DetailGroups.nextChange`).
@@ -93,6 +104,7 @@ struct StopDetail: View {
                         }
                     }
                     DepartureRow(stop: stop, group: top, state: state, night: Night.now(now), now: now)
+                    VehicleLine(route: top.line.route, bus: top.kind == .bus)
                     chips(group: top, stop: stop, failing: failing, now: now)
                 }
                 if failing { UnavailableBanner() }   // the list's outage banner, here too (app spec 8)
@@ -171,7 +183,8 @@ private struct DepartureRow: View {
                 HStack(alignment: .top, spacing: Theme.Space.m) {
                     ForEach(Array(group.arrivals.enumerated()), id: \.offset) { n, p in
                         DepartureTile(p: p, route: group.line.route, lead: n == 0, stale: state.stale, now: now,
-                                      follow: wrist ? FollowMessage(stop: stop, line: group.line, departure: p) : nil)
+                                      follow: wrist ? FollowMessage(stop: stop, line: group.line, departure: p) : nil,
+                                      focused: p.vehicle != nil && p.vehicle == model.live.focus)
                             .frame(width: n == 0 ? lead : later, height: lead)
                     }
                 }
@@ -191,6 +204,7 @@ private struct DepartureTile: View {
     let stale: Bool   // stale data doesn't claim to be live (the chip gives its age)
     let now: Date
     let follow: FollowMessage?   // set while a wearable is online and the feed named the vehicle (spec 5.7)
+    let focused: Bool            // its train or bus is the one focused on the map (F6)
     @Environment(AppModel.self) private var model
     @State private var followed: Bool?   // the last follow's result, shown for 2 s
 
@@ -235,10 +249,18 @@ private struct DepartureTile: View {
         .padding(.vertical, Theme.Space.l)
         .padding(.horizontal, Theme.Space.s)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .plate(Color.cardGradient(route), rim: outline ?? (lead ? text : text.opacity(0.25)), rimWidth: lead ? 3 : 2)
+        // The focused one is rimmed in headlight yellow, like the map buttons that are on.
+        .plate(Color.cardGradient(route), rim: focused ? Theme.headlight : outline ?? (lead ? text : text.opacity(0.25)),
+               rimWidth: focused || lead ? 3 : 2)
         .opacity(stale ? 0.6 : 1)
         .accessibilityElement(children: .combine)
-        // A long press offers it; a tap does nothing (spec 5.6: only these two controls ever send).
+        // A tap shows its train or bus on the map (F6); a long press offers Follow (spec 5.6: only these two controls
+        // ever send).
+        .contentShape(PixelShape())
+        .onTapGesture { focus() }
+        .accessibilityAddTraits(p.vehicle == nil ? [] : focused ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAction { focus() }
+        .sensoryFeedback(.selection, trigger: focused)
         .contentShape(.contextMenuPreview, PixelShape())
         .contextMenu {
             if follow != nil { Button("Follow on Trackie", systemImage: "scope", action: send) }
@@ -251,11 +273,56 @@ private struct DepartureTile: View {
         .task(id: followed) { if followed != nil { try? await Task.sleep(for: .seconds(2)); followed = nil } }
     }
 
+    private func focus() {
+        guard let id = p.vehicle else { return }
+        withAnimation(Theme.snappy) { model.live.toggleFocus(id) }
+    }
+
     private func send() {
         guard let follow else { return }
         Task {
             followed = await model.follow(follow, at: p.at)
             AccessibilityNotification.Announcement(followed == true ? "Following on Trackie" : "Couldn't reach Trackie").post()
+        }
+    }
+}
+
+/// Where the focused train or bus is (F6): its pixel glyph and "Between Belmont and Wellington, 3 stops away" over
+/// "To Loop", or why its position isn't shown. A plate in the line's shade under the tiles; nothing without a focus.
+private struct VehicleLine: View {
+    let route: String
+    let bus: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let live = model.live
+        if let status = live.focusStatus {
+            let found: Vehicle? = if case .found(let v) = status { v } else { nil }
+            let place = found.flatMap { live.places[$0.id]?.text }
+            HStack(spacing: Theme.Space.m) {
+                if let glyph = StopIcons.vehicleGlyph(route: route, bus: bus) {
+                    PixelImage(image: glyph, points: 36).opacity(found == nil ? 0.5 : 1)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(status.text(bus: bus) ?? place ?? "On the map")
+                        .font(Theme.rounded(.headline, .heavy))
+                    if let found, !found.dest.isEmpty {
+                        Text("To \(found.dest)").font(Theme.rounded(.subheadline, .semibold)).opacity(0.8)
+                    }
+                }
+                .contentTransition(.opacity)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(Color.cardText(route))
+            .padding(.horizontal, Theme.Space.l).padding(.vertical, Theme.Space.m)
+            .plate(Color.cardGradient(route), rim: Color.cardOutline(route) ?? .white.opacity(0.22), edge: 4, shape: .small)
+            .accessibilityElement(children: .combine)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+            .animation(Theme.snappy, value: place)
+            // Said once when a vehicle is focused, not on every refresh.
+            .onChange(of: live.focus, initial: true) {
+                AccessibilityNotification.Announcement(status.text(bus: bus) ?? place ?? "On the map").post()
+            }
         }
     }
 }

@@ -46,6 +46,13 @@ public enum StopArt {
         "................",
     ]
 
+    /// F6's vehicles: a train is the station's tram without its tunnel (rows 2–13, columns 3–12, the arch's two corner
+    /// cells cleared); a bus is the stop's bus without its two blank rows.
+    public static let train: [[UInt8]] = PetSprites.grid(station, chars: chars)![2...13].map { row in
+        row[3...12].map { $0 == 7 ? 0 : $0 }
+    }
+    public static let busVehicle: [[UInt8]] = Array(PetSprites.grid(bus, chars: chars)!.prefix(14))
+
     /// The arch's cells in order: up the left side, over the top, down the right side.
     static let archPath: [(y: Int, x: Int)] = {
         let cells = station.enumerated().flatMap { y, row in
