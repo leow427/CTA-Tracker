@@ -14,6 +14,7 @@ struct DevicePage: View {
     @State private var picking: Int?   // the section whose picker is open
     @State private var addingNetwork: SetupFlow?
     @State private var removing = false
+    @State private var removeFailed = false
 
     private var info: InfoMessage? { link.online[device.id] }
     private var wearable: Bool { device.kind == .handheld }
@@ -122,7 +123,7 @@ struct DevicePage: View {
     /// The stop sent to Trackie (spec 5.6), with Remove: `DELETE /pin`, which ends a follow on it too.
     @ViewBuilder private var pinSection: some View {
         if let pin = model.pinned {
-            Section("Pinned stop") {
+            Section {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pin.name)
                     Text(model.followed == nil ? "\(pin.route) · \(pin.dir)" : "\(pin.route) · \(pin.dir) · Following")
@@ -131,9 +132,14 @@ struct DevicePage: View {
                 .accessibilityElement(children: .combine)
                 Button("Remove", role: .destructive) {
                     removing = true
-                    Task { _ = await model.unpin(); removing = false }
+                    removeFailed = false
+                    Task { removeFailed = !(await model.unpin()); removing = false }
                 }
                 .disabled(info == nil || removing)
+            } header: {
+                Text("Pinned stop")
+            } footer: {
+                if removeFailed { Text("Couldn't reach Trackie.").foregroundStyle(Theme.secondaryText) }
             }
         }
     }

@@ -274,7 +274,11 @@ import SwiftUI
     private func sendToWrist(_ path: String, _ body: some Encodable & Sendable) async -> Bool {
         var ok = false
         for id in onlineWearables {
-            do { try await devices.post(path, body, to: id); ok = true } catch {}
+            do {
+                try await devices.post(path, body, to: id)
+                ok = true
+                reportedPin[id] = nil   // a null still in flight from an earlier removal reads as "not in info yet"
+            } catch {}
         }
         return ok
     }
