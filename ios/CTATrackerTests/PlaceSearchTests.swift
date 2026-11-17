@@ -31,6 +31,19 @@ struct PlaceSearchTests {
         #expect(PlaceSearch.limit(stopHits: 0) > 3)
     }
 
+    @Test func placesShowOnlyWhileTheyAnswerWhatsTyped() {
+        #expect(PlaceSearch.isCurrent(answered: "wrigley", query: "wrigley"))
+        #expect(PlaceSearch.isCurrent(answered: "wrigley", query: "Wrigley f"))   // typing on
+        #expect(!PlaceSearch.isCurrent(answered: "wrigley", query: "wrigle"))     // a deleted letter
+        #expect(!PlaceSearch.isCurrent(answered: "wrigley", query: "art"))        // a new query
+        #expect(!PlaceSearch.isCurrent(answered: "wrigley", query: ""))           // cleared
+        #expect(!PlaceSearch.isCurrent(answered: nil, query: "wrigley"))
+    }
+
+    @Test func pickingTheSamePlaceAgainIsANewPick() {
+        #expect(Place(name: "Wrigley Field", lat: 41.9484, lon: -87.6553) != Place(name: "Wrigley Field", lat: 41.9484, lon: -87.6553))
+    }
+
     @Test func wrigleyFieldListsAddisonFirst() {
         let wrigley = CLLocationCoordinate2D(latitude: 41.9484, longitude: -87.6553)
         let nearby = CardBuilder.slots(center: wrigley, filter: .trains, favorites: [], index: Self.index).nearby

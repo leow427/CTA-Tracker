@@ -4,6 +4,8 @@ import SwiftUI
 
 /// A place picked in search ("Wrigley Field", "3400 N Clark St"): the map flies there and the list shows its stops.
 struct Place: Equatable {
+    /// Each pick is new, so picking the same place again still moves the map and the list.
+    let id = UUID()
     let name: String
     let lat: Double
     let lon: Double
@@ -54,6 +56,13 @@ struct Place: Equatable {
         var seen = Set<String>()   // Apple can list one place twice
         let unique = r.filter { seen.insert($0.key).inserted }
         withAnimation(Theme.snappy) { (results, answered) = (unique, q) }
+    }
+
+    /// Results answer the current query while it still starts with what they answered (typing on); otherwise they're
+    /// stale (a deleted letter, a new query) and hide until Apple answers.
+    nonisolated static func isCurrent(answered: String?, query: String) -> Bool {
+        guard let answered, !answered.isEmpty else { return false }
+        return query.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix(answered.lowercased())
     }
 
     /// Places shown: a short section after stop matches, more when they're the only results.

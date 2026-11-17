@@ -15,8 +15,9 @@ struct CardList: View {
     @State private var found: (query: String, results: StopSearch.Results)?
     /// The search hit whose direction buttons are open.
     @State private var expanded: String?
-    /// The place row being looked up after a tap.
+    /// The place row being looked up after a tap, and its lookup: a new query or an opened stop cancels it.
     @State private var resolving: String?
+    @State private var lookup: Task<Void, Never>?
 
     var body: some View {
         @Bindable var model = model
@@ -100,7 +101,11 @@ struct CardList: View {
         .onAppear { track() }
         .onChange(of: model.slots) { track() }
         .onChange(of: model.location.denied) { track() }
-        .onChange(of: path) { opened() }
+        .onChange(of: path) { cancelLookup(); opened() }
+        .onChange(of: query) {
+            cancelLookup()
+            if query.trimmingCharacters(in: .whitespaces).isEmpty { places.update("") }   // no stale rows under favorites
+        }
         .onChange(of: model.closeDetail) { if !path.isEmpty { show(Array(path.dropLast())) } }   // the red × over the map
         .onChange(of: model.openStop) { openTapped() }
         // Polls only while the list is on screen: the app is active and nothing covers it (app spec 4.4).
@@ -182,6 +187,11 @@ struct CardList: View {
 
     private var places: PlaceSearch { model.places }
 
+    private func cancelLookup() {
+        lookup?.cancel()
+        (lookup, resolving) = (nil, nil)
+    }
+
     /// Search (app spec 3): favorites first, then matching stops, nearest first, then places. Tapping a stop opens big
     /// direction buttons under it ("Toward O'Hare", "22 · Northbound"), each straight into that line and direction (Leo, 2026-11-10).
     @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String) -> some View {
@@ -206,15 +216,18 @@ struct CardList: View {
             .transition(.opacity)
         }
         // Places after the stops, a few when stops matched (Leo 2026-11-17: stops first).
-        let shown = Array(places.results.prefix(PlaceSearch.limit(stopHits: r.favorites.count + r.stops.count)))
+        let q = query.trimmingCharacters(in: .whitespaces)
+        let fresh = PlaceSearch.isCurrent(answered: places.answered, query: q)
+        let shown = fresh ? Array(places.results.prefix(PlaceSearch.limit(stopHits: r.favorites.count + r.stops.count))) : []
         if !shown.isEmpty { SectionHeader(title: "Places", symbol: "map.fill") }
         ForEach(shown, id: \.key) { place in
-            Button { Task { await pick(place) } } label: { PlaceRow(completion: place, loading: resolving == place.key) }
+            Button {
+                cancelLookup()
+                lookup = Task { await pick(place) }
+            } label: { PlaceRow(completion: place, loading: resolving == place.key) }
                 .buttonStyle(RowStyle())
-                .disabled(resolving != nil)
                 .transition(.opacity)
         }
-        let q = query.trimmingCharacters(in: .whitespaces)
         // "Nothing matches" waits for Apple's answer (or its failure, offline) so places don't pop in under it.
         if r.favorites.isEmpty && r.stops.isEmpty && shown.isEmpty && !q.isEmpty && places.answered == q {
             EmptyState(title: "Nothing matches “\(query)”",
@@ -226,8 +239,12 @@ struct CardList: View {
     /// failed lookup (offline) just stops the spinner.
     private func pick(_ completion: MKLocalSearchCompletion) async {
         resolving = completion.key
-        defer { resolving = nil }
-        guard let place = await PlaceSearch.resolve(completion) else { return }
+        let typed = query
+        let place = await PlaceSearch.resolve(completion)
+        // Cancelled (the query changed or a stop opened): the user moved on, so a late answer changes nothing.
+        guard !Task.isCancelled else { return }
+        resolving = nil
+        guard let place, query == typed, path.isEmpty else { return }
         searching = false
         query = ""
         model.show(place)
