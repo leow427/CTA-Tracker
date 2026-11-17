@@ -1109,9 +1109,31 @@ brightness as a software dim).
   `dock_status` (test `test_dock_veil`): the darker of night's 0.62 and 1 − screen, screen floored at 20%; `dock::Clock`
   carries `screen` and `dock::draw` lays the one veil. `led` 0 already gave black through `ledScaled`, unchanged.
   The preview's `home_dim` matches band by band; the board's frames stayed 17–20 ms.
-- [ ] **Step 3: Verify** on both boards: dock brightness and LEDs change within 3 s and the wearable's screen doesn't;
+- [x] **Step 3: Verify** on both boards: dock brightness and LEDs change within 3 s and the wearable's screen doesn't;
   wearable brightness changes only the wearable; quiet hours dim both.
+  *Done 2026-11-16 (Leo: "seems to work").*
 - [x] **Step 4: Commit:** `feat: settings per device; the dock dims in software`.
+
+---
+
+### Task 24: The same settings on each device's own Settings screen (Tracks D, H, A)
+
+Ecosystem spec 5.2, "Settings layout", last bullet (Leo, 2026-11-16).
+
+**Files:** `firmware/dock/src/dock_ui.cpp`, `main.cpp`, `link.cpp` (Settings rows; `settings` in `info`);
+`firmware/handheld/mock/src/ui.cpp` and the live build (a brightness row); `ios/CTATracker/App/AppModel.swift` (adopt a
+device's own change from `info.settings`).
+
+- [ ] **Step 1:** Dock Settings: Screen brightness and Route LEDs (steps with − / +, LEDs down to Off), and a Quiet
+  hours line ("Quiet 10 PM – 7 AM · set in the app", or "Off"). Saved like the app's write; `info` carries `settings`.
+- [ ] **Step 2:** Wearable Settings: a Screen brightness row (− / +), saved the same way; its `info.settings` already
+  goes out.
+- [ ] **Step 3:** App: when a device's `info.settings` shows a screen or LED value the app didn't send (changed on the
+  device), adopt it into that device's settings, unless a change of the app's own is waiting to go out. Test the
+  pure rule.
+- [ ] **Step 4: Verify** on both boards: change brightness on the device and the app's device page shows it within
+  3 s; change it in the app and the device's Settings row follows; a reboot keeps it.
+- [ ] **Step 5: Commit:** `feat: device settings on each device's own Settings screen, kept in step with the app`.
 
 ---
 

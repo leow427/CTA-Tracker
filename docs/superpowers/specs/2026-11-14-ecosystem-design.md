@@ -265,6 +265,10 @@ gets the matching encoders next to `BLEMessages.swift`.
     are copied into each). LED brightness is dock only.
   - The dock's backlight is on or off only (the CH422G's EXIO2), so its screen brightness dims the picture in
     software, with the same black veil as night (darker of the two wins; never below about 20% so it stays readable).
+  - **On the devices too (Leo, 2026-11-16):** each device's own Settings screen has its screen brightness (and the
+    dock's Route LEDs) as − / + steps, and shows the quiet hours (set in the app). A change made on a device is
+    saved there and shows in the app: the dock's `info` carries `settings` like the wearable's, and the app adopts a
+    value it didn't send. The device owns its own brightness; quiet hours and Trackie stay the app's.
 
 ### 5.3 Dock stops both ways (step 3)
 
