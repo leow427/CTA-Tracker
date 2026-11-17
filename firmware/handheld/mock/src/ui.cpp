@@ -723,8 +723,10 @@ void drawSettings(Canvas& cv, const Model& m) {
     button(cv, kPairBtn, "Pair again", true);
     // Quiet hours (set in the app), in the chord under Pair again.
     cta::quietLine(m.nightStart, m.nightEnd, buf, sizeof(buf));
-    char fitted[48];
-    cv.text(F(900, 12), Canvas::fit(F(900, 12), buf, 250, fitted, sizeof(fitted)), C, 424, col::mist, Align::Center);
+    // The circle is about 232 px wide here: drop " · set in the app" rather than cut a time.
+    if (Canvas::measure(F(900, 12), buf) > 212)
+        if (char* d = strstr(buf, " \xC2\xB7")) *d = 0;
+    cv.text(F(900, 12), buf, C, 424, col::mist, Align::Center);
     chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);   // swipe right: Home
 }
 
