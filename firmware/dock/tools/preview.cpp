@@ -205,6 +205,7 @@ const State kStates[] = {
     {"home_sched", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) {
          for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) { d.sec[i].rec.arrivals[k].live = false; d.sec[i].rec.arrivals[k].min = 18 + i * 7 + k * 15; } }},
     {"home_night", [](dock::Data&, dock::App&, dock::PickerLists&, dock::Clock& c) { c.night = true; }},
+    {"home_dim", [](dock::Data&, dock::App&, dock::PickerLists&, dock::Clock& c) { c.screen = 40; }},
     {"home_wifi_lost", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock& c) { d.wifiUp = false; c.now += 7 * 60; }},
     {"home_section3_empty", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { memset(&d.sec[2].pick, 0, sizeof(d.sec[2].pick)); }},
     {"home_none", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { for (auto& s : d.sec) memset(&s.pick, 0, sizeof(s.pick)); }},

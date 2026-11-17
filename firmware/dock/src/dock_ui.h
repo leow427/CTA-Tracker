@@ -84,6 +84,7 @@ struct PickerLists {
 struct Clock {
     uint32_t now = 0;
     bool night = false;
+    uint8_t screen = 100;   // the app's screen brightness, percent (cta::dockVeil)
 };
 
 // ---------- the screen's own state ----------

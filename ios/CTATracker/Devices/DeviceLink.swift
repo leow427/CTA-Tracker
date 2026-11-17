@@ -11,6 +11,7 @@ import os
     struct Device: Identifiable, Codable, Equatable {
         let id: String; let kind: DeviceKind; var name: String; var lastIP: String?
         var peripheral: UUID? = nil   // the wearable's Bluetooth identity on this phone
+        var wifiSlots: Int? = nil     // the wearable's Wi-Fi slots the app has written (0 home); nil before it counted
     }
     enum LinkError: Error, Equatable { case noAddress, noToken, status(Int), disconnected }
     /// What `POST /pair` came to (ecosystem spec 4.3; Leo 2026-11-14: 423 is a 30 s cooldown, then a new code).
@@ -121,6 +122,10 @@ import os
     func add(_ id: String, kind: DeviceKind, peripheral: UUID?) {
         devices = Self.adding(id, kind: kind, peripheral: peripheral, lastIP: found[id], to: devices)
         onAdded?(id)
+    }
+
+    func setWifiSlots(_ n: Int, of id: String) {
+        if let i = devices.firstIndex(where: { $0.id == id }) { devices[i].wifiSlots = n }
     }
 
     /// Removes the device; a Bluetooth bond stays until the user forgets it in iOS Settings (app spec 6.3).

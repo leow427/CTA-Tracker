@@ -36,9 +36,13 @@ import SwiftUI
     var pet: PetConfig = AppModel.load(AppModel.petKey) ?? Pet.defaultConfig {
         didSet { Glyphs.petColors = pet.colors; AppModel.save(pet, AppModel.petKey); pushConfig() }
     }
-    /// Screen and LED brightness and night hours, written with the pet (spec 5.2).
-    var deviceSettings: DeviceSettings = AppModel.load(AppModel.settingsKey) ?? AppModel.defaultSettings {
-        didSet { AppModel.save(deviceSettings, AppModel.settingsKey); pushConfig() }
+    /// Night hours, shared by every device (spec 5.2, Settings layout); copied into each device's `settings`.
+    var quietHours: QuietHours = AppModel.load(AppModel.quietKey) ?? QuietHours(AppModel.legacySettings) {
+        didSet { AppModel.save(quietHours, AppModel.quietKey); pushConfig() }
+    }
+    /// Each device's own brightness, by device id; a device with none uses Task 13's single settings.
+    private(set) var devicePrefs: [String: DevicePrefs] = AppModel.load(AppModel.prefsKey) ?? [:] {
+        didSet { AppModel.save(devicePrefs, AppModel.prefsKey) }
     }
     /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the list).
     var detailStop: Stop?
@@ -295,28 +299,50 @@ import SwiftUI
         return true
     }
 
-    // MARK: - One Trackie and device settings (ecosystem spec 5.2)
+    // MARK: - One Trackie and settings per device (ecosystem spec 5.2)
 
     /// The boards' own defaults: full brightness, night 1:00–5:00.
     static let defaultSettings = DeviceSettings(screen: 100, led: 100, nightStart: Config.nightStartMin,
                                                 nightEnd: Config.nightEndMin)
+    /// Task 13 saved one `DeviceSettings` for all devices: it's every device's default now, so nothing is lost.
+    private static let legacySettings: DeviceSettings = load(settingsKey) ?? defaultSettings
     @ObservationIgnored private var configPush: Task<Void, Never>?
+    @ObservationIgnored private var pushTo: Set<String>? = []   // nil: every device
 
     private func isPaired(_ id: String) -> Bool { devices.devices.contains { $0.id == id } }
 
-    /// A slider or the name field changes many times a second: write once it settles.
-    private func pushConfig() {
+    func prefs(_ id: String) -> DevicePrefs { devicePrefs[id] ?? DevicePrefs(AppModel.legacySettings) }
+
+    /// One device's brightness changed: only it gets the write.
+    func setPrefs(_ p: DevicePrefs, for id: String) {
+        devicePrefs[id] = p
+        pushConfig(to: id)
+    }
+
+    /// What one device is sent: its own brightness with the shared quiet hours. Off is start == end, which both
+    /// boards read as no night (`cta::inNightHours`, the wearable's `Model::night`).
+    nonisolated static func settings(_ p: DevicePrefs, quiet: QuietHours) -> DeviceSettings {
+        DeviceSettings(screen: p.screen, led: p.ledOn ? p.led : 0, nightStart: quiet.start,
+                       nightEnd: quiet.on ? quiet.end : quiet.start)
+    }
+
+    /// A slider or the name field changes many times a second: write once it settles. `id` nil writes every device.
+    private func pushConfig(to id: String? = nil) {
+        if let id { pushTo?.insert(id) } else { pushTo = nil }
         configPush?.cancel()
         configPush = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled else { return }
-            devices.devices.filter { devices.online[$0.id] != nil }.forEach { sendConfig(to: $0.id) }
+            let to = pushTo
+            pushTo = []
+            devices.devices.filter { devices.online[$0.id] != nil && to?.contains($0.id) != false }
+                .forEach { sendConfig(to: $0.id) }
         }
     }
 
     // shortcut: a failed write isn't retried; the device gets it again on its next `.resendState` (online or reboot).
     private func sendConfig(to id: String) {
-        let m = ConfigMessage(pet: pet, settings: deviceSettings)
+        let m = ConfigMessage(pet: pet, settings: Self.settings(prefs(id), quiet: quietHours))
         Task { try? await devices.post("/config", m, to: id) }
     }
 
@@ -325,7 +351,9 @@ import SwiftUI
     static let appGroup = "group.io.github.leow427.CTATracker"
     private static let favoritesKey = "favorites"
     private static let petKey = "pet"
-    private static let settingsKey = "deviceSettings"
+    private static let settingsKey = "deviceSettings"   // Task 13's single settings, read for defaults only
+    private static let quietKey = "quietHours"
+    private static let prefsKey = "devicePrefs"
     private static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
     private static func load<T: Decodable>(_ key: String) -> T? {
@@ -339,6 +367,31 @@ import SwiftUI
     private func rebuild() {
         guard let index else { return }
         slots = CardBuilder.slots(center: center, filter: filter, favorites: favorites, index: index)
+    }
+}
+
+/// One device's own controls (spec 5.2, Settings layout). `led` is kept while the LEDs are off, for turning them on.
+nonisolated struct DevicePrefs: Codable, Hashable {
+    var screen: Int
+    var led: Int
+    var ledOn: Bool
+
+    init(screen: Int = 100, led: Int = 100, ledOn: Bool = true) { (self.screen, self.led, self.ledOn) = (screen, led, ledOn) }
+    init(_ s: DeviceSettings) { self.init(screen: s.screen, led: s.led > 0 ? s.led : 100, ledOn: s.led > 0) }
+}
+
+/// Night hours for every device, in minutes after midnight; the times are kept while they're off.
+nonisolated struct QuietHours: Codable, Hashable {
+    var on: Bool
+    var start: Int
+    var end: Int
+
+    init(on: Bool = true, start: Int = Config.nightStartMin, end: Int = Config.nightEndMin) {
+        (self.on, self.start, self.end) = (on, start, end)
+    }
+    /// Task 13 had no switch: start == end meant none.
+    init(_ s: DeviceSettings) {
+        if s.nightStart == s.nightEnd { self.init(on: false) } else { self.init(start: s.nightStart, end: s.nightEnd) }
     }
 }
 

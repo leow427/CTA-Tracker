@@ -1,7 +1,7 @@
 import CTAKit
 import SwiftUI
 
-/// Settings → Pet (ecosystem spec 5.2): one Trackie's name and color, shown big here and written to every device.
+/// Settings → Trackie (ecosystem spec 5.2): one Trackie's name and color, shown big here and written to every device.
 struct PetSettings: View {
     @Environment(AppModel.self) private var model
     @State private var name = ""
@@ -35,7 +35,7 @@ struct PetSettings: View {
                 Text("Your dock and Trackie change to match.").foregroundStyle(Theme.secondaryText)
             }
         }
-        .navigationTitle("Pet")
+        .navigationTitle("Trackie")
         .onAppear { name = model.pet.name }
         .onChange(of: name) {
             // An empty field keeps the last name: the devices always show one.

@@ -1091,15 +1091,25 @@ Ecosystem spec 5.2, "Settings layout" (Leo, 2026-11-16). Replaces Task 13's sing
 `ios/CTATracker/Devices/DevicePage.swift`, `App/AppModel.swift`; `firmware/dock/src/main.cpp` and `dock_ui.cpp` (screen
 brightness as a software dim).
 
-- [ ] **Step 1:** App: top-level Trackie and Quiet hours; per-device Screen brightness (both), Route LEDs (dock:
+- [x] **Step 1:** App: top-level Trackie and Quiet hours; per-device Screen brightness (both), Route LEDs (dock:
   brightness, Off); wearable Wi-Fi row with "Add a network" (the setup flow's Wi-Fi step). Settings saved per device
   id; each device gets its own `settings`, with the shared quiet hours. A pure function builds one device's settings,
-  with a test.
-- [ ] **Step 2:** Dock: screen brightness dims the frame with the night veil (darker wins, floor about 20%); `led` 0
-  turns the route LEDs off. Native test if logic is added.
+  with a test. *As built:* `AppModel.quietHours` (on, start, end; off is sent as start == end, which both boards
+  read as no night) and `devicePrefs` by device id (screen, led, ledOn), each in the App Group; a device with none
+  takes Task 13's saved `deviceSettings`, which is left in place. `AppModel.settings(_:quiet:)` builds one device's
+  `settings` (`DeviceSettingsTests`). A per-device change goes to that device alone, debounced as before.
+  `QuietHoursScreen` replaces `DeviceSettingsScreen`; `DevicePage` has Screen brightness, Route LEDs (dock) and
+  Wi-Fi (wearable). "Add a network" opens `SetupScreen` on a `SetupFlow(addingNetworkTo:)` parked on the Wi-Fi step,
+  enabled only over Bluetooth; it writes the slots after the ones the app has counted (`Device.wifiSlots`; a wearable
+  set up before this starts at slot 1, keeping home).
+- [x] **Step 2:** Dock: screen brightness dims the frame with the night veil (darker wins, floor about 20%); `led` 0
+  turns the route LEDs off. Native test if logic is added. *As built:* `cta::dockVeil(night, screen)` in
+  `dock_status` (test `test_dock_veil`): the darker of night's 0.62 and 1 − screen, screen floored at 20%; `dock::Clock`
+  carries `screen` and `dock::draw` lays the one veil. `led` 0 already gave black through `ledScaled`, unchanged.
+  The preview's `home_dim` matches band by band; the board's frames stayed 17–20 ms.
 - [ ] **Step 3: Verify** on both boards: dock brightness and LEDs change within 3 s and the wearable's screen doesn't;
   wearable brightness changes only the wearable; quiet hours dim both.
-- [ ] **Step 4: Commit:** `feat: settings per device; the dock dims in software`.
+- [x] **Step 4: Commit:** `feat: settings per device; the dock dims in software`.
 
 ---
 

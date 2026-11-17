@@ -8,12 +8,13 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             List {
+                // What every device shares first; each device's own controls are on its page (spec 5.2).
+                Section {
+                    NavigationLink { PetSettings() } label: { Label("Trackie", systemImage: "pawprint.fill") }
+                    NavigationLink { QuietHoursScreen() } label: { Label("Quiet hours", systemImage: "moon.fill") }
+                }
                 DeviceList(link: link)
                 Section {
-                    NavigationLink { PetSettings() } label: { Label("Pet", systemImage: "pawprint.fill") }
-                    NavigationLink { DeviceSettingsScreen() } label: {
-                        Label("Device settings", systemImage: "slider.horizontal.3")
-                    }
                     row("Find my handheld", "location.magnifyingglass")
                 }
                 Section {

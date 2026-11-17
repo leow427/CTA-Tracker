@@ -418,6 +418,15 @@ static void test_picker_list_matches() {
     TEST_ASSERT_TRUE(cta::pickerListFor("22", "", "22", ""));
 }
 
+static void test_dock_veil() {
+    TEST_ASSERT_EQUAL_FLOAT(0.f, cta::dockVeil(false, 100));
+    TEST_ASSERT_EQUAL_FLOAT(0.62f, cta::dockVeil(true, 100));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, cta::dockVeil(false, 50));
+    TEST_ASSERT_EQUAL_FLOAT(0.62f, cta::dockVeil(true, 50));   // the darker wins
+    TEST_ASSERT_EQUAL_FLOAT(0.8f, cta::dockVeil(true, 10));    // floored at 20%
+    TEST_ASSERT_EQUAL_FLOAT(0.8f, cta::dockVeil(false, 0));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_default_picks);
@@ -439,6 +448,7 @@ int main() {
     RUN_TEST(test_due_at_the_hyped_threshold);
     RUN_TEST(test_card_stale);
     RUN_TEST(test_dock_mood_and_reason);
+    RUN_TEST(test_dock_veil);
     RUN_TEST(test_geo_lookup_due);
     RUN_TEST(test_wifi_retry_delay);
     RUN_TEST(test_geo_worth_saving);

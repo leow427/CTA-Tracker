@@ -197,10 +197,11 @@ void applyPet() {
     ui::petPalette565 = petPalette;   // drawPet reads it; the next frame (dirty after any write) redraws Trackie
 }
 
-// The backlight is on or off only (the CH422G's EXIO2): screen 0 turns it off, anything else on.
+// The backlight is on or off only (the CH422G's EXIO2): screen 0 turns it off, anything else on; dock::draw dims the
+// frame in software (cta::dockVeil).
 void applySettings() { display::backlight(linkCfg.settings.screen > 0); }
 
-// An LED color scaled to the app's LED brightness (percent), under LED_MAX_BRIGHTNESS.
+// An LED color scaled to the app's LED brightness (percent), under LED_MAX_BRIGHTNESS; 0 is black, the app's Off.
 uint32_t ledScaled(uint32_t rgb) {
     const uint32_t k = linkCfg.settings.led;
     return ((rgb >> 16 & 0xff) * k / 100) << 16 | ((rgb >> 8 & 0xff) * k / 100) << 8 | (rgb & 0xff) * k / 100;
@@ -526,6 +527,7 @@ void loop() {
     dock::Clock clock;
     clock.now = net::unixNow();
     clock.night = clock.now && cta::inNightHours(localMinute(clock.now), linkCfg.settings.nightStart, linkCfg.settings.nightEnd);
+    clock.screen = static_cast<uint8_t>(linkCfg.settings.screen);
 #ifdef PERF_LOG
     if (stress::running()) clock.night = false;   // runs keep daytime polling and look at any hour
 #endif

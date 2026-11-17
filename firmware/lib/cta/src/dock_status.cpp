@@ -75,4 +75,10 @@ void moodReason(const StopRecord* recs, size_t n, uint32_t now, bool night, bool
     snprintf(out, cap, "Data is %d min old", age);
 }
 
+float dockVeil(bool night, int screenPct) {
+    const int pct = screenPct < kDimFloorPct ? kDimFloorPct : screenPct > 100 ? 100 : screenPct;
+    const float dim = (100 - pct) / 100.f;
+    return night && dim < 0.62f ? 0.62f : dim;
+}
+
 }  // namespace cta

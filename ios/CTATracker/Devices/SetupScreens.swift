@@ -173,6 +173,7 @@ struct SetupScreen: View {
         case (.pair, .code): "Type the code shown on \(flow.deviceName)."
         case (.pair, .waiting): flow.asking ? "Bluetooth finds your dock and handheld." : "Looking for Trackie…"
         case (.pair, .unavailable): "Turn on Bluetooth to set up Trackie."
+        case (.wifi, _) where flow.addingNetwork: "Trackie uses Wi-Fi when your iPhone isn't near."
         case (.wifi, _): "Optional. Trackie uses Wi-Fi when your iPhone isn't near. Home first."
         case (.pet, _): "Your dock and Trackie share one pet."
         default: nil
@@ -208,7 +209,7 @@ struct SetupScreen: View {
                     .foregroundStyle(Theme.live)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if flow.networks.count < SetupFlow.maxNetworks {
+            if flow.canAddNetwork {
                 field("Network name", text: $flow.ssid)
                     .textContentType(.none)
                     .autocorrectionDisabled()
@@ -243,14 +244,18 @@ struct SetupScreen: View {
                         .disabled(flow.code.count != 6 || flow.busy)
                 }
             case .wifi:
-                if flow.networks.count < SetupFlow.maxNetworks {
+                if flow.canAddNetwork {
                     Button(flow.busy ? "Joining…" : "Join") { Task { await flow.joinWifi() } }
                         .buttonStyle(PrimaryButton())
                         .disabled(flow.ssid.isEmpty || flow.busy)
                 }
-                Button(flow.networks.isEmpty ? "Skip" : "Continue") { flow.finishWifi() }
-                    .buttonStyle(SecondaryButton())
-                    .disabled(flow.busy)
+                if flow.addingNetwork {
+                    if !flow.networks.isEmpty { Button("Done") { dismiss() }.buttonStyle(SecondaryButton()) }
+                } else {
+                    Button(flow.networks.isEmpty ? "Skip" : "Continue") { flow.finishWifi() }
+                        .buttonStyle(SecondaryButton())
+                        .disabled(flow.busy)
+                }
             case .pet:
                 Button("Continue") { flow.savePet() }
                     .buttonStyle(PrimaryButton())

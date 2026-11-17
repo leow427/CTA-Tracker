@@ -1155,7 +1155,8 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
     } else {
         drawHome(cv, a, d, c, ms);
     }
-    if (c.night) cv.fillRect(0, 0, W, H, col::bg, 0.62f);   // the backlight is on/off only: night is a black veil
+    // The backlight is on/off only: night and the screen brightness are one black veil, already paid at night.
+    if (const float veil = cta::dockVeil(c.night, c.screen); veil > 0) cv.fillRect(0, 0, W, H, col::bg, veil);
     cv.alpha = 1;
 }
 

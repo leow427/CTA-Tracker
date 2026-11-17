@@ -39,6 +39,9 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
 
     let candidate: SetupCandidate
     let firstDevice: Bool
+    /// "Add a network" on a set-up wearable's page: only the Wi-Fi step, into the slots after the ones it has.
+    private(set) var addingNetwork = false
+    private var firstSlot = 0
     private(set) var step: Step = .pair
     private(set) var method: Method = .waiting
     private(set) var busy = false
@@ -65,6 +68,23 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         firstDevice = link.devices.isEmpty
         if candidate.kind == .dock, let id = candidate.deviceID { method = .code(id) }
     }
+
+    /// The setup flow's Wi-Fi step for a wearable that's already set up and connected over Bluetooth.
+    // shortcut: a wearable set up before slots were counted starts at slot 1, keeping home; count its networks if
+    // that ever overwrites one.
+    init(addingNetworkTo device: DeviceLink.Device, link: DeviceLink) {
+        candidate = SetupCandidate(kind: .handheld, peripheral: device.peripheral, deviceID: device.id)
+        self.link = link
+        firstDevice = false
+        deviceID = device.id
+        method = .code(device.id)   // anything but `.waiting`, so `start` does nothing
+        step = .wifi
+        addingNetwork = true
+        firstSlot = device.wifiSlots ?? 1
+    }
+
+    /// Another network fits in the wearable's slots.
+    var canAddNetwork: Bool { firstSlot + networks.count < Self.maxNetworks }
 
     var viaBluetooth: Bool { if case .bluetooth = method { true } else { false } }
     var deviceName: String { candidate.kind == .dock ? "your dock" : "Trackie" }
@@ -214,11 +234,11 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     }
 
     func joinWifi() async {
-        guard let id = deviceID, !ssid.isEmpty, networks.count < Self.maxNetworks, !busy else { return }
+        guard let id = deviceID, !ssid.isEmpty, canAddNetwork, !busy else { return }
         busy = true
         message = nil
         defer { busy = false }
-        let name = ssid, wifi = WifiMessage(slot: networks.count, ssid: name, pass: password)
+        let name = ssid, wifi = WifiMessage(slot: firstSlot + networks.count, ssid: name, pass: password)
         password = ""
         // shortcut: success is "joined a network" (plan AB2); a later slot looks joined while the wearable stays on a
         // stronger one. Compare `info.wifi.ssid` if that misleads.
@@ -230,7 +250,11 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
                 joined = link.online[id]?.wifi.connected == true
             }
         }
-        if joined { networks.append(name); ssid = "" } else { message = "Couldn't join. Check the password." }
+        if joined {
+            networks.append(name)
+            ssid = ""
+            link.setWifiSlots(firstSlot + networks.count, of: id)
+        } else { message = "Couldn't join. Check the password." }
     }
 
     func finishWifi() { step = Self.next(after: .wifi, viaBluetooth: true, firstDevice: firstDevice) }

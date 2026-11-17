@@ -23,5 +23,9 @@ const char* trainLineName(const char* route);
 // else the first stop that explains the mood ("Red in 3 min!", "Red Line alert", "22 is running late", "Red in 6 min").
 void moodReason(const StopRecord* recs, size_t n, uint32_t now, bool night, bool wifiLost, const char* status, char* out,
                 size_t cap);
+// The black veil over the frame (0 none, 1 black): the backlight is on or off only, so night (0.62) and the app's
+// screen brightness (percent, floored at kDimFloorPct so it stays readable) dim in software; the darker wins.
+constexpr int kDimFloorPct = 20;
+float dockVeil(bool night, int screenPct);
 
 }  // namespace cta
