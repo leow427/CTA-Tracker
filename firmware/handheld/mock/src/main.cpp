@@ -546,7 +546,7 @@ void drainLink() {
 }
 
 // The `info` characteristic (the plan's Status): the JSON every second for reads, and a notify on a change the app
-// shows (battery step, charging, Wi-Fi, docked, wake, settings, token or bond) or every kInfoHeartbeatSec.
+// shows (battery step, charging, Wi-Fi, docked, wake, settings, token or bond, pin) or every kInfoHeartbeatSec.
 void publishInfo(uint32_t ms) {
     static cta::InfoMsg sent = {};
     static uint32_t sentMs = 0;
@@ -557,7 +557,8 @@ void publishInfo(uint32_t ms) {
     const int8_t rssi = wifi ? live::wifiRssi() : 0;
     const bool changed = infoDirty || info.battery != sent.battery || info.charging != sent.charging ||
                          wifi != sent.wifiConnected || abs(rssi - sent.rssi) >= 5 || info.docked != sent.docked ||
-                         info.wake != sent.wake || info.paired != sent.paired || info.relaying != sent.relaying;
+                         info.wake != sent.wake || info.paired != sent.paired || info.relaying != sent.relaying ||
+                         strcmp(info.pin, sent.pin) != 0;
     const bool notify = changed || !sentMs || ms - sentMs >= cta::kInfoHeartbeatSec * 1000;
     ble_setup::setInfo(json, n, notify);
     if (notify) {
@@ -976,6 +977,7 @@ void loop() {
         info.docked = model.docked;
         info.paired = device::paired();
         info.relaying = live::relaying();
+        snprintf(info.pin, sizeof(info.pin), "%s", snap->hasPin ? snap->pin.rec.id : "");   // spec 5.6: the app sees a cleared pin
         info.hasSettings = true;
         info.settings = linkCfg.settings;
         lan::setInfo(info);

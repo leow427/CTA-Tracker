@@ -418,8 +418,9 @@ struct StarButton: View {
 }
 
 /// "Send to Trackie" beside ★ (ecosystem spec 5.6): pins this card on the wearable. With a dock online it's a menu
-/// that also offers each dock section to replace (Leo 2026-11-16); with only Trackie it stays one tap. A plate button
-/// like ★; for 2 s after a send it shows a check or a ⚠, with a success or error haptic, then goes back.
+/// that also offers each dock section to replace (Leo 2026-11-16); with only Trackie it stays one tap. While this card
+/// is the pinned one it's a menu with "Remove from Trackie" instead (spec 5.6). A plate button like ★; for 2 s after a
+/// send it shows a check or a ⚠, with a success or error haptic, then goes back.
 struct SendToTrackieButton: View {
     let pin: ConfigStop
     let dock: ConfigStop   // the same card as a dock section takes it (a train's platform)
@@ -429,12 +430,17 @@ struct SendToTrackieButton: View {
 
     var body: some View {
         Group {
-            if model.onlineDocks.isEmpty {
+            let pinned = model.pinned == pin && !model.onlineWearables.isEmpty
+            if model.onlineDocks.isEmpty && !pinned {
                 Button { send("Trackie") { await model.pin(pin) } } label: { plate }
                     .accessibilityLabel("Send to Trackie")
             } else {
                 Menu {
-                    if !model.onlineWearables.isEmpty {
+                    if pinned {
+                        Button("Remove from Trackie", systemImage: "pin.slash", role: .destructive) {
+                            send("Trackie", done: "Removed from Trackie") { await model.unpin() }
+                        }
+                    } else if !model.onlineWearables.isEmpty {
                         Button("Send to Trackie", systemImage: "pawprint.fill") { send("Trackie") { await model.pin(pin) } }
                     }
                     ForEach(model.onlineDocks, id: \.self) { id in
@@ -448,7 +454,7 @@ struct SendToTrackieButton: View {
                         }
                     }
                 } label: { plate }
-                .accessibilityLabel("Send to Trackie or dock")
+                .accessibilityLabel(pinned ? "Trackie options" : "Send to Trackie or dock")
             }
         }
         .buttonStyle(PressableCard())
@@ -457,12 +463,12 @@ struct SendToTrackieButton: View {
         .task(id: sent) { if sent != nil { try? await Task.sleep(for: .seconds(2)); sent = nil } }
     }
 
-    private func send(_ to: String, _ action: @escaping () async -> Bool) {
+    private func send(_ to: String, done: String? = nil, _ action: @escaping () async -> Bool) {
         sending = true
         Task {
             sent = await action()
             sending = false
-            AccessibilityNotification.Announcement(sent == true ? "Sent to \(to)" : "Couldn't reach \(to)").post()
+            AccessibilityNotification.Announcement(sent == true ? done ?? "Sent to \(to)" : "Couldn't reach \(to)").post()
         }
     }
 

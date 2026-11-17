@@ -86,11 +86,12 @@ struct InfoMsg {
     bool hasSettings;
     DeviceSettings settings;
     bool relaying;   // a /relay tick came over Bluetooth in the last kRelayHoldSec
+    char pin[8];     // the wearable's pinned stop id (PickedStop::id); "" = none, sent as null (always on the dock)
 };
 // {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid","rssi"},"last_update",
-//  "uptime","picks_ver","wake","docked","paired","settings" (config's shape, only with hasSettings),"relaying"}.
+//  "uptime","picks_ver","wake","docked","paired","settings" (config's shape, only with hasSettings),"relaying","pin"}.
 // Returns the length (and a NUL), or 0 if it doesn't fit in cap.
-constexpr size_t kMaxInfo = 640;   // fits any InfoMsg, even an SSID of 32 control bytes (530 bytes)
+constexpr size_t kMaxInfo = 640;   // fits any InfoMsg, even an SSID of 32 control bytes (546 bytes)
 size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap);
 
 // --- The wearable's Bluetooth link (wearable BLE link plan, "Envelope", "Messages") ---

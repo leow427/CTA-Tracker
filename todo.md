@@ -82,10 +82,10 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
   button itself is still the icon.
 - **The wearable prints the Wi-Fi network name on serial at join** (`net: connecting to …`). Remove it: network
   names stay out of logs.
-- **The phone keeps relaying a stop after the wearable clears its pin on its own** (swipe, dock, passed follow).
-  Harmless: one fetch and one write per tick.
-- **A swiped pin comes back on the next reconnect.** The app can't see swipes; the fix is a pin field in `/info`
-  (spec and firmware change).
+- ~~**The phone keeps relaying a stop after the wearable clears its pin on its own** (swipe, dock, passed follow).~~
+  Done 2026-11-16 (Task 25): `info.pin` going null clears the app's pin and the relay's stop.
+- ~~**A swiped pin comes back on the next reconnect.**~~ Done 2026-11-16 (Task 25): `info` carries `pin`, and the
+  app drops a pin the wearable cleared, so it isn't resent.
 - **Rewrite git history for the network name in old commit f9ed1e2?** The repo is public. Leo's call.
 
 ## Found 2026-11-16

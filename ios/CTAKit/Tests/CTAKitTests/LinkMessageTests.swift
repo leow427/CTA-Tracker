@@ -110,7 +110,7 @@ struct LinkMessageTests {
          "wifi":{"connected":true,"ssid":"Net"},"last_update":0,"uptime":42,"picks_ver":3,"wake":0,"docked":false}
         """#
         let info = try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
-        #expect(info.wifi.rssi == 0 && !info.paired && !info.relaying && info.settings == nil)
+        #expect(info.wifi.rssi == 0 && !info.paired && !info.relaying && info.settings == nil && info.pin == nil)
     }
 
     @Test func infoDecodesWearableWithRSSI() throws {
@@ -118,12 +118,14 @@ struct LinkMessageTests {
         {"type":"handheld","id":"a1b2","fw":"0.5.0","battery":64,"charging":true,
          "wifi":{"connected":true,"ssid":"Net","rssi":-61},"last_update":1763000000,"uptime":42,
          "picks_ver":0,"wake":7,"docked":false,"paired":true,
-         "settings":{"screen":80,"led":50,"night_start":60,"night_end":300},"relaying":true}
+         "settings":{"screen":80,"led":50,"night_start":60,"night_end":300},"relaying":true,"pin":"30254"}
         """#
         let info = try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
         #expect(info.battery == 64 && info.charging)
         #expect(info.wifi == WifiState(connected: true, ssid: "Net", rssi: -61))
-        #expect(info.paired && info.relaying)
+        #expect(info.paired && info.relaying && info.pin == "30254")
+        let unpinned = json.replacingOccurrences(of: #""pin":"30254""#, with: #""pin":null"#)
+        #expect(try JSONDecoder().decode(InfoMessage.self, from: Data(unpinned.utf8)).pin == nil)
         #expect(info.settings == DeviceSettings(screen: 80, led: 50, nightStart: 60, nightEnd: 300))
     }
 

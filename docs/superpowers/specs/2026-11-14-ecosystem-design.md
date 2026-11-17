@@ -189,7 +189,7 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 | `POST /relay` | wearable | `{now, wmo?, temp?}` | The relay tick: sets the clock if unset, weather if present; over Bluetooth it marks the wearable "relaying" for 90 s, and it stops its own CTA polling meanwhile. |
 | `POST /stop` | wearable | `{id, type, records: [stop record…]}` | Relayed arrivals for one stop (base spec 6.2 records); the newest `ts` wins. |
 
-`POST /ble` is gone. The wearable's `info` also carries `wifi.rssi`, `settings` and `relaying`.
+`POST /ble` is gone. The wearable's `info` also carries `wifi.rssi`, `settings`, `relaying` and `pin` (5.6).
 
 **Over Bluetooth (wearable).** The same messages ride one GATT service (UUIDs in `ble_ids.h`):
 

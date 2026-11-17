@@ -76,7 +76,10 @@ import SwiftUI
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
         Glyphs.petColors = pet.colors
-        devices.onInfo = { [weak self] id, info in self?.adoptDeviceSettings(id, info.settings) }
+        devices.onInfo = { [weak self] id, info in
+            self?.adoptDeviceSettings(id, info.settings)
+            self?.adoptPinCleared(id, info)
+        }
         devices.onAction = { [weak self] id, action in
             guard let self else { return }
             if action == .fetchConfig, isDock(id) { fetchConfig(id) }
@@ -234,6 +237,38 @@ import SwiftUI
         guard await sendToWrist("/follow", f) else { return false }
         (pinned, followed, followedAt) = (f.stop, f, at)
         return true
+    }
+
+    /// Takes the pin, and a follow on it, off the online wearables (spec 5.6, "Removing it from the app"); true when
+    /// one took it. The wearable's `DELETE /pin` ends the follow too.
+    func unpin() async -> Bool {
+        var ok = false
+        for id in onlineWearables {
+            do { try await devices.delete("/pin", to: id); ok = true } catch {}
+        }
+        if ok { (pinned, followed) = (nil, nil) }
+        return ok
+    }
+
+    /// Each wearable's last `info.pin` and uptime, for telling a pin cleared on the wearable from a stale report.
+    @ObservationIgnored private var reportedPin: [String: (pin: String?, uptime: Int)] = [:]
+
+    /// A pin cleared on the wearable itself (a swipe, docking, a passed follow) clears in the app too, so the next
+    /// reconnect doesn't send it again; the relay stops sending its stop.
+    private func adoptPinCleared(_ id: String, _ info: InfoMessage) {
+        guard isWearable(id) else { return }
+        defer { reportedPin[id] = (info.pin, info.uptime) }
+        guard Self.pinCleared(reported: info.pin, uptime: info.uptime, previous: reportedPin[id]) else { return }
+        (pinned, followed) = (nil, nil)
+        devices.forgetPin(id)
+    }
+
+    /// True when the wearable's pin went from a stop to none since its previous report. A report with no pin after
+    /// one with none says nothing: the app's new pin may simply not have reached the wearable's `info` yet. A lower
+    /// uptime is a reboot (the pin is resent, `.resendState`) or an older report arriving late: neither clears.
+    nonisolated static func pinCleared(reported: String?, uptime: Int, previous: (pin: String?, uptime: Int)?) -> Bool {
+        guard reported == nil, let previous, previous.pin != nil else { return false }
+        return uptime >= previous.uptime
     }
 
     private func sendToWrist(_ path: String, _ body: some Encodable & Sendable) async -> Bool {

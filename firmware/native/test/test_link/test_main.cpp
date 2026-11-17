@@ -610,6 +610,7 @@ static void info_has_rssi_settings_relaying() {
     in.battery = 100;
     in.lastUpdate = in.uptime = in.picksVer = in.wake = 4294967295u;
     in.settings = {100, 100, 1439, 1439};
+    strcpy(in.pin, "1234567");
     TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 384);   // over the boards' old 384-byte buffers
     memset(in.ssid, '"', cta::kSsidLen);
     TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 0);
@@ -625,6 +626,17 @@ static void dock_info_carries_settings() {
     TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"type\":\"dock\""));
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"settings\":{\"screen\":40,\"led\":0,\"night_start\":1320,\"night_end\":420}"));
+}
+
+static void info_has_pin() {
+    cta::InfoMsg in = {};
+    in.battery = -1;
+    char buf[cta::kMaxInfo];
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pin\":null"));   // no pin, and the dock
+    strcpy(in.pin, "1234567");   // the longest stop id
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"pin\":\"1234567\""));
 }
 
 static void step_pct_and_quiet_line() {
@@ -649,6 +661,7 @@ static void step_pct_and_quiet_line() {
 int main() {
     UNITY_BEGIN();
     RUN_TEST(dock_info_carries_settings);
+    RUN_TEST(info_has_pin);
     RUN_TEST(step_pct_and_quiet_line);
     RUN_TEST(wifi_accepts_slot_4_rejects_5);
     RUN_TEST(wifi_rejects_empty_or_long_ssid);

@@ -1170,13 +1170,22 @@ Ecosystem spec 5.6, "Removing it from the app" (Leo, 2026-11-16). Fixes `todo.md
 **Files:** `ios/CTATracker/Stop/StopDetail.swift` (the Send menu), `Devices/DevicePage.swift`, `App/AppModel.swift`;
 `firmware/lib/cta` (`info` encode/decode), `firmware/handheld/mock/src` (fill `pin`); CTAKit `InfoMessage`.
 
-- [ ] **Step 1:** Wearable `info` gains `pin` (stop id or null; native test). CTAKit decodes it (optional).
+- [x] **Step 1:** Wearable `info` gains `pin` (stop id or null; native test). CTAKit decodes it (optional).
+  As built: `InfoMsg.pin` ("" encodes as null, so the dock always sends null); the wearable fills it from the live
+  snapshot's pin each second, and a change is part of `publishInfo`'s compare, so it goes out in a Bluetooth notify.
+  Native test `info_has_pin`; the worst-case `info` with a pin is 546 bytes (kMaxInfo 640).
 - [ ] **Step 2:** App: "Remove from Trackie" in the stop page's Send menu while that stop is pinned; the wearable page
   shows the pinned stop with Remove; both `DELETE /pin` and clear `AppModel.pinned`/`followed`. When `info.pin` is null
   but the app holds a pin, the app clears its own (no resend). Pure rule, tested.
+  As built: the Send plate is a menu with "Remove from Trackie" while the shown card is the pinned one (one tap
+  otherwise, as before); the device page has a "Pinned stop" section (name, line · direction, Following) with Remove.
+  Both call `AppModel.unpin()` (`DELETE /pin`, which ends a follow on the wearable too). `AppModel.pinCleared` clears
+  the app's pin only when the wearable's report went from a stop to null since its previous one at the same or a
+  higher uptime: a fresh pin not in `info` yet, a reboot, or a late old report never clears. Clearing also drops
+  `DeviceLink.sentPin`, so `WearableRelay` stops relaying that stop.
 - [ ] **Step 3: Verify:** pin, remove from the app → the wearable goes back to the closest stops; pin, swipe it away
   on the wearable → the app's pin clears, and it doesn't come back after Bluetooth off/on.
-- [ ] **Step 4: Commit:** `feat: remove a pin from the app; a pin cleared on the wearable clears in the app`.
+- [x] **Step 4: Commit:** `feat: remove a pin from the app; a pin cleared on the wearable clears in the app`.
 
 ---
 

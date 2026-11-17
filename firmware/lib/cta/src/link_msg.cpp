@@ -210,7 +210,8 @@ size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap) {
         cJSON_AddNumberToObject(root, "uptime", in.uptime) && cJSON_AddNumberToObject(root, "picks_ver", in.picksVer) &&
         cJSON_AddNumberToObject(root, "wake", in.wake) && cJSON_AddBoolToObject(root, "docked", in.docked) &&
         cJSON_AddBoolToObject(root, "paired", in.paired) && (!in.hasSettings || addSettings(root, in.settings)) &&
-        cJSON_AddBoolToObject(root, "relaying", in.relaying);
+        cJSON_AddBoolToObject(root, "relaying", in.relaying) &&
+        (in.pin[0] ? cJSON_AddStringToObject(root, "pin", in.pin) : cJSON_AddNullToObject(root, "pin")) != nullptr;
     return ok ? json::printInto(root, buf, cap, true) : 0;
 }
 

@@ -96,7 +96,13 @@ import os
 
     func delete(_ path: String, to id: String) async throws {
         try await write("DELETE", path, nil, to: id)
-        if path == "/pin" { sentPin[id] = nil }
+        if path == "/pin" { forgetPin(id) }
+    }
+
+    /// The wearable has no pin now (removed, or cleared on the wearable): the relay stops sending its stop.
+    func forgetPin(_ id: String) {
+        guard sentPin.removeValue(forKey: id) != nil else { return }
+        onSent?()
     }
 
     /// Boards answering on the network that have no token: new ones, and known ones that were reset.

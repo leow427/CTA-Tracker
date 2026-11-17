@@ -34,8 +34,9 @@ public struct InfoMessage: Decodable, Equatable, Sendable {
     public let paired: Bool        // has a token; false (or absent) raises the app's "found" card
     public let relaying: Bool      // wearable: a Bluetooth /relay tick in the last 90 s; false when absent
     public let settings: DeviceSettings?   // wearable, the config.settings shape; nil when absent
+    public let pin: String?        // wearable: the pinned stop's id; nil (JSON null, or absent: the dock) = none
     enum CodingKeys: String, CodingKey {
-        case type, id, fw, battery, charging, wifi, uptime, wake, docked, paired, relaying, settings
+        case type, id, fw, battery, charging, wifi, uptime, wake, docked, paired, relaying, settings, pin
         case lastUpdate = "last_update", picksVer = "picks_ver"
     }
     public init(from decoder: Decoder) throws {
@@ -54,6 +55,7 @@ public struct InfoMessage: Decodable, Equatable, Sendable {
         paired = try c.decodeIfPresent(Bool.self, forKey: .paired) ?? false
         relaying = try c.decodeIfPresent(Bool.self, forKey: .relaying) ?? false
         settings = try c.decodeIfPresent(DeviceSettings.self, forKey: .settings)
+        pin = try c.decodeIfPresent(String.self, forKey: .pin)
     }
 }
 

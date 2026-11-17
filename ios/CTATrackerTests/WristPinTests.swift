@@ -57,4 +57,25 @@ struct WristPinTests {
         guard case .pin(let p) = r else { Issue.record("\(String(describing: r))"); return }
         #expect(p == belmont)
     }
+
+    // A pin cleared on the wearable (spec 5.6, "Removing it from the app")
+
+    @Test func aPinGoneSinceTheLastReportClears() {
+        #expect(AppModel.pinCleared(reported: nil, uptime: 120, previous: ("41320", 100)))
+    }
+
+    @Test func theAppsNewPinNotInInfoYetDoesNotClear() {
+        // just sent: the wearable's next reports still say none until its network task takes the pin
+        #expect(!AppModel.pinCleared(reported: nil, uptime: 120, previous: (nil, 100)))
+        #expect(!AppModel.pinCleared(reported: nil, uptime: 120, previous: nil))   // the first report this launch
+    }
+
+    @Test func aPinStillThereOrChangedDoesNotClear() {
+        #expect(!AppModel.pinCleared(reported: "41320", uptime: 120, previous: ("41320", 100)))
+        #expect(!AppModel.pinCleared(reported: "1234", uptime: 120, previous: ("41320", 100)))
+    }
+
+    @Test func aRebootOrALateOldReportDoesNotClear() {
+        #expect(!AppModel.pinCleared(reported: nil, uptime: 5, previous: ("41320", 100)))
+    }
 }
