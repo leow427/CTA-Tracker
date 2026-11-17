@@ -255,6 +255,17 @@ gets the matching encoders next to `BLEMessages.swift`.
 - **Device settings** (screen brightness, LED brightness, night hours) ride the same `config` write (my call: it's
   the same path and base spec demo check 9 lists it).
 
+- **Settings layout (Leo, 2026-11-16, after the Task 13 check):** what all devices share sits at the top of
+  Settings; each device's own controls live on its device page.
+  - Top level: **Trackie** (name, color), **Quiet hours** (start, end, on/off; both devices), Devices, About.
+  - **Dock page:** Stops (5.3), Screen brightness, Route LEDs (brightness and an Off switch).
+  - **Wearable page:** Screen brightness, battery and charging, Wi-Fi (the network it's on, and "Add a network",
+    which reuses the setup flow's Wi-Fi step).
+  - The app keeps settings per device and sends each its own `settings` (the message doesn't change; quiet hours
+    are copied into each). LED brightness is dock only.
+  - The dock's backlight is on or off only (the CH422G's EXIO2), so its screen brightness dims the picture in
+    software, with the same black veil as night (darker of the two wins; never below about 20% so it stays readable).
+
 ### 5.3 Dock stops both ways (step 3)
 
 - The dock's device page shows its 3 sections. Tapping one opens the same picker as search; choosing a card (a stop

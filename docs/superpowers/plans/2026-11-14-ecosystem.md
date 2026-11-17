@@ -1083,6 +1083,26 @@ on-tap requests), `firmware/lib/cta` (parsers, with native tests in `firmware/na
 
 ---
 
+### Task 23: Settings per device (Track A, one dock line in Track D)
+
+Ecosystem spec 5.2, "Settings layout" (Leo, 2026-11-16). Replaces Task 13's single Device settings screen.
+
+**Files:** Modify `ios/CTATracker/Settings/SettingsScreen.swift`, `DeviceSettingsScreen.swift` (becomes Quiet hours),
+`ios/CTATracker/Devices/DevicePage.swift`, `App/AppModel.swift`; `firmware/dock/src/main.cpp` and `dock_ui.cpp` (screen
+brightness as a software dim).
+
+- [ ] **Step 1:** App: top-level Trackie and Quiet hours; per-device Screen brightness (both), Route LEDs (dock:
+  brightness, Off); wearable Wi-Fi row with "Add a network" (the setup flow's Wi-Fi step). Settings saved per device
+  id; each device gets its own `settings`, with the shared quiet hours. A pure function builds one device's settings,
+  with a test.
+- [ ] **Step 2:** Dock: screen brightness dims the frame with the night veil (darker wins, floor about 20%); `led` 0
+  turns the route LEDs off. Native test if logic is added.
+- [ ] **Step 3: Verify** on both boards: dock brightness and LEDs change within 3 s and the wearable's screen doesn't;
+  wearable brightness changes only the wearable; quiet hours dim both.
+- [ ] **Step 4: Commit:** `feat: settings per device; the dock dims in software`.
+
+---
+
 ## Appendix A: if Task 1 says Bluetooth doesn't fit
 
 **Now the dock's design only.** Chosen by Leo on 2026-11-14 for both boards, then the same day the wearable went
