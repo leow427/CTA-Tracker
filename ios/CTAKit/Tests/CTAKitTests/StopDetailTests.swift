@@ -81,6 +81,7 @@ struct StopSearchTests {
     @Test func trainLinesMatchByNameOrID() {
         #expect(StopSearch.results("brown", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["41220"])
         #expect(StopSearch.results("brn", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["41220"])
+        #expect(StopSearch.results("bro", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["41220"])
         #expect(StopSearch.results("red line", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["41320"])
     }
 
@@ -149,6 +150,7 @@ extension StopSearchTests {
         #expect(StopSearch.results("north avenue", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["1"])
         #expect(StopSearch.results("oconnor road", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["2"])
         #expect(StopSearch.results("o'connor", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["2"])
+        #expect(StopSearch.results("o’connor", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["2"])   // iOS smart punctuation
         #expect(StopSearch.results("95th st louis", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["3"])
     }
 

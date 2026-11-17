@@ -108,9 +108,10 @@ public enum StopSearch {
         s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).trimmingCharacters(in: .whitespaces)
     }
 
-    /// Folded words: "O'Connor" and "St." stay one word ("oconnor", "st"); "&", "/", "-", "(" split ("Kedzie-Homan").
+    /// Folded words: "O'Connor" (or iOS's curly "O’Connor") and "St." stay one word ("oconnor", "st"); "&", "/", "-",
+    /// "(" split ("Kedzie-Homan").
     static func words(_ s: String) -> [String] {
-        normalized(s).replacingOccurrences(of: "'", with: "").replacingOccurrences(of: ".", with: "")
+        normalized(s).replacingOccurrences(of: "['’‘.]", with: "", options: .regularExpression)
             .split { !$0.isLetter && !$0.isNumber }.map(String.init)
     }
 
