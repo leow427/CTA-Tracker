@@ -648,7 +648,12 @@ void drawPair(Canvas& cv, const Model& m, uint32_t ms) {
 // Rows of 320 × 56 inside the circle, then the Pair again button; the confirm step's two buttons. All at least 56 px
 // tall, so they're easy to hit.
 constexpr int kRowX = C - 160, kRowW = 320, kRowH = 56;
-constexpr Rect kPairBtn{C - 120, 326, 240, 60}, kYesBtn{C - 120, 236, 240, 60}, kNoBtn{C - 120, 310, 240, 60};
+constexpr Rect kPairBtn{C - 120, 356, 240, 56}, kYesBtn{C - 120, 236, 240, 60}, kNoBtn{C - 120, 310, 240, 60};
+// The brightness row's − and + plates (48 × 44 in the 56 px row); a tap anywhere in the row's height on either side
+// hits them (kMinusHit, kPlusHit).
+constexpr int kBrightY = 288, kScreenMinPct = 20;   // as the dock's floor (cta::kDimFloorPct): still readable
+constexpr Rect kMinusBtn{kRowX + kRowW - 162, kBrightY + 6, 48, 44}, kPlusBtn{kRowX + kRowW - 54, kBrightY + 6, 48, 44};
+constexpr Rect kMinusHit{kMinusBtn.x - 12, kBrightY - 4, 72, kRowH + 8}, kPlusHit{kPlusBtn.x - 12, kBrightY - 4, 72, kRowH + 8};
 
 void button(Canvas& cv, const Rect& r, const char* label, bool primary) {
     PlateStyle ps;
@@ -674,7 +679,7 @@ void drawSettings(Canvas& cv, const Model& m) {
     const int R = kRowX + kRowW - 18;
     const Font* fv = F(900, 19);
     // Wi-Fi: the network and its bars, or why there's none.
-    float cy = settingsRow(cv, 112, "Wi-Fi");
+    float cy = settingsRow(cv, 96, "Wi-Fi");
     if (m.ssid[0]) {
         const int bars = wifiBars(m.rssi);
         for (int i = 0; i < 4; ++i) {   // 5 px bars, 6 to 18 px tall, on the row's baseline
@@ -686,7 +691,7 @@ void drawSettings(Canvas& cv, const Model& m) {
         cv.text(fv, m.wifiSetUp ? "Not connected" : "Not set up", R, cy + 1, col::mist, Align::Right, Base::Middle);
     }
     // Battery: a pixel battery filled to the level (green while charging, amber when low), then the words.
-    cy = settingsRow(cv, 180, "Battery");
+    cy = settingsRow(cv, 160, "Battery");
     if (m.battery < 0) {
         cv.text(fv, "On USB power", R, cy + 1, col::white, Align::Right, Base::Middle);
     } else {
@@ -699,9 +704,22 @@ void drawSettings(Canvas& cv, const Model& m) {
         snprintf(buf, sizeof(buf), m.charging ? "Charging \xC2\xB7 %d%%" : "%d%%", m.battery);
         cv.text(fv, buf, R - 46, cy + 1, m.charging ? col::signal : col::white, Align::Right, Base::Middle);
     }
-    cy = settingsRow(cv, 248, "Bluetooth");
+    cy = settingsRow(cv, 224, "Bluetooth");
     cv.text(fv, m.bleConnected ? "Connected" : "Not connected", R, cy + 1, m.bleConnected ? col::signal : col::mist,
             Align::Right, Base::Middle);
+    // Brightness: − value +, each step a plate inside the row (ecosystem spec 5.2); one that can't go further is dim.
+    cy = settingsRow(cv, kBrightY, "Brightness");
+    snprintf(buf, sizeof(buf), "%d%%", m.screenPct);
+    cv.text(fv, buf, (kMinusBtn.x + kMinusBtn.w + kPlusBtn.x) / 2.f, cy + 1, col::white, Align::Center, Base::Middle);
+    for (int k = 0; k < 2; ++k) {
+        const bool plus = k == 1, can = plus ? m.screenPct < 100 : m.screenPct > kScreenMinPct;
+        const Rect* r = plus ? &kPlusBtn : &kMinusBtn;
+        cv.plate(r->x, r->y, r->w, r->h, smallPlate());
+        const int bx = r->x + r->w / 2, by = r->y + r->h / 2;
+        const uint32_t ink = can ? col::white : col::dimInk;
+        cv.fillRect(bx - 8, by - 1, 16, 3, ink);
+        if (plus) cv.fillRect(bx - 1, by - 8, 3, 16, ink);
+    }
     button(cv, kPairBtn, "Pair again", true);
     chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);   // swipe right: Home
 }
@@ -807,6 +825,10 @@ void tap(App& a, Model& m, float x, float y, uint32_t ms) {
     } else if (sc == Screen::Detail && x < 80) back(a, ms);
     else if (sc == Screen::Settings && x < 80) go(a, with(a.view, Screen::Home), 1, -1, ms);
     else if (sc == Screen::Settings && inRect(x, y, kPairBtn)) go(a, with(a.view, Screen::Confirm), 0, 0, ms);
+    else if (sc == Screen::Settings && (inRect(x, y, kMinusHit) || inRect(x, y, kPlusHit))) {
+        m.screenPct = cta::stepPct(m.screenPct, inRect(x, y, kPlusHit) ? 1 : -1, kScreenMinPct);
+        m.screenChanged = true;
+    }
     else if (sc == Screen::Confirm && inRect(x, y, kYesBtn)) {
         device::pairAgain();   // wipes the bond and token and enters pairing mode (Track W)
         go(a, with(a.view, Screen::Pair), 0, 0, ms);

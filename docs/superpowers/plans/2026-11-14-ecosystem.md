@@ -1124,16 +1124,27 @@ Ecosystem spec 5.2, "Settings layout", last bullet (Leo, 2026-11-16).
 `firmware/handheld/mock/src/ui.cpp` and the live build (a brightness row); `ios/CTATracker/App/AppModel.swift` (adopt a
 device's own change from `info.settings`).
 
-- [ ] **Step 1:** Dock Settings: Screen brightness and Route LEDs (steps with − / +, LEDs down to Off), and a Quiet
+- [x] **Step 1:** Dock Settings: Screen brightness and Route LEDs (steps with − / +, LEDs down to Off), and a Quiet
   hours line ("Quiet 10 PM – 7 AM · set in the app", or "Off"). Saved like the app's write; `info` carries `settings`.
-- [ ] **Step 2:** Wearable Settings: a Screen brightness row (− / +), saved the same way; its `info.settings` already
-  goes out.
-- [ ] **Step 3:** App: when a device's `info.settings` shows a screen or LED value the app didn't send (changed on the
+  As built: two step rows under APP (10% steps: screen 20–100, LEDs 0–100 with 0 "Off"; a step at its end is dim),
+  then the quiet line, then Pair again (moved down to y 692). The line reads "Quiet 10 PM to 7 AM · set in the app"
+  or "Quiet hours off": the fonts have no en dash. A tap applies at once (`applySettings`, `ledScaled`), goes into
+  `info.settings` and GET /config, and is saved 2 s after the last tap; an app write in between saves and cancels it.
+  Shared helpers `cta::stepPct` and `cta::quietLine` (`link_msg`), with native tests; `tools/preview.cpp`'s settings
+  flow taps the steps.
+- [x] **Step 2:** Wearable Settings: a Screen brightness row (− / +), saved the same way; its `info.settings` already
+  goes out. As built: a "Brightness − 80% +" row under Bluetooth (rows now every 64 px, Pair again 240 × 56 at y 356),
+  20–100 by 10. The UI sets `Model::screenPct`/`screenChanged`; `main.cpp` applies it, sets `infoDirty` (a Bluetooth
+  `info` notify within a second) and saves 2 s after the last tap. `tools/touch_test.cpp` taps the steps.
+- [x] **Step 3:** App: when a device's `info.settings` shows a screen or LED value the app didn't send (changed on the
   device), adopt it into that device's settings, unless a change of the app's own is waiting to go out. Test the
-  pure rule.
+  pure rule. As built: `DeviceLink.onInfo` (before the actions, so a `.resendState` sends the adopted value);
+  `AppModel.adopted(...)` adopts when the report differs from what the app last sent (kept across launches) and from
+  the device's previous report (a stale report from before the app's write landed is ignored); pending is the 400 ms
+  debounce or a `/config` still in flight. Quiet hours are never adopted. `DeviceSettingsTests`.
 - [ ] **Step 4: Verify** on both boards: change brightness on the device and the app's device page shows it within
   3 s; change it in the app and the device's Settings row follows; a reboot keeps it.
-- [ ] **Step 5: Commit:** `feat: device settings on each device's own Settings screen, kept in step with the app`.
+- [x] **Step 5: Commit:** `feat: device settings on each device's own Settings screen, kept in step with the app`.
 
 ---
 

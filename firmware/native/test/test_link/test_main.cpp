@@ -615,8 +615,41 @@ static void info_has_rssi_settings_relaying() {
     TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 0);
 }
 
+static void dock_info_carries_settings() {
+    cta::InfoMsg in = {};
+    in.dock = true;
+    in.battery = -1;
+    in.hasSettings = true;
+    in.settings = {40, 0, 1320, 420};
+    char buf[cta::kMaxInfo];
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"type\":\"dock\""));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"settings\":{\"screen\":40,\"led\":0,\"night_start\":1320,\"night_end\":420}"));
+}
+
+static void step_pct_and_quiet_line() {
+    TEST_ASSERT_EQUAL(80, cta::stepPct(70, 1, 20));
+    TEST_ASSERT_EQUAL(60, cta::stepPct(70, -1, 20));
+    TEST_ASSERT_EQUAL(80, cta::stepPct(73, 1, 20));    // off the grid: to the next step
+    TEST_ASSERT_EQUAL(70, cta::stepPct(73, -1, 20));
+    TEST_ASSERT_EQUAL(100, cta::stepPct(100, 1, 20));
+    TEST_ASSERT_EQUAL(20, cta::stepPct(20, -1, 20));   // the screen's floor
+    TEST_ASSERT_EQUAL(20, cta::stepPct(5, 1, 20));
+    TEST_ASSERT_EQUAL(0, cta::stepPct(10, -1, 0));     // LEDs go to Off
+    TEST_ASSERT_EQUAL(10, cta::stepPct(0, 1, 0));
+    char buf[64];
+    cta::quietLine(1320, 420, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING("Quiet 10 PM to 7 AM \xC2\xB7 set in the app", buf);
+    cta::quietLine(0, 450, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING("Quiet 12 AM to 7:30 AM \xC2\xB7 set in the app", buf);
+    cta::quietLine(600, 600, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING("Quiet hours off", buf);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(dock_info_carries_settings);
+    RUN_TEST(step_pct_and_quiet_line);
     RUN_TEST(wifi_accepts_slot_4_rejects_5);
     RUN_TEST(wifi_rejects_empty_or_long_ssid);
     RUN_TEST(token_must_be_32_lower_hex);

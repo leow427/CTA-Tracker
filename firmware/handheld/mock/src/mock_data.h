@@ -83,6 +83,10 @@ struct Model {
     bool bleConnected = true;                       // a bonded phone is connected over Bluetooth
     // Night hours, minutes after midnight (the app's config.settings in the live build): Sleepy, and slow polling.
     uint16_t nightStart = cta::kNightStartMin, nightEnd = cta::kNightEndMin;
+    // The screen brightness, percent (config.settings.screen). Settings' − / + step it by 10 (20–100) and raise
+    // screenChanged for the device to apply and save (ecosystem spec 5.2).
+    uint8_t screenPct = 100;
+    bool screenChanged = false;
     // The Pair screen: the Bluetooth pairing code (0 = none; the debug Pairing scenario shows 482 913) and the name the
     // phone lists (the live build sets both).
     uint32_t passkey = 0;

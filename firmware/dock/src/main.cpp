@@ -69,6 +69,8 @@ bool wifiOffDiag = false, forceFrame = false;
 cta::ConfigMsg linkCfg;   // stops = picks; pet and settings once saved or sent
 cta::InfoMsg info = {};
 uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with the app's two swapped in
+uint32_t settingsSaveMs = 0;   // Settings' last − / + tap waiting to be saved (0 = none)
+constexpr uint32_t kSettingsSaveDelayMs = 2000;   // taps in a row write flash once
 constexpr uint32_t kResetHoldMs = 10000;   // three fingers held this long anywhere: the hidden reset
 #ifdef PERF_LOG
 // The perf log's view of the loop: a picker list asked for (and when), and boot milestones (ms since boot, 0 = not yet).
@@ -168,6 +170,8 @@ void publishLink() {
     lan::setConfig(linkCfg);
     for (const dock::Section& s : data->sec)
         if (s.rec.ts > info.lastUpdate) info.lastUpdate = s.rec.ts;
+    info.hasSettings = true;   // as the wearable's: the app adopts a change made on the dock (ecosystem spec 5.2)
+    info.settings = linkCfg.settings;
     lan::setInfo(info);
 }
 
@@ -451,6 +455,7 @@ void loop() {
             linkCfg.settings = in.cfg.settings;
             linkCfg.hasSettings = true;
             if (!store::saveSettings(linkCfg.settings)) uprintf("store: saving the settings failed\n");
+            settingsSaveMs = 0;   // saved just now, a pending tap's value replaced by the app's
             applySettings();
         }
         publishLink();
@@ -467,6 +472,21 @@ void loop() {
         lan::pairAgain();
         uprintf("link: pair again: token forgotten\n");
     }
+    // Settings' − / + (ecosystem spec 5.2): applied and in info at once, saved once the taps stop
+    if (app.settingsChanged) {
+        app.settingsChanged = false;
+        linkCfg.settings = app.settings;
+        linkCfg.hasSettings = true;
+        applySettings();
+        publishLink();
+        settingsSaveMs = ms ? ms : 1;
+        dirty = true;
+    }
+    if (settingsSaveMs && ms - settingsSaveMs >= kSettingsSaveDelayMs) {
+        settingsSaveMs = 0;
+        if (!store::saveSettings(linkCfg.settings)) uprintf("store: saving the settings failed\n");
+    }
+    app.settings = linkCfg.settings;
     {   // pairing: the code until paired, or the cooldown after 5 wrong codes; nothing once paired
         char code[cta::kPairCodeLen + 1] = "";
         uint8_t wait = 0;

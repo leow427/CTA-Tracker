@@ -1,5 +1,6 @@
 #include "link_msg.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -282,6 +283,24 @@ bool parseRelayStop(const char* json, size_t len, RelayStop& out) {
     for (const cJSON* r = records->child; r != nullptr && out.n < kMaxRelayRecords; r = r->next)
         decodeStopRecord(r, out.records[out.n++]);
     return true;
+}
+
+uint8_t stepPct(int pct, int dir, int lo) {
+    const int next = dir > 0 ? (pct / 10 + 1) * 10 : ((pct + 9) / 10 - 1) * 10;   // an app value off the grid snaps to it
+    return static_cast<uint8_t>(next < lo ? lo : next > 100 ? 100 : next);
+}
+
+void quietLine(uint16_t start, uint16_t end, char* out, size_t cap) {
+    if (start == end) { snprintf(out, cap, "Quiet hours off"); return; }
+    char t[2][12];
+    for (int k = 0; k < 2; ++k) {
+        const int m = (k ? end : start) % 1440, h = m / 60 % 12 ? m / 60 % 12 : 12;
+        const char* ap = m < 720 ? "AM" : "PM";
+        if (m % 60) snprintf(t[k], sizeof(t[k]), "%d:%02d %s", h, m % 60, ap);
+        else snprintf(t[k], sizeof(t[k]), "%d %s", h, ap);
+    }
+    // "to", not an en dash: the fonts have no U+2013
+    snprintf(out, cap, "Quiet %s to %s \xC2\xB7 set in the app", t[0], t[1]);
 }
 
 }  // namespace cta

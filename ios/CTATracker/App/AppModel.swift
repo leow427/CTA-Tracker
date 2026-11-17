@@ -70,6 +70,7 @@ import SwiftUI
         searchIndex = Task.detached(priority: .utility) { stops.map(StopSearch.Index.init) }
         rebuild()
         Glyphs.petColors = pet.colors
+        devices.onInfo = { [weak self] id, info in self?.adoptDeviceSettings(id, info.settings) }
         devices.onAction = { [weak self] id, action in
             guard let self else { return }
             if action == .fetchConfig, isDock(id) { fetchConfig(id) }
@@ -334,7 +335,7 @@ import SwiftUI
             try? await Task.sleep(for: .milliseconds(400))
             guard let self, !Task.isCancelled else { return }
             let to = pushTo
-            pushTo = []
+            pushTo = []   // nothing waiting: configPending is false again
             devices.devices.filter { devices.online[$0.id] != nil && to?.contains($0.id) != false }
                 .forEach { sendConfig(to: $0.id) }
         }
@@ -342,8 +343,50 @@ import SwiftUI
 
     // shortcut: a failed write isn't retried; the device gets it again on its next `.resendState` (online or reboot).
     private func sendConfig(to id: String) {
-        let m = ConfigMessage(pet: pet, settings: Self.settings(prefs(id), quiet: quietHours))
-        Task { try? await devices.post("/config", m, to: id) }
+        let s = Self.settings(prefs(id), quiet: quietHours)
+        sending[id, default: 0] += 1
+        Task {
+            if (try? await devices.post("/config", ConfigMessage(pet: pet, settings: s), to: id)) != nil { sentSettings[id] = s }
+            sending[id, default: 1] -= 1
+        }
+    }
+
+    // MARK: - A change made on the device (ecosystem spec 5.2, "On the devices too")
+
+    /// What each device has as far as the app knows: what it last took from the app, or adopted from it. Kept across
+    /// launches, so a change made on the device while the app was closed is seen, and one made in the app isn't lost.
+    @ObservationIgnored private var sentSettings: [String: DeviceSettings] = AppModel.load(AppModel.sentKey) ?? [:] {
+        didSet { AppModel.save(sentSettings, AppModel.sentKey) }
+    }
+    @ObservationIgnored private var reportedSettings: [String: DeviceSettings] = [:]   // each device's last info.settings
+    @ObservationIgnored private var sending: [String: Int] = [:]   // `/config` writes still in flight
+
+    /// The app's own change for the device is waiting for the debounce or still on its way.
+    private func configPending(_ id: String) -> Bool { (pushTo?.contains(id) ?? true) || sending[id, default: 0] > 0 }
+
+    private func adoptDeviceSettings(_ id: String, _ reported: DeviceSettings?) {
+        guard let reported, isPaired(id) else { return }
+        defer { reportedSettings[id] = reported }
+        let sent = sentSettings[id] ?? Self.settings(prefs(id), quiet: quietHours)
+        guard let p = Self.adopted(reported, previous: reportedSettings[id], sent: sent, prefs: prefs(id),
+                                   pending: configPending(id)) else { return }
+        devicePrefs[id] = p   // no write back: the device has it already, and a `.resendState` now sends the same
+        sentSettings[id] = reported
+    }
+
+    /// The device's own brightness (it owns it): the prefs to take when its reported screen or LED differs from what the
+    /// app sent and changed since its last report. nil keeps the app's: its own change is still going out, nothing
+    /// differs, or the report is a stale one from before the app's write landed. Quiet hours stay the app's.
+    nonisolated static func adopted(_ reported: DeviceSettings, previous: DeviceSettings?, sent: DeviceSettings,
+                                    prefs: DevicePrefs, pending: Bool) -> DevicePrefs? {
+        func same(_ a: DeviceSettings, _ b: DeviceSettings) -> Bool { a.screen == b.screen && a.led == b.led }
+        if pending || same(reported, sent) { return nil }
+        if let previous, same(reported, previous) { return nil }
+        var p = prefs
+        p.screen = reported.screen
+        if reported.led > 0 { p.led = reported.led }   // Off keeps the level, for turning the LEDs back on
+        p.ledOn = reported.led > 0
+        return p
     }
 
     // MARK: - Storage
@@ -354,6 +397,7 @@ import SwiftUI
     private static let settingsKey = "deviceSettings"   // Task 13's single settings, read for defaults only
     private static let quietKey = "quietHours"
     private static let prefsKey = "devicePrefs"
+    private static let sentKey = "sentSettings"
     private static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
     private static func load<T: Decodable>(_ key: String) -> T? {

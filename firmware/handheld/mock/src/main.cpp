@@ -459,6 +459,7 @@ uint16_t petPalette[pet::kPaletteSize];   // Trackie's colors: the default with 
 lan::Inbox* inbox;        // the loop's copy of the link's writes (PSRAM: it holds a 1 KB body)
 bool haveToken = false;   // a household token is saved (info.paired, with a bond)
 bool infoDirty = false;   // something the app shows changed: notify `info` now, not at the heartbeat
+uint32_t settingsSaveMs = 0;   // Settings' last − / + tap waiting to be saved (0 = none): taps in a row write flash once
 
 void applyPet() {
     memcpy(petPalette, pet::kDefaultPalette565, sizeof(petPalette));
@@ -469,6 +470,7 @@ void applyPet() {
 
 void applySettings() {
     fullBrightness = static_cast<uint8_t>(kFullBrightness * linkCfg.settings.screen / 100);
+    model.screenPct = linkCfg.settings.screen;   // Settings' Brightness row
     model.nightStart = linkCfg.settings.nightStart;   // Sleepy and slow polling
     model.nightEnd = linkCfg.settings.nightEnd;
 }
@@ -532,6 +534,7 @@ void drainLink() {
         linkCfg.settings = inbox->cfg.settings;
         linkCfg.hasSettings = true;
         saveBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings));
+        settingsSaveMs = 0;   // saved just now, a pending tap's value replaced by the app's
         applySettings();
     }
     if (inbox->config) { lan::setConfig(linkCfg); infoDirty = true; }
@@ -1029,6 +1032,25 @@ void loop() {
     wasDim = app.dim;
     drainLink();
     if (resetReq) resetLink("two-finger hold");
+#endif
+    if (model.screenChanged) {   // Settings' − / + (ecosystem spec 5.2): applied at once
+        model.screenChanged = false;
+#ifdef HANDHELD_LIVE
+        linkCfg.settings.screen = model.screenPct;
+        linkCfg.hasSettings = true;
+        applySettings();
+        lan::setConfig(linkCfg);
+        infoDirty = true;   // info.settings goes out with the next second's notify, so the app's page follows
+        settingsSaveMs = ms ? ms : 1;
+#else
+        fullBrightness = static_cast<uint8_t>(kFullBrightness * model.screenPct / 100);
+#endif
+    }
+#ifdef HANDHELD_LIVE
+    if (settingsSaveMs && ms - settingsSaveMs >= 2000) {
+        settingsSaveMs = 0;
+        saveBytes("settings", &linkCfg.settings, sizeof(linkCfg.settings));
+    }
 #endif
     // Frames: every frame while something moves; otherwise only when Trackie bobs or the live mark blinks (every
     // 500 ms), and a few frames a second while dim (spec 8: the animation drops when dimmed). A tap that wakes the

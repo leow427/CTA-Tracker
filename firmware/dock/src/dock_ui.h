@@ -11,6 +11,7 @@
 #include "bus_picker.h"
 #include "cta_types.h"
 #include "gfx2d.h"
+#include "link_msg.h"
 #include "pair.h"
 #include "picks.h"
 
@@ -91,7 +92,7 @@ struct Clock {
 
 enum class Screen : uint8_t { Home, Map, Picker, Settings };
 enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, Settings, PairAsk, PairCancel, PairAgain,
-                         Ahead, Peek, CloseAhead };
+                         Ahead, Peek, CloseAhead, StepScreen, StepLed };
 struct Hit { int16_t x, y, w, h; Act tap, hold; int16_t arg; };
 
 // What the device must do after an input: fetch a picker list, or save a new pick.
@@ -132,6 +133,10 @@ struct App {
     uint8_t pairWait = 0;              // seconds left of the cooldown after 5 wrong codes (0 = none)
     bool pairAsk = false;              // Settings' "Pair again?" confirm is up
     bool pairAgain = false;            // out: forget the token and show a fresh code
+    // in: the dock's settings (ecosystem spec 5.2), set by the device each frame; Settings' − / + step screen (20–100)
+    // and led (0–100, 0 Off) by 10 and raise settingsChanged (out) for the device to apply and save.
+    cta::DeviceSettings settings = {100, 100, 0, 0};
+    bool settingsChanged = false;
     // The touch extras (ecosystem spec 5.10): id 0 = closed. ask is out: for the device to request, then clear.
     struct { int section = 0; char vehicle[cta::kVehicleLen + 1] = ""; uint32_t id = 0, ms = 0; bool ask = false; } ahead;
     struct { int section = 0; uint32_t id = 0, ms = 0; bool ask = false; } peek;

@@ -52,6 +52,10 @@ struct DeviceSettings {
     uint16_t nightStart;   // minutes after midnight, 0–1439
     uint16_t nightEnd;
 };
+// A device's own − / + (ecosystem spec 5.2): the next 10% step from pct in dir (+1 or -1), within lo–100.
+uint8_t stepPct(int pct, int dir, int lo);
+// Settings' quiet hours line: "Quiet 10 PM to 7:30 AM · set in the app", or "Quiet hours off" (start == end).
+void quietLine(uint16_t start, uint16_t end, char* out, size_t cap);
 struct ConfigMsg {
     bool hasStops = false, hasPet = false, hasSettings = false;
     PickedStop stops[kDockStops];

@@ -33,6 +33,8 @@ import os
     @ObservationIgnored var onSent: (() -> Void)?   // the relay sends a changed stop set at once
     var onAction: ((String, DeviceWatch.Action) -> Void)?   // AppModel reacts (Tasks 13–17)
     @ObservationIgnored var onAdded: ((String) -> Void)?   // a device just paired: AppModel drops the old wrist pin
+    /// Every `info` a device answers, before its actions: AppModel adopts settings changed on the device (spec 5.2).
+    @ObservationIgnored var onInfo: ((String, InfoMessage) -> Void)?
 
     @ObservationIgnored private var found: [String: String] = [:]   // id -> "ip:port" Bonjour gave this session
     @ObservationIgnored private var resolving: Set<String> = []
@@ -234,7 +236,7 @@ import os
     private func feed(_ id: String, _ answer: InfoMessage?) {
         let info = answer?.id == id ? answer : nil   // another board now on that address is a miss for this one
         let actions = watches[id, default: DeviceWatch()].polled(info)
-        if let info { online[id] = info }
+        if let info { online[id] = info; onInfo?(id, info) }
         if actions.contains(.wentOffline) {
             online[id] = nil
             if !devices.contains(where: { $0.id == id }) { watches[id] = nil }   // a stranger's board: stop polling it

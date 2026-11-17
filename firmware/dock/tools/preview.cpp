@@ -229,10 +229,12 @@ const State kStates[] = {
     {"no_key", [](dock::Data& d, dock::App&, dock::PickerLists&, dock::Clock&) { d.keys = false; }},
     {"pairing", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { snprintf(a.pairCode, sizeof(a.pairCode), "042917"); }},
     {"pair_cooldown", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.pairWait = 23; }},
-    {"settings", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) { a.screen = dock::Screen::Settings; a.paired = true; }},
+    {"settings", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) {
+         a.screen = dock::Screen::Settings; a.paired = true; a.settings = {80, 100, 1320, 420}; }},
     {"settings_confirm", [](dock::Data&, dock::App& a, dock::PickerLists&, dock::Clock&) {
-         a.screen = dock::Screen::Settings; a.paired = true; a.pairAsk = true; }},
-    {"settings_offline", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { a.screen = dock::Screen::Settings; d.wifiUp = false; }},
+         a.screen = dock::Screen::Settings; a.paired = true; a.pairAsk = true; a.settings = {80, 100, 1320, 420}; }},
+    {"settings_offline", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) {   // LEDs Off, quiet hours off
+         a.screen = dock::Screen::Settings; d.wifiUp = false; a.settings = {20, 0, 600, 600}; }},
     {"home_ahead", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { sampleAhead(d, a, 0); }},
     {"home_ahead_bus", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) { sampleAhead(d, a, 2); }},
     {"home_ahead_loading", [](dock::Data& d, dock::App& a, dock::PickerLists&, dock::Clock&) {
@@ -407,13 +409,29 @@ bool settingsFlow() {
     expect(a.screen == dock::Screen::Home, "no gear while poked");
     a.poked = false;
     tap(280, 40);
-    tap(240, 488);
+    a.settings = {100, 10, 1320, 420};
+    tap(332, 478);
+    expect(a.settingsChanged && a.settings.screen == 90, "screen − steps 10%");
+    a.settingsChanged = false;
+    tap(412, 478);
+    expect(a.settings.screen == 100, "screen + steps back");
+    for (int k = 0; k < 12; ++k) tap(332, 478);
+    expect(a.settings.screen == 20, "the screen stops at 20%");
+    tap(332, 586);
+    tap(332, 586);
+    expect(a.settings.led == 0, "LEDs go down to Off");
+    tap(412, 586);
+    expect(a.settings.led == 10 && a.settings.nightStart == 1320, "LEDs + from Off; quiet hours untouched");
+    tap(240, 728);
     expect(a.pairAsk && !a.pairAgain, "Pair again asks first");
+    a.settingsChanged = false;
+    tap(412, 478);
+    expect(!a.settingsChanged, "the steps are covered by the confirm");
     tap(30, 40);
     expect(a.screen == dock::Screen::Settings, "back is covered by the confirm");
     tap(144, 436);
     expect(!a.pairAsk && !a.pairAgain && a.screen == dock::Screen::Settings, "Cancel keeps the token");
-    tap(240, 488);
+    tap(240, 728);
     tap(336, 436);
     expect(a.pairAgain && !a.pairAsk && a.screen == dock::Screen::Home, "the confirm pairs again");
     const int rssi[] = {0, -40, -55, -56, -66, -67, -77, -78, -95}, bars[] = {0, 4, 4, 3, 3, 2, 2, 1, 1};

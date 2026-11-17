@@ -114,15 +114,19 @@ Swipe left from Home (or tap its right edge). Swipe right, or tap the left edge,
 - **Battery:** a pixel battery filled to the level (green while charging, amber at 20% or less) and "Charging · 64%"
   or "64%"; "On USB power" with no battery
 - **Bluetooth:** "Connected" (green) or "Not connected"
+- **Brightness:** − 80% + (ecosystem spec 5.2): each tap steps the screen brightness 10%, from 20% to 100%; a step that
+  can't go further is dim. It applies at once, is saved 2 s after the last tap (as the app's write is), and goes out
+  in `info.settings` with a Bluetooth notify, so the app's device page follows. Quiet hours stay the app's.
 - **Pair again,** a yellow button. It asks first: "Pair again?" / "Your phone will need to pair again." with Pair again
   and Cancel (Cancel or a swipe right goes back). Confirming calls `device::pairAgain()` (`src/device_hooks.h`: the
   Bluetooth link wipes the bond and token, picks a new address, and enters pairing mode) and shows Pairing. An unpaired
   device stays in pairing mode until it's paired (Leo, 2026-11-14): the Pairing screen goes Home once
   `device::paired()` says so.
 
-Rows are 320 × 56 and buttons 240 × 60, inside the circle. The code: `drawSettings` and `drawConfirm` in
-`firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `petName`, `deviceId`, `ssid`, `rssi`, `wifiSetUp`, `battery`,
-`charging`, `bleConnected`. Renders: `tools/preview.cpp` writes `settings*`.
+Rows are 320 × 56 every 64 px, Pair again 240 × 56 and the confirm's buttons 240 × 60, inside the circle. The code:
+`drawSettings` and `drawConfirm` in `firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `petName`, `deviceId`,
+`ssid`, `rssi`, `wifiSetUp`, `battery`, `charging`, `bleConnected`, `screenPct` (a step sets `screenChanged` for
+`main.cpp` to apply and save). Renders: `tools/preview.cpp` writes `settings*`.
 
 The Map placeholder that sat here is gone (Leo, 2026-11-14); a map would need another way in.
 

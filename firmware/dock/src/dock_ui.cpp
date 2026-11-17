@@ -927,6 +927,25 @@ void button(Canvas& cv, App& a, int x, int y, int w, int h, const char* label, b
     hit(a, x, y, w, h, what);
 }
 
+// A row with − / + on its right (ecosystem spec 5.2): each a 72 px plate, its tap the row's full height. A step that
+// can't go further is drawn dim.
+void stepRow(Canvas& cv, App& a, int y, const char* label, int pct, int lo, Act what) {
+    char v[8];
+    if (pct) snprintf(v, sizeof(v), "%d%%", pct);
+    settingsRow(cv, y, label, pct ? v : "Off", pct ? col::white : col::mist);
+    for (int k = 0; k < 2; ++k) {
+        const int x = 296 + k * 80, cx = x + 36, cy = y + 46;
+        const bool can = k ? pct < 100 : pct > lo;
+        PlateStyle ps = smallPlate();
+        ps.edge = 4;
+        cv.plate(x, y + 10, 72, 72, ps);
+        const uint32_t ink = can ? col::white : col::dimInk;
+        cv.fillRect(cx - 12, cy - 2, 24, 4, ink);
+        if (k) cv.fillRect(cx - 2, cy - 12, 4, 24, ink);
+        hit(a, x - 8, y, 80, 92, what, Act::None, k ? 1 : -1);
+    }
+}
+
 void drawSettings(Canvas& cv, App& a, const Data& d) {
     chevron(cv, 30, 30, 20, 42, 30, 54, col::mist);
     cv.text(F(900, 24), "Settings", 48, 28, col::white);
@@ -939,12 +958,18 @@ void drawSettings(Canvas& cv, App& a, const Data& d) {
     for (int k = 0; k < 4; ++k)   // bottom-aligned, rising left to right
         cv.fillRect(380 + k * 14, 216 + 66 - (k + 1) * 8, 9, (k + 1) * 8, k < bars ? col::white : col::dimInk);
     settingsRow(cv, 324, "APP", a.paired ? "Paired" : "Not paired", a.paired ? col::signal : col::mist);
+    // the steps under the confirm take no taps
+    stepRow(cv, a, 432, "SCREEN BRIGHTNESS", a.settings.screen, cta::kDimFloorPct, a.pairAsk ? Act::None : Act::StepScreen);
+    stepRow(cv, a, 540, "ROUTE LEDS", a.settings.led, 0, a.pairAsk ? Act::None : Act::StepLed);
+    char quiet[64];
+    cta::quietLine(a.settings.nightStart, a.settings.nightEnd, quiet, sizeof(quiet));
+    cv.text(F(800, 18), quiet, 48, 652, col::mist);
     if (!a.pairAsk) {
         hit(a, 0, 0, 120, 84, Act::Home);
-        button(cv, a, 24, 452, 432, 72, "Pair again", true, Act::PairAsk);
+        button(cv, a, 24, 692, 432, 72, "Pair again", true, Act::PairAsk);
         return;
     }
-    button(cv, a, 24, 452, 432, 72, "Pair again", true, Act::None);
+    button(cv, a, 24, 692, 432, 72, "Pair again", true, Act::None);
     cv.fillRect(0, 0, W, H, col::bg, 0.7f);   // the confirm, over the page dimmed
     PlateStyle ps = smallPlate();
     ps.fill = ps.fill2 = col::navy;
@@ -992,6 +1017,8 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
         case Act::PairAsk: a.pairAsk = true; break;
         case Act::PairCancel: a.pairAsk = false; break;
         case Act::PairAgain: a.pairAsk = false; a.pairAgain = true; a.screen = Screen::Home; break;
+        case Act::StepScreen: a.settings.screen = cta::stepPct(a.settings.screen, arg, cta::kDimFloorPct); a.settingsChanged = true; break;
+        case Act::StepLed: a.settings.led = cta::stepPct(a.settings.led, arg, 0); a.settingsChanged = true; break;
         case Act::MapToggle:
             if (a.screen == Screen::Map) a.screen = Screen::Home;
             else { a.screen = Screen::Map; a.panX = a.panY = 0; }   // the map opens framed on the picks
