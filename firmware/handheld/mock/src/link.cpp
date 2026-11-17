@@ -219,6 +219,7 @@ size_t infoJson(char* buf, size_t cap) {
     m.wifiConnected = live::wifiConnected();
     live::wifiSsid(m.ssid, sizeof(m.ssid));
     m.rssi = m.wifiConnected ? live::wifiRssi() : 0;
+    m.wifiFail = live::wifiFail();
     return cta::encodeInfo(m, buf, cap);
 }
 

@@ -194,6 +194,8 @@ size_t encodeConfig(const ConfigMsg& in, char* buf, size_t cap) {
     return ok ? json::printInto(root, buf, cap, true) : 0;
 }
 
+static const char* const kWifiFails[] = {"", "password", "no_network", "refused", "other"};
+
 size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap) {
     json::Doc doc(cJSON_CreateObject());
     cJSON* root = doc.root;
@@ -206,6 +208,8 @@ size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap) {
         cJSON_AddBoolToObject(root, "charging", in.charging) && (wifi = cJSON_AddObjectToObject(root, "wifi")) &&
         cJSON_AddBoolToObject(wifi, "connected", in.wifiConnected) && cJSON_AddStringToObject(wifi, "ssid", in.ssid) &&
         cJSON_AddNumberToObject(wifi, "rssi", in.rssi) &&
+        (in.wifiFail == WifiFail::None ||
+         cJSON_AddStringToObject(wifi, "fail", kWifiFails[static_cast<int>(in.wifiFail)]) != nullptr) &&
         cJSON_AddNumberToObject(root, "last_update", in.lastUpdate) &&
         cJSON_AddNumberToObject(root, "uptime", in.uptime) && cJSON_AddNumberToObject(root, "picks_ver", in.picksVer) &&
         cJSON_AddNumberToObject(root, "wake", in.wake) && cJSON_AddBoolToObject(root, "docked", in.docked) &&

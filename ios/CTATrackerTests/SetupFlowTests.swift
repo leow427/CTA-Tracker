@@ -53,6 +53,14 @@ struct SetupFlowTests {
         #expect(SetupFlow.bluetoothOn(.resetting) == nil)
     }
 
+    @Test func wifiMessageFollowsTheBoardsReason() {
+        #expect(SetupFlow.wifiMessage("password") == "Wrong password.")
+        #expect(SetupFlow.wifiMessage("no_network") == "Couldn't find that network nearby.")
+        #expect(SetupFlow.wifiMessage("refused").hasPrefix("The network turned Trackie away."))
+        // other, unknown, or an old board that doesn't say: today's line
+        for fail in ["other", "later", nil] { #expect(SetupFlow.wifiMessage(fail) == "Couldn't join. Check the password.") }
+    }
+
     // MARK: Steps
 
     @Test func stepsAfterPairing() {

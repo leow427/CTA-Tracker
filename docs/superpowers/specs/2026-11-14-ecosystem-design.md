@@ -189,7 +189,7 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 | `POST /relay` | wearable | `{now, wmo?, temp?}` | The relay tick: sets the clock if unset, weather if present; over Bluetooth it marks the wearable "relaying" for 90 s, and it stops its own CTA polling meanwhile. |
 | `POST /stop` | wearable | `{id, type, records: [stop record…]}` | Relayed arrivals for one stop (base spec 6.2 records); the newest `ts` wins. |
 
-`POST /ble` is gone. The wearable's `info` also carries `wifi.rssi`, `settings`, `relaying` and `pin` (5.6).
+`POST /ble` is gone. The wearable's `info` also carries `wifi.rssi`, `settings`, `relaying` and `pin` (5.6), and `wifi.fail` after a failed join (5.1).
 
 **Over Bluetooth (wearable).** The same messages ride one GATT service (UUIDs in `ble_ids.h`):
 
@@ -228,8 +228,14 @@ gets the matching encoders next to `BLEMessages.swift`.
 - **Pair:** "Type the code shown on Trackie when your iPhone asks." Trackie's bubble shows the passkey
   (`docs/handheld-ui.md`'s Pairing state). Once bonded, the app writes the household token.
 - **Wi-Fi (optional, "Skip"):** network name and password, "Add another" up to 5, home first. Each goes over the
-  bonded link (`POST /wifi`); the app watches `info.wifi.connected` for up to 20 s ("Couldn't join. Check the
-  password."). The password is never stored or logged on the phone.
+  bonded link (`POST /wifi`); the app watches `info.wifi.connected` for up to 20 s. **Changed 2026-11-17:** a
+  failed join shows the wearable's reason, `info.wifi.fail`, sent only while it isn't joined and has one (cleared when
+  it joins or a network is added). The firmware buckets the driver's disconnect reason (`cta::wifiFailFor`, codes from
+  ESP-IDF 5.4's Wi-Fi guide): `password` (15, 204) "Wrong password."; `no_network` (201, or no saved network in reach)
+  "Couldn't find that network nearby."; `refused` (2, 3, 9, 30, 203; a lab access point with a device allow-list sent
+  2) "The network turned Trackie away. Some networks only let in devices they know: ask its admin to allow Trackie.";
+  `other`, or no `fail` (an older board), "Couldn't join. Check the password." The password is never stored or logged
+  on the phone, and the wearable never logs a network's name.
 - **Pet** (first device only) → **Ready.**
 - **The fallback:** when Bluetooth isn't available (off or not allowed on the phone, or the wearable not seen) or the
   Bluetooth pairing fails, and the wearable is on the network unpaired, the app uses the dock's flow: Trackie's bubble

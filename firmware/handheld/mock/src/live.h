@@ -94,6 +94,8 @@ bool read(Snapshot& out, uint32_t& version);
 uint32_t unixNow();
 // Joined and holding an IP address. Any task may ask.
 bool wifiConnected();
+// Why the last join failed (None while joined, or with nothing to say). Any task may ask.
+cta::WifiFail wifiFail();
 // The joined network's signal in dBm (0 if none). Any task may ask.
 int8_t wifiRssi();
 // The joined network's name into out ("" if none). Any task may ask.

@@ -143,6 +143,9 @@ volatile bool staStarted = false;  // the driver is ready to join
 volatile uint32_t wifiIp = 0;      // network order
 volatile uint8_t discReason = 0;   // wifi_err_reason_t of the last disconnect
 volatile uint32_t discCount = 0;
+// Why joining fails, for info.wifi.fail: the last reason since Wi-Fi was up or a network was added. Our own
+// esp_wifi_disconnect() (ASSOC_LEAVE) doesn't count, so ending a stuck join keeps the reason before it.
+volatile uint8_t failReason = 0;
 
 void onWifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -150,9 +153,11 @@ void onWifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifiUp = false;
         discReason = static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
+        if (discReason != WIFI_REASON_ASSOC_LEAVE) failReason = discReason;
         discCount = discCount + 1;
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         wifiIp = static_cast<ip_event_got_ip_t*>(data)->ip_info.ip.addr;
+        failReason = 0;
         wifiUp = true;
     } else if (base == IP_EVENT && id == IP_EVENT_STA_LOST_IP) {
         wifiUp = false;
@@ -679,17 +684,17 @@ constexpr uint16_t kMaxSeen = 24;
 wifi_ap_record_t* seenAps;   // kMaxSeen scan records, in PSRAM (start)
 
 // After a failed join: is the network in reach, and on what? The ESP32-S3 has 2.4 GHz only, and the most common
-// failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Logs only our SSID.
+// failures are a 5 GHz-only network, a WPA3-only one, or a name that differs by a character. Never logs a name.
 void reportScan(const char* ssid) {
     const cpuclk::Fast fast;
     const int found = scan(seenAps, kMaxSeen);
     for (int i = 0; i < found && i < kMaxSeen; ++i)
         if (strcmp(reinterpret_cast<const char*>(seenAps[i].ssid), ssid) == 0) {
-            printf("net: %s is in reach: channel %d, RSSI %d, auth %d\n", ssid, seenAps[i].primary, seenAps[i].rssi,
+            printf("net: the network is in reach: channel %d, RSSI %d, auth %d\n", seenAps[i].primary, seenAps[i].rssi,
                    static_cast<int>(seenAps[i].authmode));
             return;
         }
-    printf("net: %s not seen among %d networks on 2.4 GHz; check the name, and that the router offers 2.4 GHz\n", ssid,
+    printf("net: the network isn't among %d seen on 2.4 GHz; check the name, and that the router offers 2.4 GHz\n",
            found);
 }
 
@@ -894,6 +899,7 @@ void netTask(void*) {
         if (ntpSynced() && store.followOver(static_cast<uint32_t>(time(nullptr)))) publish();   // Home back on time
         if (takeRelays()) publish();   // the phone's arrivals and weather, after the pin they may be for
         if (takeWifi()) {   // a new or changed network: rejoin, strongest saved first
+            failReason = 0;   // the app's setup step waits on this join alone
             if (wifiUp) {
                 for (Conn& c : conns) closeConn(c);
                 wifiUp = false;
@@ -939,7 +945,7 @@ void netTask(void*) {
             if (joining && nowMs() - lastBegin > kWifiJoinMs) {   // this attempt failed: radio off until the next
                 setJoining(false);
                 esp_wifi_disconnect();   // ends the join still running, so the radio rests
-                printf("net: no %s (reason %u); next try in %u s\n", nets->nets[slot].ssid, discReason,
+                printf("net: join failed (slot %d, reason %u); next try in %u s\n", slot, discReason,
                        static_cast<unsigned>(retryMs / 1000));
                 skip |= static_cast<uint8_t>(1u << slot);
                 if (!scanned) {   // once per boot or wake: say whether the network is in reach at all
@@ -954,9 +960,10 @@ void netTask(void*) {
                 if (slot < 0) {
                     printf("net: no saved network in reach; next try in %u s\n", static_cast<unsigned>(retryMs / 1000));
                     skip = 0;
+                    failReason = WIFI_REASON_NO_AP_FOUND;
                 } else {
                     const cta::SavedNet& net = nets->nets[slot];
-                    printf("net: connecting to %s\n", net.ssid);
+                    printf("net: connecting (slot %d)\n", slot);
                     setJoining(true);
                     join(net, slot == 0 && netsFromSecrets && WIFI_EAP_USER[0] ? WIFI_EAP_USER : nullptr);
                     lastBegin = nowMs();
@@ -1224,6 +1231,8 @@ bool read(Snapshot& out, uint32_t& version) {
 uint32_t unixNow() { return ntpSynced() ? static_cast<uint32_t>(time(nullptr)) : 0; }
 
 bool wifiConnected() { return wifiUp; }
+
+cta::WifiFail wifiFail() { return wifiUp ? cta::WifiFail::None : cta::wifiFailFor(failReason); }
 
 int8_t wifiRssi() {
     wifi_ap_record_t ap;

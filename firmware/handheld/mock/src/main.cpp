@@ -555,8 +555,10 @@ void publishInfo(uint32_t ms) {
     if (!n) return;
     const bool wifi = live::wifiConnected();
     const int8_t rssi = wifi ? live::wifiRssi() : 0;
+    const cta::WifiFail fail = live::wifiFail();
     const bool changed = infoDirty || info.battery != sent.battery || info.charging != sent.charging ||
-                         wifi != sent.wifiConnected || abs(rssi - sent.rssi) >= 5 || info.docked != sent.docked ||
+                         wifi != sent.wifiConnected || abs(rssi - sent.rssi) >= 5 || fail != sent.wifiFail ||
+                         info.docked != sent.docked ||
                          info.wake != sent.wake || info.paired != sent.paired || info.relaying != sent.relaying ||
                          strcmp(info.pin, sent.pin) != 0;
     const bool notify = changed || !sentMs || ms - sentMs >= cta::kInfoHeartbeatSec * 1000;
@@ -565,6 +567,7 @@ void publishInfo(uint32_t ms) {
         sent = info;
         sent.wifiConnected = wifi;
         sent.rssi = rssi;
+        sent.wifiFail = fail;
         sentMs = ms;
         infoDirty = false;
     }

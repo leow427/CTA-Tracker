@@ -80,8 +80,8 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
 - ~~**"Send to Trackie" is a bare paper-plane icon.** Leo couldn't find it at first. Consider a label or a clearer icon.~~
   Done 2026-11-17: the button reads "Send" beside the plane ("Pinned", "Sent", "Failed" in its other states); with a
   dock online it still opens the menu ("Send to Trackie", "Send to dock").
-- **The wearable prints the Wi-Fi network name on serial at join** (`net: connecting to …`). Remove it: network
-  names stay out of logs.
+- ~~**The wearable prints the Wi-Fi network name on serial at join** (`net: connecting to …`).~~ Done 2026-11-17:
+  no `net:` line names a network now (join, failed join, and the in-reach scan).
 - ~~**The phone keeps relaying a stop after the wearable clears its pin on its own** (swipe, dock, passed follow).~~
   Done 2026-11-16 (Task 25): `info.pin` going null clears the app's pin and the relay's stop.
 - ~~**A swiped pin comes back on the next reconnect.**~~ Done 2026-11-16 (Task 25): `info` carries `pin`, and the
@@ -90,9 +90,8 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
 
 ## Found 2026-11-16
 
-- **The setup flow's Wi-Fi step says "Couldn't join. Check the password." for every failure.** On a lab network the
-  access point refused the wearable before any password (reason 2). Report the board's reason instead (it would need
-  the disconnect reason in `info.wifi`).
+- ~~**The setup flow's Wi-Fi step says "Couldn't join. Check the password." for every failure.**~~ Done 2026-11-17:
+  `info.wifi.fail` carries the bucketed disconnect reason and the app shows a matching line (ecosystem spec 5.1).
 
 ## Features
 

@@ -41,7 +41,9 @@ struct SetupHost: ViewModifier {
             .onAppear {
                 let args = UserDefaults.standard
                 if flow == nil, let demo = args.string(forKey: "setupDemo"),
-                   ["pair", "asking", "failed", "code", "wifi", "pet", "ready"].contains(demo) { flow = SetupFlow(demo: demo, link: link) }
+                   ["pair", "asking", "failed", "code", "wifi", "pet", "ready"].contains(demo) || demo.hasPrefix("wifi-") {
+                    flow = SetupFlow(demo: demo, link: link)
+                }
             }
             #endif
     }

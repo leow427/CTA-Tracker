@@ -181,7 +181,7 @@ Full screen, one step per screen. The same flow runs from Settings → Devices �
 2. **Wi-Fi:**
    - The network name is pre-filled from `NEHotspotNetwork.fetchCurrent`. That needs the Access Wi-Fi Information entitlement and location permission. The field stays editable.
    - The user types the password. The app writes `wifi`, then reads `info` until `wifi.connected` is true, for up to 20 s.
-   - On failure: "Couldn't join. Check the password."
+   - On failure: the wearable's reason from `info.wifi.fail` (ecosystem spec 5.1): "Wrong password.", "Couldn't find that network nearby.", "The network turned Trackie away. …", or "Couldn't join. Check the password." for anything else.
    - On the handheld, this network is slot 0, labeled Home. Slots 1–2 are added later in Settings.
    - The password is never logged or stored on the phone.
 3. **Dock stops (dock only):** pick 3 stops with the main search UI, favorites suggested first. Writes `config.stops`.
@@ -266,7 +266,7 @@ Adds to base spec 9.6.
 | Reverse geocode fails | The label says "Near you". |
 | Bluetooth off or denied | No found cards. Devices says "Bluetooth is off" or shows how to allow it. |
 | Pairing fails | "Pairing didn't finish. Try again." |
-| Wi-Fi join fails | "Couldn't join. Check the password." |
+| Wi-Fi join fails | The wearable's reason (`info.wifi.fail`), else "Couldn't join. Check the password." |
 | Device disconnects | Automatic reconnect. Devices shows "Not connected" until it's back. |
 
 ## 9. Testing

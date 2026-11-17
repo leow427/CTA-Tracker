@@ -111,6 +111,13 @@ struct LinkMessageTests {
         """#
         let info = try JSONDecoder().decode(InfoMessage.self, from: Data(json.utf8))
         #expect(info.wifi.rssi == 0 && !info.paired && !info.relaying && info.settings == nil && info.pin == nil)
+        #expect(info.wifi.fail == nil)
+    }
+
+    @Test func wifiFailDecodesLeniently() throws {
+        func wifi(_ s: String) throws -> WifiState { try JSONDecoder().decode(WifiState.self, from: Data(s.utf8)) }
+        #expect(try wifi(#"{"connected":false,"ssid":"","rssi":0,"fail":"refused"}"#).fail == "refused")
+        #expect(try wifi(#"{"connected":false,"ssid":"","rssi":0,"fail":2}"#).fail == nil)   // not a string: ignored
     }
 
     @Test func infoDecodesWearableWithRSSI() throws {

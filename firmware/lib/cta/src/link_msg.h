@@ -68,6 +68,9 @@ bool parseConfig(const char* json, size_t len, ConfigMsg& out);
 // Only the has* parts. Returns the length (and a NUL), or 0 if it doesn't fit in cap.
 size_t encodeConfig(const ConfigMsg& in, char* buf, size_t cap);
 
+// Why the wearable's last join failed, for the app's setup message (wifiFailFor buckets the driver's reason).
+enum class WifiFail : uint8_t { None, Password, NoNetwork, Refused, Other };
+
 struct InfoMsg {
     bool dock;
     char id[5];
@@ -83,15 +86,16 @@ struct InfoMsg {
     bool docked;
     bool paired;   // has a token; false raises the app's "found" card
     int8_t rssi;   // dBm; 0 when not joined
+    WifiFail wifiFail;   // sent as wifi.fail ("password", "no_network", "refused", "other"); left out for None
     bool hasSettings;
     DeviceSettings settings;
     bool relaying;   // a /relay tick came over Bluetooth in the last kRelayHoldSec
     char pin[8];     // the wearable's pinned stop id (PickedStop::id); "" = none, sent as null (always on the dock)
 };
-// {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid","rssi"},"last_update",
+// {"type":"dock"|"handheld","id","fw","battery","charging","wifi":{"connected","ssid","rssi","fail"?},"last_update",
 //  "uptime","picks_ver","wake","docked","paired","settings" (config's shape, only with hasSettings),"relaying","pin"}.
 // Returns the length (and a NUL), or 0 if it doesn't fit in cap.
-constexpr size_t kMaxInfo = 640;   // fits any InfoMsg, even an SSID of 32 control bytes (546 bytes)
+constexpr size_t kMaxInfo = 640;   // fits any InfoMsg, even an SSID of 32 control bytes (566 bytes)
 size_t encodeInfo(const InfoMsg& in, char* buf, size_t cap);
 
 // --- The wearable's Bluetooth link (wearable BLE link plan, "Envelope", "Messages") ---

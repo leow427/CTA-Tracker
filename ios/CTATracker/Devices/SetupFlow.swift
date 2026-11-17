@@ -264,7 +264,17 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
             networks.append(name)
             ssid = ""
             link.setWifiSlots(firstSlot + networks.count, of: id)
-        } else { message = "Couldn't join. Check the password." }
+        } else { message = Self.wifiMessage(link.online[id]?.wifi.fail) }
+    }
+
+    /// The board's reason for a failed join (`info.wifi.fail`); an old board without it gets the generic line.
+    nonisolated static func wifiMessage(_ fail: String?) -> String {
+        switch fail {
+        case "password": "Wrong password."
+        case "no_network": "Couldn't find that network nearby."
+        case "refused": "The network turned Trackie away. Some networks only let in devices they know: ask its admin to allow Trackie."
+        default: "Couldn't join. Check the password."
+        }
     }
 
     func finishWifi() { step = Self.next(after: .wifi, viaBluetooth: true, firstDevice: firstDevice) }
@@ -296,7 +306,8 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     }
 
     #if DEBUG
-    /// Screenshots: a flow parked on one step (`-setupDemo pair|asking|code|wifi|pet|ready|failed`).
+    /// Screenshots: a flow parked on one step (`-setupDemo pair|asking|code|wifi|pet|ready|failed`), or the Wi-Fi
+    /// step after a failed join (`wifi-password|wifi-no_network|wifi-refused|wifi-other`).
     init(demo: String, link: DeviceLink) {
         candidate = SetupCandidate(kind: .handheld, peripheral: UUID(), name: "Trackie-c3d4", deviceID: "c3d4")
         self.link = link
@@ -307,6 +318,9 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
             method = .bluetooth(UUID()); bluetoothFailed = true; fallbackID = "c3d4"
             message = "Couldn't pair over Bluetooth."
         case "wifi": method = .bluetooth(UUID()); step = .wifi; networks = ["Home"]; ssid = "Campus"
+        case let d where d.hasPrefix("wifi-"):
+            method = .bluetooth(UUID()); step = .wifi; networks = ["Home"]; ssid = "Campus"
+            message = Self.wifiMessage(String(d.dropFirst(5)))
         case "asking": asking = true
         case "pet": step = .pet
         case "ready": step = .ready

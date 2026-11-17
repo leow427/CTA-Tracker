@@ -23,4 +23,7 @@ struct SeenNet {
 // (ones that just failed); a tie goes to the lower slot. -1 if none is in range.
 int strongestSaved(const WifiList& list, const SeenNet* seen, int nSeen, uint8_t skipMask);
 
+// The bucket for a disconnect reason (the driver's wifi_err_reason_t; 0 = none).
+WifiFail wifiFailFor(uint16_t reason);
+
 }  // namespace cta

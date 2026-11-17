@@ -352,6 +352,27 @@ static void info_has_paired() {
     TEST_ASSERT_NOT_NULL(strstr(buf, "\"paired\":true"));
 }
 
+static void info_wifi_fail_only_when_set() {
+    cta::InfoMsg in = {};
+    in.battery = 50;
+    char buf[cta::kMaxInfo];
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wifi\":{\"connected\":false,\"ssid\":\"\",\"rssi\":0}"));   // None: no key
+    in.wifiFail = cta::WifiFail::Refused;
+    TEST_ASSERT_TRUE(cta::encodeInfo(in, buf, sizeof(buf)) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"rssi\":0,\"fail\":\"refused\"}"));
+}
+
+static void wifi_fail_buckets() {
+    using F = cta::WifiFail;
+    TEST_ASSERT_TRUE(cta::wifiFailFor(0) == F::None);
+    TEST_ASSERT_TRUE(cta::wifiFailFor(15) == F::Password);
+    TEST_ASSERT_TRUE(cta::wifiFailFor(204) == F::Password);
+    TEST_ASSERT_TRUE(cta::wifiFailFor(201) == F::NoNetwork);
+    for (uint16_t r : {2, 3, 9, 30, 203}) TEST_ASSERT_TRUE(cta::wifiFailFor(r) == F::Refused);
+    for (uint16_t r : {1, 8, 200, 202, 205, 211, 999}) TEST_ASSERT_TRUE(cta::wifiFailFor(r) == F::Other);
+}
+
 static void strongest_picks_highest_rssi() {
     const cta::WifiList l = twoSaved();
     const cta::SeenNet seen[] = {{"A", -70}, {"other", -30}, {"B", -55}};
@@ -611,6 +632,7 @@ static void info_has_rssi_settings_relaying() {
     in.lastUpdate = in.uptime = in.picksVer = in.wake = 4294967295u;
     in.settings = {100, 100, 1439, 1439};
     strcpy(in.pin, "1234567");
+    in.wifiFail = cta::WifiFail::NoNetwork;   // the longest
     TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 384);   // over the boards' old 384-byte buffers
     memset(in.ssid, '"', cta::kSsidLen);
     TEST_ASSERT_TRUE(cta::encodeInfo(in, big, sizeof(big)) > 0);
@@ -692,5 +714,7 @@ int main() {
     RUN_TEST(relay_stop_caps_at_16);
     RUN_TEST(relay_stop_bad_json_leaves_out);
     RUN_TEST(info_has_rssi_settings_relaying);
+    RUN_TEST(info_wifi_fail_only_when_set);
+    RUN_TEST(wifi_fail_buckets);
     return UNITY_END();
 }

@@ -9,12 +9,17 @@ public struct WifiState: Codable, Equatable, Sendable {
     public let connected: Bool
     public let ssid: String
     public let rssi: Int   // dBm; 0 when not joined, or absent (the dock)
-    public init(connected: Bool, ssid: String, rssi: Int = 0) { self.connected = connected; self.ssid = ssid; self.rssi = rssi }
+    /// Wearable: why the last join failed ("password", "no_network", "refused", "other"); nil when absent or unreadable.
+    public let fail: String?
+    public init(connected: Bool, ssid: String, rssi: Int = 0, fail: String? = nil) {
+        self.connected = connected; self.ssid = ssid; self.rssi = rssi; self.fail = fail
+    }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         connected = try c.decode(Bool.self, forKey: .connected)
         ssid = try c.decode(String.self, forKey: .ssid)
         rssi = try c.decodeIfPresent(Int.self, forKey: .rssi) ?? 0
+        fail = try? c.decodeIfPresent(String.self, forKey: .fail)
     }
 }
 
