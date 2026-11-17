@@ -263,6 +263,7 @@ extension StopSearchTests {
         ])
         let search = StopSearch.Index(index)
         #expect(ids("van burn", search) == ["vb"])         // "burn" starts Burnham, but no stop has both
+        #expect(StopSearch.results("van burn", center: center, favorites: [], index: search).closeMatches)   // found by the retry
         #expect(ids("burn", search) == ["bu"])             // found something: no close spellings
         #expect(ids("damen dams", search) == ["da"])       // Adams, not Damen again
         #expect(ids("damen", search) == ["df", "da"])
