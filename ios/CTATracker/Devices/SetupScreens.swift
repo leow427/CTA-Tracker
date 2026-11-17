@@ -173,7 +173,7 @@ struct SetupScreen: View {
         case (.pair, .code): "Type the code shown on \(flow.deviceName)."
         case (.pair, .waiting): flow.asking ? "Bluetooth finds your dock and handheld." : "Looking for Trackie…"
         case (.pair, .unavailable): "Turn on Bluetooth to set up Trackie."
-        case (.wifi, _) where flow.addingNetwork: "Trackie uses Wi-Fi when your iPhone isn't near."
+        case (.wifi, _) where flow.addingNetwork && flow.firstSlot > 0: "Trackie uses Wi-Fi when your iPhone isn't near."
         case (.wifi, _): "Optional. Trackie uses Wi-Fi when your iPhone isn't near. Home first."
         case (.pet, _): "Your dock and Trackie share one pet."
         default: nil

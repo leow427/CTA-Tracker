@@ -41,7 +41,7 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     let firstDevice: Bool
     /// "Add a network" on a set-up wearable's page: only the Wi-Fi step, into the slots after the ones it has.
     private(set) var addingNetwork = false
-    private var firstSlot = 0
+    private(set) var firstSlot = 0
     private(set) var step: Step = .pair
     private(set) var method: Method = .waiting
     private(set) var busy = false
@@ -70,8 +70,8 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     }
 
     /// The setup flow's Wi-Fi step for a wearable that's already set up and connected over Bluetooth.
-    // shortcut: a wearable set up before slots were counted starts at slot 1, keeping home; count its networks if
-    // that ever overwrites one.
+    // shortcut: nil is a wearable set up before slots were counted (`paired` sets 0); it starts at slot 1, keeping
+    // home. Count its networks if that ever overwrites one.
     init(addingNetworkTo device: DeviceLink.Device, link: DeviceLink) {
         candidate = SetupCandidate(kind: .handheld, peripheral: device.peripheral, deviceID: device.id)
         self.link = link
@@ -277,6 +277,9 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     private func paired(_ id: String, peripheral: UUID?) {
         if TokenStore.token() == nil { TokenStore.setToken(token) }
         link.add(id, kind: candidate.kind, peripheral: peripheral)
+        // A just-paired board holds no network the app wrote: a skipped Wi-Fi step must not leave an old count, or
+        // "Add a network" would skip slot 0 (home) and the board, clearing secrets.h's network, keeps no home.
+        if candidate.kind == .handheld { link.setWifiSlots(0, of: id) }
         deviceID = id
         message = nil
         step = Self.next(after: .pair, viaBluetooth: peripheral != nil, firstDevice: firstDevice)
