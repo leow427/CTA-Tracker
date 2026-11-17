@@ -42,8 +42,8 @@ public enum DetailGroups {
     }
 }
 
-/// Search (app spec 3): favorites first, then stops and routes matching the name or route number:
-/// stations, then bus stops, each nearest first.
+/// Search (app spec 3): favorites first, then stops and routes matching what's typed, the way people say it
+/// ("clark belmont", "belmont & clark", "22 clark", "red belmont", "belm"): stations, then bus stops, best match first.
 public enum StopSearch {
     public static let limit = 30
 
@@ -52,17 +52,17 @@ public enum StopSearch {
         public let stops: [(stop: Stop, meters: Double)]
     }
 
-    /// Names and line keys folded once, so a keystroke is a cheap scan of ~11k stops; distances are computed only
-    /// for matches.
+    /// Names and line keys split into words once, so a keystroke is a cheap scan of ~11k stops; distances are
+    /// computed only for matches.
     public struct Index: Sendable {
         let stops: StopIndex
         let entries: [Entry]
 
         struct Entry: Sendable {
             let stop: Stop
-            let name: String
+            let words: [String]        // the name's words ("clark", "belmont")
             let routes: [String]       // every line's route ID, matched exactly ("22", "brn")
-            let lineNames: [String]    // trains' line names, matched by prefix ("red", "brown line")
+            let lineWords: [String]    // trains' line-name words, matched by prefix ("red", "line")
         }
 
         public init(_ stops: StopIndex) {
@@ -70,8 +70,8 @@ public enum StopSearch {
             entries = stops.stops.map { stop in
                 let lines = (stop.lines ?? []) + (stop.platforms ?? []).flatMap(\.lines)
                 let routes = Array(Set(lines.map(\.route)))
-                return Entry(stop: stop, name: StopSearch.normalized(stop.name), routes: routes.map(StopSearch.normalized),
-                             lineNames: stop.kind == .bus ? [] : routes.map { StopSearch.normalized(LineColors.train($0)?.name ?? $0) })
+                return Entry(stop: stop, words: StopSearch.words(stop.name), routes: routes.map(StopSearch.normalized),
+                             lineWords: stop.kind == .bus ? [] : StopSearch.lineWords(routes))
             }
         }
     }
@@ -79,35 +79,73 @@ public enum StopSearch {
     /// `kinds` is the All · Trains · Buses switch, which filters search like the list.
     public static func results(_ query: String, center: CLLocationCoordinate2D, favorites: [Slot],
                                kinds: Set<Kind> = [.bus, .station], index: Index) -> Results {
-        let q = normalized(query)
+        let q = queryWords(query)
         let favorites = favorites.filter { kinds.contains($0.kind) }
         guard !q.isEmpty else { return Results(favorites: favorites, stops: []) }
         let favs = favorites.filter { slot in
-            matchesLine(slot.line, kind: slot.kind, q)
-                || (index.stops.stop(id: slot.fetchID).map { normalized($0.name).contains(q) } ?? false)
+            let name = index.stops.stop(id: slot.fetchID).map { words($0.name) } ?? []
+            let lines = slot.kind == .bus ? [] : lineWords([slot.line.route])
+            return q.allSatisfy { matches($0, name: name, routes: [normalized(slot.line.route)], lineWords: lines) }
         }
-        let hits = index.entries.filter { e in
-            kinds.contains(e.stop.kind) && (e.name.contains(q) || e.routes.contains(q) || e.lineNames.contains { $0.hasPrefix(q) })
-        }.map { e in
-            (stop: e.stop, meters: StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)))
+        var hits: [(stop: Stop, meters: Double, tier: Int)] = []
+        for e in index.entries where kinds.contains(e.stop.kind) {
+            let named = q.allSatisfy { inName($0, e.words) }
+            guard named || q.allSatisfy({ matches($0, name: e.words, routes: e.routes, lineWords: e.lineWords) }) else { continue }
+            let tier = !named ? 2 : startsWith(e.words, q) ? 0 : 1
+            hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), tier))
         }
-        // Stations first (a name search usually means the station, not the bus stops named after it), each nearest first.
+        // Stations first (a name search usually means the station, not the bus stops named after it); then the better
+        // match (0: the name starts with the query, 1: every word is somewhere in the name, 2: some word only matched a
+        // route or line), so "belmont" lists Belmont & … ahead of Clark & Belmont; then nearest.
         let sorted = hits.sorted { a, b in
             if a.stop.kind != b.stop.kind { return a.stop.kind == .station }
+            if a.tier != b.tier { return a.tier < b.tier }
             return a.meters != b.meters ? a.meters < b.meters : a.stop.id < b.stop.id
         }
-        return Results(favorites: favs, stops: Array(sorted.prefix(limit)))
+        return Results(favorites: favs, stops: sorted.prefix(limit).map { ($0.stop, $0.meters) })
     }
 
     static func normalized(_ s: String) -> String {
         s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).trimmingCharacters(in: .whitespaces)
     }
 
-    /// A route number matches exactly ("22" isn't "122"); a train line by its ID or the start of its name ("red", "brn").
-    static func matchesLine(_ line: Line, kind: Kind, _ q: String) -> Bool {
-        if kind == .bus { return normalized(line.route) == q }
-        let name = normalized(LineColors.train(line.route)?.name ?? line.route)
-        return normalized(line.route) == q || name.hasPrefix(q)
+    /// Folded words: "O'Connor" and "St." stay one word ("oconnor", "st"); "&", "/", "-", "(" split ("Kedzie-Homan").
+    static func words(_ s: String) -> [String] {
+        normalized(s).replacingOccurrences(of: "'", with: "").replacingOccurrences(of: ".", with: "")
+            .split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    }
+
+    /// The query's words without joiners ("clark and belmont", "clark at belmont"), unless that's all there is ("and").
+    static func queryWords(_ query: String) -> [String] {
+        let all = words(query)
+        let kept = all.filter { $0 != "and" && $0 != "at" }
+        return kept.isEmpty ? all : kept
+    }
+
+    /// Trains' line names as words, for "red", "brown", "red line".
+    static func lineWords(_ routes: [String]) -> [String] {
+        routes.flatMap { words(LineColors.train($0)?.name ?? $0) }
+    }
+
+    /// One query word matches the start of a word in the name, a route exactly ("22" isn't "122"), or the start of a
+    /// train line's name ("red", not "ed").
+    static func matches(_ w: String, name: [String], routes: [String], lineWords: [String]) -> Bool {
+        inName(w, name) || routes.contains(w) || lineWords.contains { $0.hasPrefix(w) }
+    }
+
+    /// The names say "North Ave", "Marquette Rd", "Skokie Blvd", "Forest Preserve Dr" (elsewhere "Avenue", "Drive"), so
+    /// a typed long form also finds the short one. Short forms already prefix the long ones ("st" finds "Street").
+    static let shortForms = ["avenue": "ave", "road": "rd", "boulevard": "blvd", "drive": "dr"]
+
+    /// The start of any word in the name, in any order ("belm", "clark").
+    static func inName(_ w: String, _ name: [String]) -> Bool {
+        let short = shortForms[w]
+        return name.contains { $0.hasPrefix(w) || $0 == short }
+    }
+
+    /// The name's first words start with the query's words, in order ("clark bel" for "Clark & Belmont").
+    static func startsWith(_ name: [String], _ q: [String]) -> Bool {
+        q.count <= name.count && zip(name, q).allSatisfy { inName($1, [$0]) }
     }
 }
 

@@ -117,6 +117,70 @@ extension StopSearchTests {
         #expect(StopSearch.results("clark", center: center, favorites: [fav], kinds: [.bus], index: search).favorites == [fav])
     }
 
+    @Test func wordsMatchInAnyOrderWithoutJoiners() {
+        for q in ["clark belmont", "belmont clark", "belmont & clark", "clark and belmont", "Clark at Belmont", "clark/belmont",
+                  "clark-belm", "  CLARK   bel "] {
+            #expect(StopSearch.results(q, center: center, favorites: [], index: search).stops.map(\.stop.id) == ["1001"], "\(q)")
+        }
+        #expect(StopSearch.results("clark fullerton", center: center, favorites: [], index: search).stops.isEmpty)
+        #expect(StopSearch.results("lark", center: center, favorites: [], index: search).stops.isEmpty)   // word starts only
+    }
+
+    @Test func routesAndLinesCombineWithNameWords() {
+        #expect(StopSearch.results("22 clark", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["1001"])
+        #expect(StopSearch.results("22 montrose", center: center, favorites: [], index: search).stops.isEmpty)
+        #expect(StopSearch.results("red belmont", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["41320"])
+        #expect(StopSearch.results("brown belmont", center: center, favorites: [], index: search).stops.isEmpty)
+    }
+
+    @Test func aLoneJoinerStillSearches() {
+        let index = StopIndex(stops: [Stop(id: "7", name: "Andersen & Atlantic", lat: 41.9, lon: -87.7, kind: .bus,
+                                           lines: [Line(route: "8", dir: "Northbound")], platforms: nil)])
+        #expect(StopSearch.results("and", center: center, favorites: [], index: StopSearch.Index(index)).stops.count == 1)
+    }
+
+    @Test func longFormsFindShortOnesAndPunctuationFolds() {
+        let index = StopIndex(stops: [
+            Stop(id: "1", name: "Harlem & North Ave", lat: 41.9, lon: -87.8, kind: .bus, lines: [Line(route: "72", dir: "Eastbound")], platforms: nil),
+            Stop(id: "2", name: "Pulaski & James J O'Connor Rd", lat: 41.7, lon: -87.7, kind: .bus, lines: [Line(route: "53A", dir: "Northbound")], platforms: nil),
+            Stop(id: "3", name: "95th Street & St. Louis", lat: 41.7, lon: -87.71, kind: .bus, lines: [Line(route: "95", dir: "Eastbound")], platforms: nil),
+        ])
+        let search = StopSearch.Index(index)
+        #expect(StopSearch.results("north avenue", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["1"])
+        #expect(StopSearch.results("oconnor road", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["2"])
+        #expect(StopSearch.results("o'connor", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["2"])
+        #expect(StopSearch.results("95th st louis", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["3"])
+    }
+
+    @Test func aBetterNameMatchBeatsANearerWeakOne() {
+        let index = StopIndex(stops: [
+            Stop(id: "near", name: "Clark & Belmont", lat: 41.9399, lon: -87.6534, kind: .bus,
+                 lines: [Line(route: "22", dir: "Northbound")], platforms: nil),
+            Stop(id: "far", name: "Belmont & Cumberland", lat: 41.9380, lon: -87.8370, kind: .bus,
+                 lines: [Line(route: "77", dir: "Eastbound")], platforms: nil),
+            Stop(id: "route", name: "Broadway & Diversey", lat: 41.9399, lon: -87.6533, kind: .bus,
+                 lines: [Line(route: "77", dir: "Eastbound")], platforms: nil),
+            Stop(id: "named", name: "Diversey & 77th Street", lat: 41.7500, lon: -87.6533, kind: .bus,
+                 lines: [Line(route: "36", dir: "Eastbound")], platforms: nil),
+        ])
+        let search = StopSearch.Index(index)
+        // The name starting with the query beats a nearer stop with the word later in its name.
+        #expect(StopSearch.results("belmont", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["far", "near"])
+        // Every word in the name beats a nearer stop that only matches by route.
+        #expect(StopSearch.results("77 diversey", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["named", "route"])
+    }
+
+    @Test func favoritesUseTheSameMatching() {
+        let fav = Slot(line: Line(route: "22", dir: "Northbound"), stopID: "1001", fetchID: "1001", kind: .bus, meters: 400)
+        let train = Slot(line: Line(route: "Red", dir: "Howard"), stopID: "30256", fetchID: "41320", kind: .station, meters: 0)
+        let r = { (q: String) in StopSearch.results(q, center: center, favorites: [fav, train], index: search).favorites }
+        #expect(r("belmont clark") == [fav])
+        #expect(r("22 belm") == [fav])
+        #expect(r("red belmont") == [train])
+        #expect(r("belmont") == [fav, train])
+        #expect(r("122 clark").isEmpty)
+    }
+
     @Test func atMostThirtyStops() {
         let many = (0..<40).map { Stop(id: "s\($0)", name: "Ashland & \($0)th", lat: 41.9 + Double($0) / 1000, lon: -87.66,
                                        kind: .bus, lines: [Line(route: "9", dir: "Northbound")], platforms: nil) }

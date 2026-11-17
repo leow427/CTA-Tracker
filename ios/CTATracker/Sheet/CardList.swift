@@ -187,7 +187,8 @@ struct CardList: View {
             .transition(.opacity)
         }
         if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
-            EmptyState(title: "No stops or routes match “\(query)”")
+            EmptyState(title: "No stops or routes match “\(query)”",
+                       message: "Try two streets, like “Clark Belmont”, a route like “22”, or a line like “Red”.")
         }
     }
 
