@@ -475,7 +475,8 @@ void loop() {
     // Settings' − / + (ecosystem spec 5.2): applied and in info at once, saved once the taps stop
     if (app.settingsChanged) {
         app.settingsChanged = false;
-        linkCfg.settings = app.settings;
+        linkCfg.settings.screen = app.settings.screen;   // the device's own fields only: an app write this pass
+        linkCfg.settings.led = app.settings.led;         // may have brought new quiet hours
         linkCfg.hasSettings = true;
         applySettings();
         publishLink();

@@ -122,10 +122,12 @@ Swipe left from Home (or tap its right edge). Swipe right, or tap the left edge,
   Bluetooth link wipes the bond and token, picks a new address, and enters pairing mode) and shows Pairing. An unpaired
   device stays in pairing mode until it's paired (Leo, 2026-11-14): the Pairing screen goes Home once
   `device::paired()` says so.
+- **Quiet hours,** a small line under Pair again: "Quiet 10 PM to 7 AM · set in the app", or "Quiet hours off"
+  (`cta::quietLine` from `nightStart`/`nightEnd`, as the dock's). Set in the app only.
 
 Rows are 320 × 56 every 64 px, Pair again 240 × 56 and the confirm's buttons 240 × 60, inside the circle. The code:
 `drawSettings` and `drawConfirm` in `firmware/handheld/mock/src/ui.cpp`, from `mock::Model`'s `petName`, `deviceId`,
-`ssid`, `rssi`, `wifiSetUp`, `battery`, `charging`, `bleConnected`, `screenPct` (a step sets `screenChanged` for
+`ssid`, `rssi`, `wifiSetUp`, `battery`, `charging`, `bleConnected`, `nightStart`, `nightEnd`, `screenPct` (a step sets `screenChanged` for
 `main.cpp` to apply and save). Renders: `tools/preview.cpp` writes `settings*`.
 
 The Map placeholder that sat here is gone (Leo, 2026-11-14); a map would need another way in.

@@ -721,6 +721,10 @@ void drawSettings(Canvas& cv, const Model& m) {
         if (plus) cv.fillRect(bx - 1, by - 8, 3, 16, ink);
     }
     button(cv, kPairBtn, "Pair again", true);
+    // Quiet hours (set in the app), in the chord under Pair again.
+    cta::quietLine(m.nightStart, m.nightEnd, buf, sizeof(buf));
+    char fitted[48];
+    cv.text(F(900, 12), Canvas::fit(F(900, 12), buf, 250, fitted, sizeof(fitted)), C, 424, col::mist, Align::Center);
     chevron(cv, 30, C - 12, 20, C, 30, C + 12, col::mist);   // swipe right: Home
 }
 
