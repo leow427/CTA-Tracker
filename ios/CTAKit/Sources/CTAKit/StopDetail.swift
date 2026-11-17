@@ -92,28 +92,43 @@ public enum StopSearch {
         let q = queryWords(query)
         let favorites = favorites.filter { kinds.contains($0.kind) }
         guard !q.isEmpty else { return Results(favorites: favorites, stops: [], closeMatches: false) }
-        // A word matching nothing at all may be misspelled: it matches the name words spelled close to it instead. A word
-        // that matches something never does, so a correct search's results never change, and close matches never share a
-        // list with exact ones.
-        let close = q.map { w in
-            matches(w, name: index.vocabulary, routes: index.allRoutes, lineWords: index.allLineWords)
-                ? nil : Set(closeSpellings(of: w, in: index.spellings))
-        }
-        let closeName = { (i: Int, name: [String]) in close[i].map { name.contains(where: $0.contains) } }
-        let favs = favorites.filter { slot in
-            let name = index.stops.stop(id: slot.fetchID).map { words($0.name) } ?? []
-            let lines = slot.kind == .bus ? [] : lineWords([slot.line.route])
-            return q.indices.allSatisfy {
-                closeName($0, name) ?? matches(q[$0], name: name, routes: [normalized(slot.line.route)], lineWords: lines)
+        // A word matching nothing at all may be misspelled: it also matches the name words spelled close to it, except a
+        // street another typed word already names ("damen dams" means Adams, not Damen again). A word that matches
+        // something keeps only its exact matches, so a correct search's results never change, and close matches never
+        // share a list with exact ones. When that finds nothing, a typo may have started some other word ("van burn",
+        // "burnham"), so every word gets its close spellings and the scan runs again.
+        func close(_ fuzz: (Int) -> Bool) -> [Set<String>?] {
+            q.indices.map { i in
+                guard fuzz(i) else { return nil }
+                let near = Set(closeSpellings(of: q[i], in: index.spellings))
+                    .subtracting(q.indices.filter { $0 != i }.map { q[$0] })
+                return near.isEmpty ? nil : near
             }
         }
-        var hits: [(stop: Stop, meters: Double, strong: Bool)] = []
-        for e in index.entries where kinds.contains(e.stop.kind) {
-            let strong = q.indices.allSatisfy { closeName($0, e.words) ?? (inName(q[$0], e.words) || e.routes.contains(q[$0])) }
-            guard strong || q.indices.allSatisfy({
-                closeName($0, e.words) ?? matches(q[$0], name: e.words, routes: e.routes, lineWords: e.lineWords)
-            }) else { continue }
-            hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), strong))
+        func scan(_ close: [Set<String>?]) -> (favs: [Slot], hits: [(stop: Stop, meters: Double, strong: Bool)]) {
+            let closeName = { (i: Int, name: [String]) in close[i].map { name.contains(where: $0.contains) } ?? false }
+            let favs = favorites.filter { slot in
+                let name = index.stops.stop(id: slot.fetchID).map { words($0.name) } ?? []
+                let lines = slot.kind == .bus ? [] : lineWords([slot.line.route])
+                return q.indices.allSatisfy {
+                    closeName($0, name) || matches(q[$0], name: name, routes: [normalized(slot.line.route)], lineWords: lines)
+                }
+            }
+            var hits: [(stop: Stop, meters: Double, strong: Bool)] = []
+            for e in index.entries where kinds.contains(e.stop.kind) {
+                let strong = q.indices.allSatisfy { closeName($0, e.words) || inName(q[$0], e.words) || e.routes.contains(q[$0]) }
+                guard strong || q.indices.allSatisfy({
+                    closeName($0, e.words) || matches(q[$0], name: e.words, routes: e.routes, lineWords: e.lineWords)
+                }) else { continue }
+                hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), strong))
+            }
+            return (favs, hits)
+        }
+        var near = close { !matches(q[$0], name: index.vocabulary, routes: index.allRoutes, lineWords: index.allLineWords) }
+        var (favs, hits) = scan(near)
+        if favs.isEmpty, hits.isEmpty {
+            let all = close { _ in true }
+            if all != near { (near, (favs, hits)) = (all, scan(all)) }
         }
         // Stations first (a name search usually means the station, not the bus stops named after it); then stops where
         // every word is in the name or is one of the stop's routes, ahead of those where a word only started a train line's
@@ -124,7 +139,7 @@ public enum StopSearch {
             return a.meters != b.meters ? a.meters < b.meters : a.stop.id < b.stop.id
         }
         return Results(favorites: favs, stops: sorted.prefix(limit).map { ($0.stop, $0.meters) },
-                       closeMatches: close.contains { $0 != nil })
+                       closeMatches: near.contains { $0 != nil })
     }
 
     /// Name words spelled close to a typed word: 1 typo (a swapped pair counts as one) in 4–6 letters, 2 in 7 or more,

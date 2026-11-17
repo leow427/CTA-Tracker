@@ -211,7 +211,9 @@ extension StopSearchTests {
         #expect(ids("belmnt", search) == ["41320", "1001"])
         #expect(ids("belmotn", search) == ["41320", "1001"])     // a swapped pair is one typo
         #expect(ids("fullerten", search) == ["41220"])
-        #expect(ids("fullertn", search) == ["41220"])            // 2 typos at 7+ letters
+        #expect(ids("fullertn", search) == ["41220"])            // 1 typo
+        #expect(ids("fulertn", search) == ["41220"])             // 2 typos at 7+ letters
+        #expect(ids("bemnt", search).isEmpty)                    // 2 typos at 5 letters: too many
         #expect(ids("clark belmnt", search) == ["1001"])
         #expect(ids("belmnt clark", search) == ["1001"])
         #expect(StopSearch.results("belmnt", center: center, favorites: [], index: search).closeMatches)
@@ -245,6 +247,25 @@ extension StopSearchTests {
         #expect(ids("23", search).isEmpty)                 // not route 22
         #expect(ids("1222", search).isEmpty)               // not route 122
         #expect(ids("23 clark", search).isEmpty)
+        #expect(ids("clar2", search).isEmpty)              // a digit: typed exactly
+    }
+
+    @Test func aTypoStartingAnotherWordStillFindsTheIntersection() {
+        let index = StopIndex(stops: [
+            Stop(id: "vb", name: "Van Buren & Wells", lat: 41.8768, lon: -87.6338, kind: .bus,
+                 lines: [Line(route: "7", dir: "Eastbound")], platforms: nil),
+            Stop(id: "bu", name: "Burnham & 95th", lat: 41.7220, lon: -87.5560, kind: .bus,
+                 lines: [Line(route: "95", dir: "Eastbound")], platforms: nil),
+            Stop(id: "df", name: "Damen & Fullerton", lat: 41.9250, lon: -87.6780, kind: .bus,
+                 lines: [Line(route: "50", dir: "Northbound")], platforms: nil),
+            Stop(id: "da", name: "Damen & Adams", lat: 41.8790, lon: -87.6766, kind: .bus,
+                 lines: [Line(route: "50", dir: "Northbound")], platforms: nil),
+        ])
+        let search = StopSearch.Index(index)
+        #expect(ids("van burn", search) == ["vb"])         // "burn" starts Burnham, but no stop has both
+        #expect(ids("burn", search) == ["bu"])             // found something: no close spellings
+        #expect(ids("damen dams", search) == ["da"])       // Adams, not Damen again
+        #expect(ids("damen", search) == ["df", "da"])
     }
 
     @Test func exactHitsHideCloseOnes() {
