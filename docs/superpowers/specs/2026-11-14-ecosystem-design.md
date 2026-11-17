@@ -358,7 +358,9 @@ Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates p
   phone's location and the time. **Changed 2026-11-16 (Settings layout):** the wearable's device page has a "Last
   seen" section, not a Settings screen: a small map with a pin and "Last seen 4:12 PM", or "Connected now" while it's
   online; tapping the map opens Apple Maps there. With location off or no fix it shows "Last seen 4:12 PM · location
-  unavailable". On the one demo network, powering the wearable off shows it.
+  unavailable". A drop found in the first 8 s after the app comes back to the foreground isn't saved: it happened
+  while the app wasn't watching, so the phone's place then would be wrong (the earlier pin stays). On the one demo
+  network, powering the wearable off with the app open shows it.
 
 ### 5.10 Dock touch extras (Leo, 2026-11-16)
 
