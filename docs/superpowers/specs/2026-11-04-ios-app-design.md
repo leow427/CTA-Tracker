@@ -52,6 +52,7 @@ Map (full screen, always there)
   - On the list: pins for the listed stops, plus the train lines and station dots.
   - On stop detail: it zooms to that line, dims the other lines, and shows the line's vehicles live (section 5).
   - Going back to the list restores the previous camera and stops live polling.
+- **Search by place (as built 2026-11-17):** search also offers places from Apple's MapKit (`MKLocalSearchCompleter` as you type, `MKLocalSearch` for the tapped one), held to a region around the CTA's service area; no keys, no new dependencies. Stops stay first: a "Places" section of up to 3 rows follows the stop matches, or up to 6 when no stop matches. Apple's own transit stops are left out (they repeat the stop rows). Places ask Apple 0.3 s after typing pauses; stop results never wait on them. Tapping a place closes search, drops the list to rest, flies the map there with a cream pixel pin naming it, and recenters the nearby list on it under a "Near *place*" header, as a pan there would. Recenter clears the pin and goes back to the user. No network or no match just means no places; "Nothing matches" waits for Apple's answer. The dock stop picker has no places.
 - **Line filter:** tapping a drawn line filters the list to that line's cards. The filter shows as a chip next to the switch, and its × clears it.
 - **First launch:**
   1. The map appears and iOS asks for When In Use location.

@@ -30,8 +30,13 @@ import SwiftUI
     var filter: KindFilter = .all { didSet { rebuild(); mirror() } }
     /// The map follows the user's location; a pan clears it and the recenter button sets it again.
     var following = true {
-        didSet { if following && !oldValue { recenter() } }
+        didSet { if following && !oldValue { place = nil; recenter() } }
     }
+    /// A place picked in search: the map flies to it and pins it, and the list shows the stops around it. Recenter
+    /// (following again) clears it.
+    private(set) var place: Place?
+    /// Apple's places for search; one completer for the app's life.
+    @ObservationIgnored let places = PlaceSearch()
     /// Starred cards (plan 4 decision 1), saved as JSON in the App Group (app spec 7.4) so the widget can read them.
     var favorites: [Favorite] = AppModel.load(AppModel.favoritesKey) ?? [] {
         didSet { rebuild(); AppModel.save(favorites, AppModel.favoritesKey); mirror() }
@@ -131,6 +136,13 @@ import SwiftUI
 
     func stop(for slot: Slot) -> Stop? {
         index?.stop(id: slot.fetchID)
+    }
+
+    /// Shows a place picked in search, as a pan there would: the list recenters on it and the map flies to it.
+    func show(_ p: Place) {
+        following = false
+        place = p
+        center = p.coordinate
     }
 
     func isFavorite(_ f: Favorite) -> Bool { favorites.contains(f) }

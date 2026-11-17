@@ -1,4 +1,5 @@
 import CTAKit
+import MapKit
 import SwiftUI
 
 /// The card list over the map (redesign spec 2): search, All · Trains · Buses, ★ favorites, and the nearby cards.
@@ -14,6 +15,8 @@ struct CardList: View {
     @State private var found: (query: String, results: StopSearch.Results)?
     /// The search hit whose direction buttons are open.
     @State private var expanded: String?
+    /// The place row being looked up after a tap.
+    @State private var resolving: String?
 
     var body: some View {
         @Bindable var model = model
@@ -30,7 +33,7 @@ struct CardList: View {
                         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                             // The open map above the resting list. A spacer, not a content margin: pinned
                             // headers stick at the margin's edge, and this one should stick under the controls.
-                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom - 1)
+                            Color.clear.frame(height: metrics.restTop - metrics.controlsBottom - 1).id(Self.rest)
                             // Scrolled to the top, this pins the search bar with the first result right under it.
                             Color.clear.frame(height: 1).id(Self.top)
                             Section {
@@ -85,6 +88,8 @@ struct CardList: View {
                 }
                 // New results start at the top, even if the list under them was scrolled down.
                 .onChange(of: found?.query) { if found != nil { reader.scrollTo(Self.top, anchor: .top) } }
+                // A picked place: the list drops back to rest, so the map shows the place over its stops.
+                .onChange(of: model.place) { if model.place != nil { withAnimation(Theme.smooth) { reader.scrollTo(Self.rest, anchor: .top) } } }
                 }
             }
             .environment(\.listMetrics, metrics)
@@ -104,6 +109,7 @@ struct CardList: View {
     }
 
     private static let top = "listTop"
+    private static let rest = "listRest"
 
     /// The headlight-yellow search bar at the top of the cards.
     private func header(filter: Binding<KindFilter>) -> some View {
@@ -132,7 +138,11 @@ struct CardList: View {
             } else if slots.farFromChicago {
                 EmptyState(title: "No CTA stops near here")
             } else {
-                if !slots.favorites.isEmpty && !slots.nearby.isEmpty { SectionHeader(title: "Nearby", symbol: "location.fill") }
+                // Named for a place picked in search while the map is still on it.
+                let near = model.place.flatMap { StopIndex.meters($0.coordinate, model.center) < Config.cardRadiusM / 2 ? $0 : nil }
+                if (!slots.favorites.isEmpty || near != nil) && !slots.nearby.isEmpty {
+                    SectionHeader(title: near.map { "Near \($0.name)" } ?? "Nearby", symbol: near == nil ? "location.fill" : "mappin")
+                }
                 ForEach(CardOrder.sorted(slots.nearby, predictions: allPredictions(slots.nearby), now: now)) { link($0) }
             }
         }
@@ -151,7 +161,10 @@ struct CardList: View {
     /// Runs the search 0.12 s after the last keystroke (a new one cancels it) and off the main thread, so typing and
     /// the keyboard never wait on a scan, and swaps the results in with a fade.
     private func search() async {
-        guard showingSearch, let index = await model.search else { found = nil; expanded = nil; return }   // no stale hits next time
+        guard showingSearch, let index = await model.search else {   // no stale hits next time
+            found = nil; expanded = nil; places.update("")
+            return
+        }
         if found != nil { try? await Task.sleep(for: .milliseconds(120)) }
         guard !Task.isCancelled else { return }
         // All favorites match here, not just the ★ section's 3 (app spec 2).
@@ -161,10 +174,16 @@ struct CardList: View {
         }.value
         guard !Task.isCancelled, showingSearch else { return }
         withAnimation(Theme.snappy) { found = (q, r) }
+        // Places ask Apple only once typing pauses (it allows 100 lookups a minute); stops never wait on them.
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        places.update(q)
     }
 
-    /// Search (app spec 3): favorites first, then matching stops, nearest first. Tapping a stop opens big direction
-    /// buttons under it ("Toward O'Hare", "22 · Northbound"), each straight into that line and direction (Leo, 2026-11-10).
+    private var places: PlaceSearch { model.places }
+
+    /// Search (app spec 3): favorites first, then matching stops, nearest first, then places. Tapping a stop opens big
+    /// direction buttons under it ("Toward O'Hare", "22 · Northbound"), each straight into that line and direction (Leo, 2026-11-10).
     @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String) -> some View {
         if !r.favorites.isEmpty { SectionHeader(title: "Favorites", symbol: "star.fill") }
         ForEach(r.favorites) { link($0).transition(.opacity) }
@@ -186,10 +205,32 @@ struct CardList: View {
             }
             .transition(.opacity)
         }
-        if r.favorites.isEmpty && r.stops.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
-            EmptyState(title: "No stops or routes match “\(query)”",
-                       message: "Try two streets, like “Clark Belmont”, a route like “22”, or a line like “Red”.")
+        // Places after the stops, a few when stops matched (Leo 2026-11-17: stops first).
+        let shown = Array(places.results.prefix(PlaceSearch.limit(stopHits: r.favorites.count + r.stops.count)))
+        if !shown.isEmpty { SectionHeader(title: "Places", symbol: "map.fill") }
+        ForEach(shown, id: \.key) { place in
+            Button { Task { await pick(place) } } label: { PlaceRow(completion: place, loading: resolving == place.key) }
+                .buttonStyle(RowStyle())
+                .disabled(resolving != nil)
+                .transition(.opacity)
         }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        // "Nothing matches" waits for Apple's answer (or its failure, offline) so places don't pop in under it.
+        if r.favorites.isEmpty && r.stops.isEmpty && shown.isEmpty && !q.isEmpty && places.answered == q {
+            EmptyState(title: "Nothing matches “\(query)”",
+                       message: "Try two streets, like “Clark Belmont”, a route like “22”, or a place like “Wrigley Field”.")
+        }
+    }
+
+    /// A tapped place: looked up, then the search closes and the map flies there with its stops listed under it. A
+    /// failed lookup (offline) just stops the spinner.
+    private func pick(_ completion: MKLocalSearchCompletion) async {
+        resolving = completion.key
+        defer { resolving = nil }
+        guard let place = await PlaceSearch.resolve(completion) else { return }
+        searching = false
+        query = ""
+        model.show(place)
     }
 
     /// A stop icon tapped on the map opens its detail, on the listed card's line when it has one (revision 3); a bus
@@ -336,7 +377,7 @@ struct SearchBar: View {
     var body: some View {
         HStack(spacing: Theme.Space.m) {
             Image(systemName: "magnifyingglass").font(.title3.weight(.bold))
-            TextField("Search", text: $query, prompt: Text("Search stops and routes").foregroundStyle(Theme.navy.opacity(0.6)))
+            TextField("Search", text: $query, prompt: Text("Stops, routes, places").foregroundStyle(Theme.navy.opacity(0.6)))
                 .focused($hasFocus)
                 .submitLabel(.search)
                 .autocorrectionDisabled()

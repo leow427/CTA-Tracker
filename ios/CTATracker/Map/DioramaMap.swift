@@ -27,6 +27,8 @@ struct DioramaMap: View {
     var live = LiveLayer()
     /// A vehicle was tapped: its ID.
     var onVehicleTap: (String) -> Void = { _ in }
+    /// A place picked in search: the camera flies to it, and it's pinned until recenter.
+    var place: Place?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
@@ -81,6 +83,11 @@ struct DioramaMap: View {
                 TapInteraction(.layer("buses")) { feature, _ in tapped(feature) }
                 TapInteraction(.layer("vehicles")) { feature, _ in vehicleTapped(feature) }
                 TapInteraction(.layer("focus")) { feature, _ in vehicleTapped(feature) }
+                if let place {
+                    MapViewAnnotation(coordinate: place.coordinate) { PlacePin(name: place.name) }
+                        .allowOverlap(true)
+                        .variableAnchors([ViewAnnotationAnchorConfig(anchor: .bottom)])
+                }
             }
             .mapStyle(threeD ? Self.navy3D : Self.navy2D)
             .locationDataModel(puck)
@@ -127,6 +134,10 @@ struct DioramaMap: View {
         .onChange(of: live.focused) { old, new in if old?.id == new?.id, new != nil, trackVehicle { showVehicle() } }
         // The open line's first positions: frame the stop and the next vehicles headed for it (app spec 5.2, with 2).
         .onChange(of: overviewKey) { if live.focus == nil { overview() } }
+        .onChange(of: place) {
+            guard let place else { return }
+            move(to: .camera(center: place.coordinate, zoom: Self.zoom, bearing: 0, pitch: pitch))
+        }
     }
 
     /// The logo and info button sit just above the covered part; over stop detail, also above its header.

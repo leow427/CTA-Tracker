@@ -20,7 +20,8 @@ struct MapScreen: View {
                            bottomInset: (geo.size.height * (1 - (model.detailStop == nil ? Theme.listRest : Theme.detailRest))).rounded(),
                            onCenter: { model.center = $0 },   // after a pan the list follows the center of the visible map
                            onStopTap: { model.openStop = $0 },
-                           live: live, onVehicleTap: { id in withAnimation(Theme.snappy) { model.live.toggleFocus(id) } })
+                           live: live, onVehicleTap: { id in withAnimation(Theme.snappy) { model.live.toggleFocus(id) } },
+                           place: model.place)
                 wash.allowsHitTesting(false)
                 // Its own hosting controller, so the environment is passed in.
                 PassThroughHost(openAbove: { [model] in model.detailStop == nil ? model.listTop : model.detailTop }) {
