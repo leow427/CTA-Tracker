@@ -199,9 +199,24 @@ struct VehiclePlaceTests {
 
     // MARK: Art
 
-    @Test func vehicleArtIsTheStopArtWithoutItsFrame() {
-        #expect(StopArt.train.count == 12 && StopArt.train.allSatisfy { $0.count == 10 })
-        #expect(!StopArt.train.joined().contains(7))   // no tunnel arch
-        #expect(StopArt.busVehicle.count == 14 && StopArt.busVehicle.last!.contains { $0 != 0 })
+    @Test func vehicleTokensAreRoundSymmetricDiscs() throws {
+        for rows in [StopArt.trainToken, StopArt.busToken] {
+            let grid = try #require(PetSprites.grid(rows, chars: StopArt.chars))
+            #expect(grid.count == 13 && grid.allSatisfy { $0.count == 13 })
+            #expect(grid.allSatisfy { $0 == $0.reversed() })   // mirror-symmetric
+            // Round: the disc's footprint is the same flipped top to bottom and turned on its side, with clear corners.
+            let disc = grid.map { $0.map { $0 != 0 } }
+            #expect(disc == disc.reversed() && disc == disc.indices.map { x in disc.map { $0[x] } })
+            #expect(!disc[0][0] && !disc[0][3] && disc[0][4])
+            // The ring (slot 1) is the only thing touching the clear outside: the glyph stays inside the disc.
+            let out = StopArt.haloed(grid)
+            for y in out.indices { for x in out[y].indices where out[y][x] == 6 {
+                for (dy, dx) in [(0, 1), (0, -1), (1, 0), (-1, 0)] {
+                    let (ny, nx) = (y + dy, x + dx)
+                    if out.indices.contains(ny), out[ny].indices.contains(nx) { #expect([0, 1, 6].contains(out[ny][nx])) }
+                }
+            } }
+        }
+        #expect(StopArt.trainToken != StopArt.busToken)
     }
 }

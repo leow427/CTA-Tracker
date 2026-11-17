@@ -46,12 +46,39 @@ public enum StopArt {
         "................",
     ]
 
-    /// F6's vehicles: a train is the station's tram without its tunnel (rows 2–13, columns 3–12, the arch's two corner
-    /// cells cleared); a bus is the stop's bus without its two blank rows.
-    public static let train: [[UInt8]] = PetSprites.grid(station, chars: chars)![2...13].map { row in
-        row[3...12].map { $0 == 7 ? 0 : $0 }
-    }
-    public static let busVehicle: [[UInt8]] = Array(PetSprites.grid(bus, chars: chars)!.prefix(14))
+    /// F6's vehicles: a round token, so a vehicle never reads as a (square) stop. A pixel disc (`K` ring, `C` fill)
+    /// with the vehicle glyph (`W`) inside, its windows cut through to the fill: a tram with a rounded roof and
+    /// splayed legs, a bus with a flat roof and wheels. The app adds the halo (`haloed`, 15 × 15).
+    public static let trainToken = [
+        "....KKKKK....",
+        "..KKCCCCCKK..",
+        ".KCCWWWWWCCK.",
+        ".KCWCCCCCWCK.",
+        "KCCWCCCCCWCCK",
+        "KCCWCCCCCWCCK",
+        "KCCWWWWWWWCCK",
+        "KCCWYWWWYWCCK",
+        "KCCWWWWWWWCCK",
+        ".KCCWCCCWCCK.",
+        ".KCWCCCCCWCK.",
+        "..KKCCCCCKK..",
+        "....KKKKK....",
+    ]
+    public static let busToken = [
+        "....KKKKK....",
+        "..KKCCCCCKK..",
+        ".KCWWWWWWWCK.",
+        ".KCWCCCCCWCK.",
+        "KCCWCCCCCWCCK",
+        "KCCWCCCCCWCCK",
+        "KCCWCCCCCWCCK",
+        "KCCWWWWWWWCCK",
+        "KCCWYWWWYWCCK",
+        ".KCWWWWWWWCK.",
+        ".KCWWCCCWWCK.",
+        "..KKCCCCCKK..",
+        "....KKKKK....",
+    ]
 
     /// The arch's cells in order: up the left side, over the top, down the right side.
     static let archPath: [(y: Int, x: Int)] = {

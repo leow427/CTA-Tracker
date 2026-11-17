@@ -63,8 +63,9 @@ enum StopIcons {
         "veh-" + (bus ? "bus" : route) + (big ? "-big" : "")
     }
 
-    /// The open line's vehicle images (normal and focused) and the heading arrows that ring them. A train is its
-    /// line's tram, a bus a white bus (bus surfaces are white, revision 4), both with the stops' white halo; the
+    /// The open line's vehicle images (normal and focused) and the heading arrows on their rims. Each is a round
+    /// token (`StopArt.trainToken`, `busToken`) with the stops' white halo, so it never reads as a square stop: a
+    /// train's disc in its line color with a navy ring, a bus's like its cards (white, light-blue ring, gray bus). The
     /// focused one is drawn two device pixels bigger per art pixel, still whole and unsmoothed.
     static func vehicleImages(route: String, bus: Bool, displayScale: CGFloat) -> [(id: String, image: StyleImage)] {
         [false, true].flatMap { big in
@@ -79,29 +80,40 @@ enum StopIcons {
 
     static func headingID(big: Bool) -> String { big ? "heading-big" : "heading" }
 
-    /// The vehicle's art at 1 px per art pixel, for the page's focus line.
+    /// The vehicle's token at 1 px per art pixel, for the page's focus line.
     static func vehicleGlyph(route: String, bus: Bool) -> CGImage? {
-        PetSprites.image(grid: StopArt.haloed(bus ? StopArt.busVehicle : StopArt.train), palette: vehiclePalette(route, bus: bus))
-    }
-
-    private static func vehiclePalette(_ route: String, bus: Bool) -> [UInt32] {
-        let body = bus ? 0xF4F7FA : LineColors.rgb(route)
-        return [0, LineColors.navy, body, glass, white, Theme.headlightRGB, white, body]
-    }
-
-    private static func vehicleArt(route: String, bus: Bool, big: Bool, displayScale: CGFloat) -> UIImage? {
-        vehicleGlyph(route: route, bus: bus).flatMap {
-            upscaled($0, pixel: pixel(displayScale) + (big ? 2 : 0), displayScale: max(1, displayScale))
+        PetSprites.grid(bus ? StopArt.busToken : StopArt.trainToken, chars: StopArt.chars).flatMap {
+            PetSprites.image(grid: StopArt.haloed($0), palette: vehiclePalette(route, bus: bus))
         }
     }
 
-    /// A small white arrowhead with a navy edge at the top of a clear square, so rotating the square by the vehicle's
-    /// heading puts the arrow just outside the glyph on the side it's heading (app spec 4.6: the pixel art itself is
-    /// never rotated).
+    /// Slots: clear, ring, disc, glass, glyph, headlight, halo. A train's glyph is white where it reads at 3:1 on the
+    /// line color (WCAG non-text contrast), navy on Pink and Yellow.
+    private static func vehiclePalette(_ route: String, bus: Bool) -> [UInt32] {
+        if bus { return [0, Theme.busOutlineRGB, white, glass, Theme.busTextRGB, Theme.headlightRGB, white] }
+        let line = LineColors.rgb(route)
+        let glyph = LineColors.contrast(white, line) >= 3 ? white : LineColors.navy
+        return [0, LineColors.navy, line, glass, glyph, Theme.headlightRGB, white]
+    }
+
+    /// Device pixels per art pixel for a vehicle token; the focused one two more.
+    private static func vehiclePixel(_ displayScale: CGFloat, big: Bool) -> Int { pixel(displayScale) + (big ? 2 : 0) }
+
+    private static func vehicleArt(route: String, bus: Bool, big: Bool, displayScale: CGFloat) -> UIImage? {
+        vehicleGlyph(route: route, bus: bus).flatMap {
+            upscaled($0, pixel: vehiclePixel(displayScale, big: big), displayScale: max(1, displayScale))
+        }
+    }
+
+    /// A small white arrowhead with a navy edge at the top of a clear square, its base tucked 2 pt under the token's
+    /// rim, so rotating the square by the vehicle's heading puts the arrow on the rim on the side it's heading (app
+    /// spec 4.6: the pixel art itself is never rotated).
     private static func heading(big: Bool, displayScale: CGFloat) -> UIImage? {
-        let side: CGFloat = big ? 66 : 50, w: CGFloat = 10, h: CGFloat = 7
+        let scale = max(1, displayScale)
+        let rim = CGFloat((StopArt.trainToken.count + 2) * vehiclePixel(displayScale, big: big)) / scale / 2
+        let w: CGFloat = big ? 12 : 10, h: CGFloat = big ? 8 : 7, side = 2 * (rim - 2 + h + 1.5)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = max(1, displayScale)
+        format.scale = scale
         return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
             let path = UIBezierPath()
             path.move(to: CGPoint(x: side / 2, y: 1.5))

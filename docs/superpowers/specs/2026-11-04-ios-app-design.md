@@ -163,9 +163,11 @@ Apple builds the structure; pixel art carries the character.
 
 **As built (F6, 2026-11-17).** This replaces the bullets above where they differ.
 
-- **What shows:** every train or bus on the shown group's line, both directions, as pixel art matching the stop icons
-  (`StopArt.train`: the station's tram without its tunnel, in the line color; `StopArt.busVehicle`: a white bus), with
-  the stops' white halo, never rotated. A small white arrowhead rides around each one on the side it's heading
+- **What shows:** every train or bus on the shown group's line, both directions, as a round pixel token so it never
+  reads as a square stop (Leo 2026-11-17: vehicles looked like stops): `StopArt.trainToken` is a disc in the line
+  color with a navy ring and a white tram (navy on Pink and Yellow, for 3:1); `StopArt.busToken` is white like the bus
+  cards, with a light-blue ring and a gray bus. Both have the stops' white halo and are never rotated. A small white
+  arrowhead rides on each token's rim on the side it's heading
   (`ttpositions` `heading`, `getvehicles` `hdg`). Vehicles not headed for the open stop are at half opacity. They sit
   over the other stop icons; the open stop has its own layer on top of them, and the focused vehicle goes over that. The
   bus route's path from `getpatterns` is not drawn: the patterns only place buses along it.

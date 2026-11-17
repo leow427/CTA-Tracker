@@ -336,6 +336,8 @@ struct CardGradient: Equatable {
 extension Theme {
     /// Bus cards (Leo 2026-11-10): white, gray text, with the text, icons and card outlined in light blue.
     static let busCard = CardGradient(top: Color(rgb: 0xFFFFFF), bottom: Color(rgb: 0xEEF3F7))
-    static let busText = Color(rgb: 0x5B6573)   // 5.29:1 on the card's bottom, 5.91:1 on white
-    static let busOutline = Color(rgb: 0x7FCBF2)
+    static let busTextRGB: UInt32 = 0x5B6573   // 5.29:1 on the card's bottom, 5.91:1 on white
+    static let busText = Color(rgb: busTextRGB)
+    static let busOutlineRGB: UInt32 = 0x7FCBF2
+    static let busOutline = Color(rgb: busOutlineRGB)
 }
