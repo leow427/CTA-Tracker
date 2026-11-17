@@ -169,8 +169,7 @@ struct DevicePage: View {
 
     private func mapsURL(_ c: CLLocationCoordinate2D) -> URL? {
         var u = URLComponents(string: "https://maps.apple.com/")
-        u?.queryItems = [URLQueryItem(name: "ll", value: "\(c.latitude),\(c.longitude)"),
-                         URLQueryItem(name: "q", value: device.name)]
+        u?.queryItems = [URLQueryItem(name: "ll", value: "\(c.latitude),\(c.longitude)")]
         return u?.url
     }
 

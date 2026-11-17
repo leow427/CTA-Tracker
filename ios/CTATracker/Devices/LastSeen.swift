@@ -17,9 +17,15 @@ nonisolated struct LastSeen: Codable, Hashable {
     /// What the device page's Last seen section shows.
     enum Shown: Equatable { case connectedNow, seen(LastSeen), never }
 
+    /// How long after the app comes to the foreground a `.wentOffline` is a drop from while it was away: 3 missed
+    /// polls of `DeviceLink.pollSec` (2 s) plus slack.
+    static let settleSec: TimeInterval = 3 * 2 + 2
+
     /// Only `.wentOffline` records (Bluetooth gone and 3 missed polls); `fix` is the phone's latest, if it has one.
-    static func record(_ action: DeviceWatch.Action, fix: CLLocationCoordinate2D?, now: Date) -> LastSeen? {
-        guard action == .wentOffline else { return nil }
+    /// Not just after reopening: polling stops in the background, so that drop happened somewhere else, earlier.
+    static func record(_ action: DeviceWatch.Action, fix: CLLocationCoordinate2D?, now: Date,
+                       activeSince: Date) -> LastSeen? {
+        guard action == .wentOffline, now.timeIntervalSince(activeSince) > settleSec else { return nil }
         return LastSeen(latitude: fix?.latitude, longitude: fix?.longitude, date: now)
     }
 

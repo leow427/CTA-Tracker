@@ -968,7 +968,9 @@ id) in the App Group.
   unavailable". No wait for a new fix. iOS notices a powered-off wearable's Bluetooth drop after its supervision
   timeout, so the 6 s count starts then.
 - `LastSeen.record` (when to save) and `LastSeen.shown`/`label` (what to show) are pure, tested in `LastSeenTests`.
-  The map is MapKit, not interactive; a tap opens `maps.apple.com` at the pin.
+  The map is MapKit, not interactive; a tap opens `maps.apple.com` at the pin (the coordinate only).
+- Round 1 review: a `.wentOffline` within `LastSeen.settleSec` (8 s) of coming to the foreground isn't recorded;
+  polling stops in the background, so that drop happened elsewhere, earlier.
 
 ### Task 18: The pinned and followed card on the wearable (Track H-UI)
 

@@ -20,6 +20,8 @@ import SwiftUI
     @ObservationIgnored private var awaitingFix: Set<String> = []
     /// In the background the wearable keeps its last list (spec 5.5): Bluetooth notifies still arrive, but go unanswered.
     @ObservationIgnored private var active = false
+    /// When the app last came to the foreground: a drop counted just after it isn't recorded (spec 5.9).
+    @ObservationIgnored private var activeSince = Date.distantPast
 
     /// The list follows this: the user's location, or wherever the map was panned to.
     var center: CLLocationCoordinate2D = AppModel.loop { didSet { rebuild(); mirror() } }
@@ -81,7 +83,7 @@ import SwiftUI
             // `.resendState` comes with every `.cameOnline` and on a reboot, so the pet and settings go once for each.
             if action == .resendState, isPaired(id) { sendConfig(to: id) }
             guard isWearable(id) else { return }
-            if let seen = LastSeen.record(action, fix: location.latest, now: .now) { lastSeen[id] = seen }
+            if let seen = LastSeen.record(action, fix: location.latest, now: .now, activeSince: activeSince) { lastSeen[id] = seen }
             // Docking clears the wearable's pin (spec 5.6), so the app forgets it too.
             if action == .docked { (pinned, followed) = (nil, nil) }
             // A rebooted or newly seen wearable lost its pin and follow (kept in RAM, spec 5.6): give them back, even
@@ -112,6 +114,7 @@ import SwiftUI
                 nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
                         self?.active = active
+                        if active { self?.activeSince = .now }
                         self?.devices.setActive(active)
                         // A wearable that came online while the app was away got nothing (actions wait for the
                         // foreground): send now, or the relay never starts until its next wake.
