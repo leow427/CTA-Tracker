@@ -1,12 +1,14 @@
 import CTAKit
+import MapKit
 import SwiftUI
 
 /// One device (app spec 6.3; ecosystem spec 5.2, Settings layout): its state from `info`, its stops (dock), its own
-/// brightness, the wearable's Wi-Fi, and Forget.
+/// brightness, the wearable's Wi-Fi and where it was last seen, and Forget.
 struct DevicePage: View {
     let link: DeviceLink
     let device: DeviceLink.Device
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(AppModel.self) private var model
     @State private var confirming = false
     @State private var picking: Int?   // the section whose picker is open
@@ -56,7 +58,7 @@ struct DevicePage: View {
                 }
             }
             brightness
-            if wearable { wifiSection }
+            if wearable { wifiSection; lastSeenSection }
             Section {
                 Button("Forget \(device.name)", role: .destructive) { confirming = true }
             } footer: {
@@ -134,6 +136,42 @@ struct DevicePage: View {
                     .foregroundStyle(Theme.secondaryText)
             }
         }
+    }
+
+    /// Find my handheld (spec 5.9): a pin where the phone was when Trackie dropped off both links; a tap opens Maps.
+    @ViewBuilder private var lastSeenSection: some View {
+        Section("Last seen") {
+            switch LastSeen.shown(online: info != nil, model.lastSeen[device.id]) {
+            case .connectedNow:
+                Text("Connected now")
+            case .never:
+                Text("Not seen offline yet").foregroundStyle(Theme.secondaryText)
+            case .seen(let seen):
+                if let c = seen.coordinate {
+                    Map(initialPosition: .region(MKCoordinateRegion(center: c, latitudinalMeters: 400,
+                                                                    longitudinalMeters: 400)),
+                        interactionModes: []) {
+                        Marker(device.name, coordinate: c)
+                    }
+                    .frame(height: 180)
+                    .listRowInsets(EdgeInsets())
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let url = mapsURL(c) { openURL(url) } }
+                    .accessibilityElement()
+                    .accessibilityLabel("Map of where \(device.name) was last seen")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Opens Maps")
+                }
+                Text(seen.label())
+            }
+        }
+    }
+
+    private func mapsURL(_ c: CLLocationCoordinate2D) -> URL? {
+        var u = URLComponents(string: "https://maps.apple.com/")
+        u?.queryItems = [URLQueryItem(name: "ll", value: "\(c.latitude),\(c.longitude)"),
+                         URLQueryItem(name: "q", value: device.name)]
+        return u?.url
     }
 
     /// The board keeps its token until it's reset; iOS keeps the wearable's Bluetooth bond (apps can't remove it).

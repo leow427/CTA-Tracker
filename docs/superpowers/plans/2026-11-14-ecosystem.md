@@ -948,17 +948,27 @@ dock (Leo, 2026-11-16): the stop page's paper plane becomes a menu, "Send to Tra
 
 ### Task 17: Find my handheld (Track A)
 
-**Files:** Create `ios/CTATracker/Settings/FindHandheld.swift`; modify `App/AppModel.swift`.
+**Files:** Create `ios/CTATracker/Devices/LastSeen.swift`; modify `App/AppModel.swift`, `App/LocationService.swift`,
+`Devices/DevicePage.swift` (a "Last seen" section on the wearable's page, per the 2026-11-16 Settings layout).
 
-**Interfaces:** Consumes `.wentOffline` for the wearable. Produces `AppModel.lastSeen: (CLLocationCoordinate2D, Date)?`
-in the App Group.
+**Interfaces:** Consumes `.wentOffline` for the wearable. Produces `AppModel.lastSeen: [String: LastSeen]` (by device
+id) in the App Group.
 
-Not started: AppModel doesn't handle `.wentOffline` yet.
-
-- [ ] **Step 1:** On `.wentOffline` take one location fix and save it; the screen shows the pin and time, or
+- [x] **Step 1:** On `.wentOffline` take one location fix and save it; the page shows the pin and time, or
   "Connected now".
-- [ ] **Step 2: Verify:** power the wearable off → within 6 s the screen shows the pin and the time.
-- [ ] **Step 3: Commit:** `feat(ios): find my handheld`.
+- [ ] **Step 2: Verify:** power the wearable off → within 6 s the page shows the pin and the time.
+- [x] **Step 3: Commit:** `feat(ios): find my handheld`.
+
+**As built (worker notes):**
+- `.wentOffline` already fired for a wearable online over Bluetooth only: its `info` notifies feed the same
+  `DeviceWatch` as the poll, and the poll skips a device only while `ble.connected` holds it, so a disconnect plus
+  3 missed polls (no address counts as a miss) gives `.wentOffline`. No DeviceLink change.
+- The fix is `LocationService.latest` (the one CLLocationManager's `location`): current while the app is in the
+  foreground, where polling runs; else the last known one; nil with location off, which shows "· location
+  unavailable". No wait for a new fix. iOS notices a powered-off wearable's Bluetooth drop after its supervision
+  timeout, so the 6 s count starts then.
+- `LastSeen.record` (when to save) and `LastSeen.shown`/`label` (what to show) are pure, tested in `LastSeenTests`.
+  The map is MapKit, not interactive; a tap opens `maps.apple.com` at the pin.
 
 ### Task 18: The pinned and followed card on the wearable (Track H-UI)
 

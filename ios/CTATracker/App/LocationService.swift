@@ -15,6 +15,9 @@ import Observation
     @ObservationIgnored var onFix: (() -> Void)?
 
     var denied: Bool { status == .denied || status == .restricted }
+    /// The latest fix, unfiltered (find my handheld, spec 5.9): fresh while the app is in the foreground, else the
+    /// last known one; nil with location off or before any fix.
+    var latest: CLLocationCoordinate2D? { manager.location?.coordinate }
 
     /// Every fix and compass heading, for the map's puck and follow camera (delivered on the main thread). One
     /// instance: Mapbox swaps its data model whenever a different one is passed.

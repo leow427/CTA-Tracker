@@ -260,7 +260,7 @@ gets the matching encoders next to `BLEMessages.swift`.
   - Top level: **Trackie** (name, color), **Quiet hours** (start, end, on/off; both devices), Devices, About.
   - **Dock page:** Stops (5.3), Screen brightness, Route LEDs (brightness and an Off switch).
   - **Wearable page:** Screen brightness, battery and charging, Wi-Fi (the network it's on, and "Add a network",
-    which reuses the setup flow's Wi-Fi step).
+    which reuses the setup flow's Wi-Fi step), and Last seen (find my handheld, 5.9).
   - The app keeps settings per device and sends each its own `settings` (the message doesn't change; quiet hours
     are copied into each). LED brightness is dock only.
   - The dock's backlight is on or off only (the CH422G's EXIO2), so its screen brightness dims the picture in
@@ -355,8 +355,10 @@ Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates p
   wearable on Bluetooth alone still sleeps on the dock.
 - **Find my handheld:** when a wearable that was online misses 3 polls in a row (about 6 s) with neither link
   working (Bluetooth disconnected and HTTP not answering), the app saves the
-  phone's location and the time, and Settings → Find my handheld shows them as a map pin, or "Connected now." On the
-  one demo network, powering the wearable off shows it.
+  phone's location and the time. **Changed 2026-11-16 (Settings layout):** the wearable's device page has a "Last
+  seen" section, not a Settings screen: a small map with a pin and "Last seen 4:12 PM", or "Connected now" while it's
+  online; tapping the map opens Apple Maps there. With location off or no fix it shows "Last seen 4:12 PM · location
+  unavailable". On the one demo network, powering the wearable off shows it.
 
 ### 5.10 Dock touch extras (Leo, 2026-11-16)
 

@@ -44,6 +44,10 @@ import SwiftUI
     private(set) var devicePrefs: [String: DevicePrefs] = AppModel.load(AppModel.prefsKey) ?? [:] {
         didSet { AppModel.save(devicePrefs, AppModel.prefsKey) }
     }
+    /// Where and when each wearable last dropped off both links (spec 5.9), for its device page.
+    private(set) var lastSeen: [String: LastSeen] = AppModel.load(AppModel.lastSeenKey) ?? [:] {
+        didSet { AppModel.save(lastSeen, AppModel.lastSeenKey) }
+    }
     /// The stop whose detail is open, so the map can center on it (app spec 3: the map follows the list).
     var detailStop: Stop?
     private(set) var slots = SlotList(favorites: [], nearby: [], farFromChicago: false)
@@ -77,6 +81,7 @@ import SwiftUI
             // `.resendState` comes with every `.cameOnline` and on a reboot, so the pet and settings go once for each.
             if action == .resendState, isPaired(id) { sendConfig(to: id) }
             guard isWearable(id) else { return }
+            if let seen = LastSeen.record(action, fix: location.latest, now: .now) { lastSeen[id] = seen }
             // Docking clears the wearable's pin (spec 5.6), so the app forgets it too.
             if action == .docked { (pinned, followed) = (nil, nil) }
             // A rebooted or newly seen wearable lost its pin and follow (kept in RAM, spec 5.6): give them back, even
@@ -398,6 +403,7 @@ import SwiftUI
     private static let quietKey = "quietHours"
     private static let prefsKey = "devicePrefs"
     private static let sentKey = "sentSettings"
+    private static let lastSeenKey = "lastSeen"
     private static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
     private static func load<T: Decodable>(_ key: String) -> T? {
