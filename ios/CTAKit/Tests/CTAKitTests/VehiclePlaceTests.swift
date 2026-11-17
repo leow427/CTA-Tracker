@@ -17,9 +17,19 @@ struct VehiclePlaceTests {
         VehiclePlaceTests.index.station(ofPlatform: id).map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
     }
 
-    func train(next: String, lat: Double, lon: Double) -> Vehicle {
-        Vehicle(id: "411", lat: lat, lon: lon, heading: 180, dest: "Loop", nextStopID: next, nextStop: "",
+    func train(next: String, lat: Double, lon: Double, dest: String = "Loop") -> Vehicle {
+        Vehicle(id: "411", lat: lat, lon: lon, heading: 180, dest: dest, nextStopID: next, nextStop: "",
                 pid: nil, pdist: nil)
+    }
+
+    /// A train halfway from platform `from` to platform `to`, its next stop.
+    func halfway(_ from: String, _ to: String, dest: String = "Loop") -> Vehicle {
+        let (a, b) = (station(from), station(to))
+        return train(next: to, lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2, dest: dest)
+    }
+
+    func place(_ v: Vehicle, _ route: String, _ target: String) -> VehiclePlace? {
+        VehiclePlace.train(v, route: route, target: target, runs: Self.runs, coordinate: coordinate)
     }
 
     func station(_ platform: String) -> Stop { Self.index.station(ofPlatform: platform)! }
@@ -67,17 +77,72 @@ struct VehiclePlaceTests {
         let leaving = train(next: "30128", lat: f.lat, lon: f.lon)
         #expect(VehiclePlace.train(leaving, route: "Brn", target: "30128", runs: Self.runs, coordinate: coordinate)?.text
                 == "At Fullerton, 1 stop away")
+        #expect(place(leaving, "Brn", "30236")?.text == "At Fullerton")
+        #expect(place(leaving, "Brn", "30236")?.toward == true)
     }
 
     @Test func trainNotHeadedForTheStopHasNoCount() throws {
-        let (b, w) = (station("30258"), station("30232"))
-        let v = train(next: "30232", lat: (b.lat + w.lat) / 2, lon: (b.lon + w.lon) / 2)
-        // Belmont toward Kimball is the other direction; Belmont toward the Loop is behind it.
-        for target in ["30257", "30258"] {
-            let place = try #require(VehiclePlace.train(v, route: "Brn", target: target, runs: Self.runs, coordinate: coordinate))
-            #expect(place.text == "Between Belmont and Wellington")
-            #expect(!place.toward)
-        }
+        let v = halfway("30258", "30232")
+        // Belmont toward the Loop is behind it, and Brown trains end at Kimball, so it isn't reached again.
+        let behind = try #require(place(v, "Brn", "30258"))
+        #expect(behind.text == "Between Belmont and Wellington")
+        #expect(!behind.toward)
+        // Belmont toward Kimball comes after the Loop.
+        #expect(place(v, "Brn", "30257")?.text == "Between Belmont and Wellington, 22 stops away")
+        // Bound for Kimball already, the Loop is behind it.
+        let home = halfway("30231", "30257", dest: "Kimball")
+        #expect(place(home, "Brn", "30075")?.toward == false)
+        #expect(place(home, "Brn", "30249")?.text == "Between Wellington and Belmont, 12 stops away")
+    }
+
+    // MARK: Runs that start or end mid-trip
+
+    @Test func purpleExpressBetweenHowardAndWilson() {
+        // The Express run starts at Wilson; Howard is the end of the shuttle's run.
+        #expect(place(halfway("30176", "30385"), "P", "30258")?.text == "Between Howard and Wilson, 2 stops away")
+        let w = station("30385")
+        #expect(place(train(next: "30385", lat: w.lat, lon: w.lon), "P", "30258")?.text == "At Wilson, 1 stop away")
+        // Northbound, Wilson's run ends; Howard and the shuttle's stops follow.
+        #expect(place(halfway("30386", "30175", dest: "Linden"), "P", "30203")?.text
+                == "Between Wilson and Howard, 9 stops away")
+        // A shuttle ends at Howard: Belmont isn't ahead of it.
+        #expect(place(halfway("30164", "30176", dest: "Howard"), "P", "30258")?.toward == false)
+    }
+
+    @Test func runsThatTurnAtTheLoopCountOnPastIt() {
+        // The Loop runs end before it; the next runs start a few stops earlier.
+        #expect(place(halfway("30232", "30104"), "Brn", "30075")?.text == "Between Wellington and Diversey, 13 stops away")
+        #expect(place(halfway("30185", "30219"), "Org", "30074")?.text == "Between Pulaski and Kedzie, 11 stops away")
+        #expect(place(halfway("30143", "30040"), "Pink", "30074")?.text == "Between Western and Damen, 7 stops away")
+    }
+
+    @Test func greenBranchesFollowOnFromTheTrunk() {
+        // Garfield to King Drive, the Cottage Grove branch's first stop.
+        #expect(place(halfway("30100", "30217", dest: "Cottage Grove"), "G", "30139")?.text
+                == "Between Garfield and King Drive, 2 stops away")
+        // Southbound in the Loop: Ashland/63rd is ahead only of the trains going there.
+        let toAshland = halfway("30384", "30132", dest: "Ashland/63rd")
+        #expect(place(toAshland, "G", "30057")?.text == "Between Washington/Wabash and Adams/Wabash, 11 stops away")
+        #expect(place(toAshland, "G", "30139")?.toward == false)
+        let toCottage = halfway("30384", "30132", dest: "Cottage Grove")
+        #expect(place(toCottage, "G", "30057")?.toward == false)
+        #expect(place(toCottage, "G", "30139")?.text == "Between Washington/Wabash and Adams/Wabash, 11 stops away")
+        #expect(place(toCottage, "G", "30100")?.away == 9)   // Garfield, before they split
+        // Northbound from the Ashland branch, onto the trunk at Garfield.
+        #expect(place(halfway("30183", "30099", dest: "Harlem/Lake"), "G", "30024")?.text
+                == "Between Halsted and Garfield, 2 stops away")
+        // King Drive's run northbound passes Garfield too; the nearer stop before it is named.
+        #expect(place(halfway("30218", "30099", dest: "Harlem/Lake"), "G", "30024")?.text
+                == "Between King Drive and Garfield, 2 stops away")
+    }
+
+    @Test func aLineStartOnlyCountsAsAtItUpClose() {
+        // Kimball starts the Loop-bound run: no stop before it is known.
+        let k = station("30250")
+        #expect(place(train(next: "30250", lat: k.lat + 0.01, lon: k.lon), "Brn", "30226")?.text
+                == "Approaching Kimball, 2 stops away")
+        #expect(place(train(next: "30250", lat: k.lat + 0.0005, lon: k.lon), "Brn", "30226")?.text
+                == "At Kimball, 1 stop away")
     }
 
     @Test func trainRunThatReachesTheStopSoonestWins() throws {

@@ -166,17 +166,23 @@ Apple builds the structure; pixel art carries the character.
   (`StopArt.train`: the station's tram without its tunnel, in the line color; `StopArt.busVehicle`: a white bus), with
   the stops' white halo, never rotated. A small white arrowhead rides around each one on the side it's heading
   (`ttpositions` `heading`, `getvehicles` `hdg`). Vehicles not headed for the open stop are at half opacity. They sit
-  over the other stop icons; the open stop has its own layer on top of them.
+  over the other stop icons; the open stop has its own layer on top of them, and the focused vehicle goes over that. The
+  bus route's path from `getpatterns` is not drawn: the patterns only place buses along it.
 - **Focus:** tapping a departure tile, or a vehicle on the map, focuses that vehicle: the map flies to it, it's drawn
   bigger (two more device pixels per art pixel) and on top, the rest dim, and the tile gets a headlight-yellow rim.
   Under the tiles a plate in the line's shade says where it is: "At Fullerton", "Between Belmont and Wellington,
   3 stops away", with "To Howard" under it. Tapping it again clears the focus; tapping another moves it. The camera
-  follows the focused vehicle's new positions until the user pans.
+  follows the focused vehicle's new positions until the user pans. Opening another stop, even on the same line, clears
+  the focus.
 - **Matching:** a tile's arrival carries Train Tracker's run number (`rn`) or Bus Tracker's vehicle ID (`vid`), the
   same ID the positions feeds use (`Prediction.vehicle(in:)`).
-- **Where it is** (`VehiclePlace` in CTAKit): a train by its next stop (`nextStpId`) in the line's platform sequences
-  (`train_lines.json`, the firmware's `kTrainLines`), "at" a station when within 150 m of it; a bus by its distance along
-  its pattern (`pdist` against `getpatterns`, fetched once per route per session), "at" a stop within 200 ft. "N stops
+- **Where it is** (`VehiclePlace` in CTAKit): a train by its next stop (`nextStpId`), walking forward through the line's
+  platform sequences (`train_lines.json`, the firmware's `kTrainLines`) joined stop to stop, plus the joins those
+  sequences cut (the Purple Express between Howard and Wilson, Green's branches off Garfield); "at" a station when
+  within 150 m of it, "Approaching Kimball" when heading for a line's first stop from farther. When the train's
+  destination is a stop on the line, it counts no further, and only to stops on the way there (a Cottage Grove train
+  never reaches Ashland/63rd); a Loop-bound Brown, Orange, Pink, or Purple train counts on around the Loop.
+  A bus by its distance along its pattern (`pdist` against `getpatterns`, fetched once per route per session), "at" a stop within 200 ft. "N stops
   away" counts the stops it still has to reach up to and including the open one; a vehicle the open stop isn't ahead
   of gets no count.
 - **Dropped out:** if the focused vehicle isn't in a fetch the page says "Lost this train: it stopped sharing its

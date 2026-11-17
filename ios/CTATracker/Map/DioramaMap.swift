@@ -66,25 +66,21 @@ struct DioramaMap: View {
                 stopLayer("stations").iconAllowOverlap(false).symbolSortKey(Exp(.get) { "rank" })
                 // The few listed bus stops always show, even beside a station, without pushing stations out.
                 stopLayer("buses").iconAllowOverlap(true).iconIgnorePlacement(true)
-                // The open line's vehicles over the other stops, all shown, the focused one on top; its heading arrow
-                // rides around it. The open stop goes over them all (its own layer), so it never hides under a train.
+                // The open line's vehicles over the other stops, all shown, each heading arrow riding around its
+                // vehicle. The open stop goes over them (its own layer), so it never hides under a train; the focused
+                // one goes over that, bigger and on top.
                 GeoJSONSource(id: "vehicles").data(.featureCollection(vehicleFeatures))
-                vehicleLayer("vehicle-arrows")
-                    .iconImage(Exp(.get) { "arrow" })
-                    .iconRotate(Exp(.get) { "heading" })
-                    // Flat, the map turns it with any bearing; tilted, map alignment skews it off the glyph, so it turns
-                    // on screen (north is up there: tilted views keep bearing 0 unless the user twists the map).
-                    .iconRotationAlignment(threeD ? .viewport : .map)
-                vehicleLayer("vehicles").iconImage(Exp(.get) { "icon" })
+                arrowLayer("vehicle-arrows", focused: false)
+                vehicleLayer("vehicles", focused: false).iconImage(Exp(.get) { "icon" })
                 GeoJSONSource(id: "open").data(.featureCollection(features(focus.map { [$0] } ?? [])))
                 stopLayer("open").iconAllowOverlap(true).iconIgnorePlacement(true)
+                arrowLayer("focus-arrow", focused: true)
+                vehicleLayer("focus", focused: true).iconImage(Exp(.get) { "icon" })
+                // The open stop takes no taps (opening it again does nothing), so a train at it can be tapped.
                 TapInteraction(.layer("stations")) { feature, _ in tapped(feature) }
                 TapInteraction(.layer("buses")) { feature, _ in tapped(feature) }
-                TapInteraction(.layer("open")) { feature, _ in tapped(feature) }
-                TapInteraction(.layer("vehicles")) { feature, _ in
-                    if case .string(let id)? = feature.properties["id"] { onVehicleTap(id) }
-                    return true
-                }
+                TapInteraction(.layer("vehicles")) { feature, _ in vehicleTapped(feature) }
+                TapInteraction(.layer("focus")) { feature, _ in vehicleTapped(feature) }
             }
             .mapStyle(threeD ? Self.navy3D : Self.navy2D)
             .locationDataModel(puck)
@@ -178,16 +174,31 @@ struct DioramaMap: View {
         })
     }
 
-    /// A vehicle layer: every one shown, flat to the screen, the focused one drawn last.
-    private func vehicleLayer(_ id: String) -> SymbolLayer {
+    /// A vehicle layer: every one shown, flat to the screen; the focused one, or all the others.
+    private func vehicleLayer(_ id: String, focused: Bool) -> SymbolLayer {
         SymbolLayer(id: id, source: "vehicles")
+            .filter(Exp(.eq) { Exp(.get) { "rank" }; focused ? 1 : 0 })
             .iconPitchAlignment(.viewport)
             .iconRotationAlignment(.viewport)
             .iconOpacity(Exp(.get) { "opacity" })
             .iconAllowOverlap(true).iconIgnorePlacement(true)
-            .symbolSortKey(Exp(.get) { "rank" })
             .iconEmissiveStrength(1)
             .slot(.top)
+    }
+
+    /// Heading arrows under their vehicles.
+    private func arrowLayer(_ id: String, focused: Bool) -> SymbolLayer {
+        vehicleLayer(id, focused: focused)
+            .iconImage(Exp(.get) { "arrow" })
+            .iconRotate(Exp(.get) { "heading" })
+            // Flat, the map turns it with any bearing; tilted, map alignment skews it off the glyph, so it turns
+            // on screen (north is up there: tilted views keep bearing 0 unless the user twists the map).
+            .iconRotationAlignment(threeD ? .viewport : .map)
+    }
+
+    private func vehicleTapped(_ feature: FeaturesetFeature) -> Bool {
+        if case .string(let id)? = feature.properties["id"] { onVehicleTap(id) }
+        return true
     }
 
     /// The open stop's next departures' vehicles that are on the map, at most 2: a third is often 20 minutes out,

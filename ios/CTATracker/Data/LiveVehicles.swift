@@ -23,14 +23,27 @@ import Observation
     @ObservationIgnored private var lastGood = Date.distantPast
     /// Bus routes' patterns, which don't change during a session.
     @ObservationIgnored private var patterns: [String: [Pattern]] = [:]
-    @ObservationIgnored private let keys = Secrets()
+    @ObservationIgnored private let keys: Secrets
+    /// One positions fetch for a line, nil when it fails: ttpositions or getvehicles unless a test passes its own.
+    typealias Fetch = (_ route: String, _ kind: Kind) async -> [Vehicle]?
+    @ObservationIgnored private let fetch: Fetch
+    @ObservationIgnored private let interval: TimeInterval
+    /// A failing feed keeps its last positions this long, then shows none rather than old ones.
+    @ObservationIgnored private let keepSec: TimeInterval
+
+    init(interval: TimeInterval = Config.livePollSec, keepSec: TimeInterval = 90, fetch: Fetch? = nil) {
+        let keys = Secrets()
+        (self.keys, self.interval, self.keepSec) = (keys, interval, keepSec)
+        self.fetch = fetch ?? { route, kind in
+            kind == .bus
+                ? await Self.fetch(keys.bus.flatMap { CTAClient.busVehiclesURL(key: $0, routes: [route]) }, BusParse.vehicles)
+                : await Self.fetch(keys.train.flatMap { CTAClient.trainPositionsURL(key: $0, route: route) }, TrainParse.positions)
+        }
+    }
 
     /// Every L line's platforms in order, for "3 stops away".
     static let runs: [TrainRun] = Bundle.main.url(forResource: "train_lines", withExtension: "json")
         .flatMap { try? Data(contentsOf: $0) }.flatMap { try? TrainRun.decode($0) } ?? []
-
-    /// A failing feed keeps its last positions this long, then shows none rather than old ones.
-    static let keepSec: TimeInterval = 90
 
     var focusStatus: VehicleFocus? {
         focus.map { VehicleFocus.of($0, vehicles: vehicles, seen: seen, failing: failing) }
@@ -49,7 +62,8 @@ import Observation
     }
 
     /// Polls the line's positions at most every 30 s until the task is cancelled (the stop closes, the line changes,
-    /// or the app leaves the foreground). A new line starts empty and unfocused.
+    /// or the app leaves the foreground). A new line starts empty and unfocused; another stop on it drops the focus, or
+    /// the camera would fly back from the new stop to the old focus on the next fetch.
     func poll(route: String, kind: Kind, target: String, index: StopIndex?) async {
         if self.route != route || self.kind != kind {
             reset()
@@ -58,10 +72,10 @@ import Observation
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-demo") { return }   // demo arrivals have no vehicles
         #endif
-        if self.target != target { self.target = target; place(index: index) }
+        if self.target != target { (self.target, focus, seen) = (target, nil, false); place(index: index) }
         // Ends when cancelled, or when the stop closed or another line took over (`reset`) before the cancel landed.
         while !Task.isCancelled, self.route == route {
-            let wait = lastFetch.addingTimeInterval(Config.livePollSec).timeIntervalSinceNow
+            let wait = lastFetch.addingTimeInterval(interval).timeIntervalSinceNow
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)); continue }
             await refresh(route: route, kind: kind, index: index)
         }
@@ -72,14 +86,7 @@ import Observation
            let data = try? await CTAClient.get(url), let got = try? BusParse.patterns(data) {
             patterns[route] = got
         }
-        let got: [Vehicle]?
-        if kind == .bus {
-            let url = keys.bus.flatMap { CTAClient.busVehiclesURL(key: $0, routes: [route]) }
-            got = await Self.fetch(url, BusParse.vehicles)
-        } else {
-            let url = keys.train.flatMap { CTAClient.trainPositionsURL(key: $0, route: route) }
-            got = await Self.fetch(url, TrainParse.positions)
-        }
+        let got = await fetch(route, kind)
         // Cancelled mid-fetch (the page's task restarts as it opens), it doesn't count: the next poll fetches at once.
         // A stop that closed or changed line meanwhile isn't this fetch's.
         guard !Task.isCancelled, self.route == route else { return }
@@ -89,7 +96,7 @@ import Observation
             if let focus, got.contains(where: { $0.id == focus }) { seen = true }
         } else {
             failing = true
-            if Date().timeIntervalSince(lastGood) > Self.keepSec { vehicles = nil }
+            if Date().timeIntervalSince(lastGood) > keepSec { vehicles = nil }
         }
         place(index: index)
     }
