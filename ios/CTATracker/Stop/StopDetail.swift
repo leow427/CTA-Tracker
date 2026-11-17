@@ -419,20 +419,22 @@ struct StarButton: View {
 
 /// "Send to Trackie" beside ★ (ecosystem spec 5.6): pins this card on the wearable. With a dock online it's a menu
 /// that also offers each dock section to replace (Leo 2026-11-16); with only Trackie it stays one tap. While this card
-/// is the pinned one it's a menu with "Remove from Trackie" instead (spec 5.6). A plate button like ★; for 2 s after a
-/// send it shows a check or a ⚠, with a success or error haptic, then goes back.
+/// is the pinned one it's a menu with "Remove from Trackie" instead (spec 5.6). A plate like ★ but with a word beside
+/// its icon, since a bare paper plane went unnoticed (todo 2026-11-15): "Send", or "Pinned" on the pinned card; for 2 s
+/// after a send it shows a check and "Sent" or a ⚠ and "Failed", with a success or error haptic, then goes back.
 struct SendToTrackieButton: View {
     let pin: ConfigStop
     let dock: ConfigStop   // the same card as a dock section takes it (a train's platform)
     @Environment(AppModel.self) private var model
     @State private var sending = false
     @State private var sent: Bool?
+    @State private var removed = false   // the last send was "Remove from Trackie"
 
     var body: some View {
+        let pinned = model.pinned == pin && !model.onlineWearables.isEmpty
         Group {
-            let pinned = model.pinned == pin && !model.onlineWearables.isEmpty
             if model.onlineDocks.isEmpty && !pinned {
-                Button { send("Trackie") { await model.pin(pin) } } label: { plate }
+                Button { send("Trackie") { await model.pin(pin) } } label: { plate(pinned: false) }
                     .accessibilityLabel("Send to Trackie")
             } else {
                 Menu {
@@ -453,10 +455,12 @@ struct SendToTrackieButton: View {
                             }
                         }
                     }
-                } label: { plate }
+                } label: { plate(pinned: pinned) }
                 .accessibilityLabel(pinned ? "Trackie options" : "Send to Trackie or dock")
             }
         }
+        .accessibilityInputLabels([word(pinned: pinned), "Send to Trackie"])   // Voice Control: "Tap Send" works too
+        .accessibilityShowsLargeContentViewer()
         .buttonStyle(PressableCard())
         .disabled(sending)
         .sensoryFeedback(trigger: sent) { _, new in new.map { $0 ? .success : .error } }
@@ -465,6 +469,7 @@ struct SendToTrackieButton: View {
 
     private func send(_ to: String, done: String? = nil, _ action: @escaping () async -> Bool) {
         sending = true
+        removed = done != nil
         Task {
             sent = await action()
             sending = false
@@ -472,13 +477,33 @@ struct SendToTrackieButton: View {
         }
     }
 
-    private var plate: some View {
-        Image(systemName: sent == nil ? "paperplane.fill" : sent == true ? "checkmark" : "exclamationmark.triangle.fill")
-            .contentTransition(.symbolEffect(.replace))
-            .font(Theme.mapSymbol)
-            .foregroundStyle(sent == true ? Theme.live : .white)
-            .frame(width: Theme.mapButton + Theme.Space.xs, height: Theme.mapButton + Theme.Space.xs)
-            .plate(edge: 4, shape: .small)
+    private func word(pinned: Bool) -> String {
+        switch sent {
+        case true?: removed ? "Removed" : "Sent"
+        case false?: "Failed"
+        case nil: sending ? "Sending" : pinned ? "Pinned" : "Send"
+        }
+    }
+
+    private func plate(pinned: Bool) -> some View {
+        let symbol = sent == nil ? (pinned ? "pin.fill" : "paperplane.fill")
+            : sent == true ? "checkmark" : "exclamationmark.triangle.fill"
+        return HStack(spacing: Theme.Space.s) {
+            Image(systemName: symbol)
+                .contentTransition(.symbolEffect(.replace))
+                .font(Theme.mapSymbol)
+            Text(word(pinned: pinned))
+                .font(Theme.rounded(.subheadline, .bold))
+                .lineLimit(1)
+                .contentTransition(.interpolate)
+        }
+        .foregroundStyle(sent == true ? Theme.live : .white)
+        .padding(.horizontal, Theme.Space.m)
+        .frame(minHeight: Theme.mapButton + Theme.Space.xs)
+        .plate(edge: 4, shape: .small)
+        .animation(Theme.snappy, value: word(pinned: pinned))
+        // Over the map in a column of 48 pt buttons: grow with text up to AX1, then the long-press viewer shows it big.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 

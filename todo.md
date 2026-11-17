@@ -77,9 +77,9 @@ Frame rate moves in panel steps of 29.3 ms (34, 17, 11.4 fps), so 24 fps really 
 
 Small items from the Send to Trackie and Follow checks on Leo's phone and wearable:
 
-- **"Send to Trackie" is a bare paper-plane icon.** Leo couldn't find it at first. Consider a label or a clearer icon.
-  Partly done (2026-11-16): with a dock online it opens a menu with text ("Send to Trackie", "Send to dock"); the
-  button itself is still the icon.
+- ~~**"Send to Trackie" is a bare paper-plane icon.** Leo couldn't find it at first. Consider a label or a clearer icon.~~
+  Done 2026-11-17: the button reads "Send" beside the plane ("Pinned", "Sent", "Failed" in its other states); with a
+  dock online it still opens the menu ("Send to Trackie", "Send to dock").
 - **The wearable prints the Wi-Fi network name on serial at join** (`net: connecting to …`). Remove it: network
   names stay out of logs.
 - ~~**The phone keeps relaying a stop after the wearable clears its pin on its own** (swipe, dock, passed follow).~~

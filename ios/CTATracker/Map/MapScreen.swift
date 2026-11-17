@@ -226,7 +226,7 @@ struct DetailHeroView: View {
                 .allowsHitTesting(false)   // the map under it keeps panning
             }
             Spacer(minLength: Theme.Space.m)
-            VStack(spacing: Theme.Space.m) {
+            VStack(alignment: .trailing, spacing: Theme.Space.m) {   // the labeled Send plate is wider than × and ★
                 MapButton(symbol: "xmark", label: "Close", fill: Color(rgb: 0xE5484D)) { model.closeDetail += 1 }
                 StarButton(favorite: Favorite(stopID: hero.stopID, line: hero.line))
                 // Only while a paired wearable or dock is online (spec 5.6). The wearable pins a station by its own ID;

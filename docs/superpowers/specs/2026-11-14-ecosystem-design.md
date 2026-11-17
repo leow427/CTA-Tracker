@@ -313,6 +313,9 @@ Trackie-xxxx in iOS Settings → Bluetooth").
 - Stop detail gets a "Send to Trackie" button next to the ★, shown only while a paired wearable is online. It sends
   `POST /pin` with that card's stop, line or route, and direction. Tapping cards elsewhere in the app never sends
   anything.
+- **The button says what it does (2026-11-17):** a paper plane and the word "Send" under ★ (a bare icon went
+  unnoticed); "Pinned" with a pin on the pinned stop; for 2 s after a tap a check and "Sent" (or "Removed") or a ⚠
+  and "Failed". The word follows Dynamic Type up to AX1; larger sizes show it in the long-press viewer.
 - On the wearable, the pinned stop becomes the Home card with a ★ marker, ahead of the usual most-urgent rule. It's
   polled at the close stations' rate (every 60 s, spec 6.6) even when it isn't in the nearby list, and it counts as a
   close stop for Hyped (6.3).
