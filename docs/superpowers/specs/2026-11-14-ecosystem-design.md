@@ -316,6 +316,10 @@ CTA-Pet-xxxx in iOS Settings → Bluetooth").
   close stop for Hyped (6.3).
 - The pin clears on: a swipe on the pinned card (the builder fits the gesture into `docs/handheld-ui.md`), a new pin,
   docking, `DELETE /pin`, a reboot (my call: kept in RAM only), or the end of a follow (5.7).
+- **Removing it from the app (Leo, 2026-11-16):** while a stop is pinned, the stop page's Send menu shows "Remove
+  from Trackie", and the wearable's device page shows the pinned stop with a Remove button; both send `DELETE /pin`.
+  The wearable's `info` carries `pin` (the pinned stop's id, or null), so a pin cleared on the wearable itself (a
+  swipe, docking, a passed follow) clears in the app too and isn't sent again on the next reconnect.
 
 ### 5.7 Follow a train (step 6)
 

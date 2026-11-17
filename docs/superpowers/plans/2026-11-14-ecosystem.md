@@ -1163,6 +1163,23 @@ device's own change from `info.settings`).
 
 ---
 
+### Task 25: Remove a pin from the app, and the app sees a pin cleared on the wearable (Tracks A, H)
+
+Ecosystem spec 5.6, "Removing it from the app" (Leo, 2026-11-16). Fixes `todo.md` 2026-11-15 items (c) and (d).
+
+**Files:** `ios/CTATracker/Stop/StopDetail.swift` (the Send menu), `Devices/DevicePage.swift`, `App/AppModel.swift`;
+`firmware/lib/cta` (`info` encode/decode), `firmware/handheld/mock/src` (fill `pin`); CTAKit `InfoMessage`.
+
+- [ ] **Step 1:** Wearable `info` gains `pin` (stop id or null; native test). CTAKit decodes it (optional).
+- [ ] **Step 2:** App: "Remove from Trackie" in the stop page's Send menu while that stop is pinned; the wearable page
+  shows the pinned stop with Remove; both `DELETE /pin` and clear `AppModel.pinned`/`followed`. When `info.pin` is null
+  but the app holds a pin, the app clears its own (no resend). Pure rule, tested.
+- [ ] **Step 3: Verify:** pin, remove from the app → the wearable goes back to the closest stops; pin, swipe it away
+  on the wearable → the app's pin clears, and it doesn't come back after Bluetooth off/on.
+- [ ] **Step 4: Commit:** `feat: remove a pin from the app; a pin cleared on the wearable clears in the app`.
+
+---
+
 ## Appendix A: if Task 1 says Bluetooth doesn't fit
 
 **Now the dock's design only.** Chosen by Leo on 2026-11-14 for both boards, then the same day the wearable went
