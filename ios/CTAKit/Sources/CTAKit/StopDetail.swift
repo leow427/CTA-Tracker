@@ -87,19 +87,18 @@ public enum StopSearch {
             let lines = slot.kind == .bus ? [] : lineWords([slot.line.route])
             return q.allSatisfy { matches($0, name: name, routes: [normalized(slot.line.route)], lineWords: lines) }
         }
-        var hits: [(stop: Stop, meters: Double, tier: Int)] = []
+        var hits: [(stop: Stop, meters: Double, strong: Bool)] = []
         for e in index.entries where kinds.contains(e.stop.kind) {
-            let named = q.allSatisfy { inName($0, e.words) }
-            guard named || q.allSatisfy({ matches($0, name: e.words, routes: e.routes, lineWords: e.lineWords) }) else { continue }
-            let tier = !named ? 2 : startsWith(e.words, q) ? 0 : 1
-            hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), tier))
+            let strong = q.allSatisfy { inName($0, e.words) || e.routes.contains($0) }
+            guard strong || q.allSatisfy({ matches($0, name: e.words, routes: e.routes, lineWords: e.lineWords) }) else { continue }
+            hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), strong))
         }
-        // Stations first (a name search usually means the station, not the bus stops named after it); then the better
-        // match (0: the name starts with the query, 1: every word is somewhere in the name, 2: some word only matched a
-        // route or line), so "belmont" lists Belmont & … ahead of Clark & Belmont; then nearest.
+        // Stations first (a name search usually means the station, not the bus stops named after it); then stops where
+        // every word is in the name or is one of the stop's routes, ahead of those where a word only started a train line's
+        // name ("red"); nearest first within each.
         let sorted = hits.sorted { a, b in
             if a.stop.kind != b.stop.kind { return a.stop.kind == .station }
-            if a.tier != b.tier { return a.tier < b.tier }
+            if a.strong != b.strong { return a.strong }
             return a.meters != b.meters ? a.meters < b.meters : a.stop.id < b.stop.id
         }
         return Results(favorites: favs, stops: sorted.prefix(limit).map { ($0.stop, $0.meters) })
@@ -141,11 +140,6 @@ public enum StopSearch {
     static func inName(_ w: String, _ name: [String]) -> Bool {
         let short = shortForms[w]
         return name.contains { $0.hasPrefix(w) || $0 == short }
-    }
-
-    /// The name's first words start with the query's words, in order ("clark bel" for "Clark & Belmont").
-    static func startsWith(_ name: [String], _ q: [String]) -> Bool {
-        q.count <= name.count && zip(name, q).allSatisfy { inName($1, [$0]) }
     }
 }
 

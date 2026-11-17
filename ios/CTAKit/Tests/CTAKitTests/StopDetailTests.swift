@@ -152,7 +152,7 @@ extension StopSearchTests {
         #expect(StopSearch.results("95th st louis", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["3"])
     }
 
-    @Test func aBetterNameMatchBeatsANearerWeakOne() {
+    @Test func nameWordsAndRoutesRankByDistanceAlone() {
         let index = StopIndex(stops: [
             Stop(id: "near", name: "Clark & Belmont", lat: 41.9399, lon: -87.6534, kind: .bus,
                  lines: [Line(route: "22", dir: "Northbound")], platforms: nil),
@@ -160,14 +160,23 @@ extension StopSearchTests {
                  lines: [Line(route: "77", dir: "Eastbound")], platforms: nil),
             Stop(id: "route", name: "Broadway & Diversey", lat: 41.9399, lon: -87.6533, kind: .bus,
                  lines: [Line(route: "77", dir: "Eastbound")], platforms: nil),
-            Stop(id: "named", name: "Diversey & 77th Street", lat: 41.7500, lon: -87.6533, kind: .bus,
+            Stop(id: "named", name: "77th Street & Diversey", lat: 41.7500, lon: -87.6533, kind: .bus,
                  lines: [Line(route: "36", dir: "Eastbound")], platforms: nil),
         ])
         let search = StopSearch.Index(index)
-        // The name starting with the query beats a nearer stop with the word later in its name.
-        #expect(StopSearch.results("belmont", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["far", "near"])
-        // Every word in the name beats a nearer stop that only matches by route.
-        #expect(StopSearch.results("77 diversey", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["named", "route"])
+        // Where the word sits in the name doesn't matter: nearest first.
+        #expect(StopSearch.results("belmont", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["near", "far"])
+        // A route typed exactly counts like a name word, so the nearer stop on route 77 beats a far name starting "77th".
+        #expect(StopSearch.results("77 diversey", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["route", "named"])
+        #expect(StopSearch.results("77", center: center, favorites: [], index: search).stops.map(\.stop.id) == ["route", "far", "named"])
+    }
+
+    @Test func aNameMatchBeatsANearerLineOnlyMatch() {
+        let index = StopIndex(stops: self.index.stops + [
+            Stop(id: "9001", name: "Brownstone", lat: 41.80, lon: -87.70, kind: .station, lines: nil,
+                 platforms: [Platform(id: "39001", lines: [Line(route: "G", dir: "Harlem")])])])
+        let r = StopSearch.results("brown", center: center, favorites: [], index: StopSearch.Index(index))
+        #expect(r.stops.map(\.stop.id) == ["9001", "41220"])   // Fullerton is nearer but only matches by its Brown Line
     }
 
     @Test func favoritesUseTheSameMatching() {
