@@ -457,6 +457,7 @@ struct SendToTrackieButton: View {
                     }
                 } label: { plate(pinned: pinned) }
                 .accessibilityLabel(pinned ? "Trackie options" : "Send to Trackie or dock")
+                .accessibilityValue(pinned ? "Pinned" : "")
             }
         }
         .accessibilityInputLabels([word(pinned: pinned), "Send to Trackie"])   // Voice Control: "Tap Send" works too
@@ -468,6 +469,7 @@ struct SendToTrackieButton: View {
     }
 
     private func send(_ to: String, done: String? = nil, _ action: @escaping () async -> Bool) {
+        sent = nil   // a tap inside the 2 s window restarts the word, the haptic and the timer
         sending = true
         removed = done != nil
         Task {
@@ -481,21 +483,30 @@ struct SendToTrackieButton: View {
         switch sent {
         case true?: removed ? "Removed" : "Sent"
         case false?: "Failed"
-        case nil: sending ? "Sending" : pinned ? "Pinned" : "Send"
+        case nil: sending ? (removed ? "Removing" : "Sending") : pinned ? "Pinned" : "Send"
+        }
+    }
+    private static let words = ["Send", "Sending", "Sent", "Pinned", "Removing", "Removed", "Failed"]
+
+    private func label(_ symbol: String, _ word: String) -> some View {
+        HStack(spacing: Theme.Space.s) {
+            Image(systemName: symbol)
+                .contentTransition(.symbolEffect(.replace))
+                .font(Theme.mapSymbol)
+            Text(word).contentTransition(.interpolate)
+                .font(Theme.rounded(.subheadline, .bold))
+                .lineLimit(1)
         }
     }
 
     private func plate(pinned: Bool) -> some View {
         let symbol = sent == nil ? (pinned ? "pin.fill" : "paperplane.fill")
             : sent == true ? "checkmark" : "exclamationmark.triangle.fill"
-        return HStack(spacing: Theme.Space.s) {
-            Image(systemName: symbol)
-                .contentTransition(.symbolEffect(.replace))
-                .font(Theme.mapSymbol)
-            Text(word(pinned: pinned))
-                .font(Theme.rounded(.subheadline, .bold))
-                .lineLimit(1)
-                .contentTransition(.interpolate)
+        // Sized for the widest word, so the plate (and the route number beside it) never jumps between states; the
+        // icon and word stay together, centered.
+        return ZStack {
+            ForEach(Self.words, id: \.self) { label("paperplane.fill", $0).hidden() }
+            label(symbol, word(pinned: pinned))
         }
         .foregroundStyle(sent == true ? Theme.live : .white)
         .padding(.horizontal, Theme.Space.m)
