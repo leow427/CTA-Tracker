@@ -124,7 +124,8 @@ extension StopSearchTests {
             #expect(StopSearch.results(q, center: center, favorites: [], index: search).stops.map(\.stop.id) == ["1001"], "\(q)")
         }
         #expect(StopSearch.results("clark fullerton", center: center, favorites: [], index: search).stops.isEmpty)
-        #expect(StopSearch.results("lark", center: center, favorites: [], index: search).stops.isEmpty)   // word starts only
+        #expect(StopSearch.results("ark", center: center, favorites: [], index: search).stops.isEmpty)   // word starts only
+        #expect(StopSearch.results("lark", center: center, favorites: [], index: search).closeMatches)   // a typo for "clark"
     }
 
     @Test func routesAndLinesCombineWithNameWords() {
@@ -197,6 +198,66 @@ extension StopSearchTests {
                                        kind: .bus, lines: [Line(route: "9", dir: "Northbound")], platforms: nil) }
         let r = StopSearch.results("ashland", center: center, favorites: [], index: StopSearch.Index(StopIndex(stops: many)))
         #expect(r.stops.count == StopSearch.limit)
+    }
+}
+
+/// Typos: a word matching nothing finds the name words spelled close to it.
+extension StopSearchTests {
+    func ids(_ q: String, _ search: StopSearch.Index) -> [String] {
+        StopSearch.results(q, center: center, favorites: [], index: search).stops.map(\.stop.id)
+    }
+
+    @Test func misspelledWordsFindCloseNames() {
+        #expect(ids("belmnt", search) == ["41320", "1001"])
+        #expect(ids("belmotn", search) == ["41320", "1001"])     // a swapped pair is one typo
+        #expect(ids("fullerten", search) == ["41220"])
+        #expect(ids("fullertn", search) == ["41220"])            // 2 typos at 7+ letters
+        #expect(ids("clark belmnt", search) == ["1001"])
+        #expect(ids("belmnt clark", search) == ["1001"])
+        #expect(StopSearch.results("belmnt", center: center, favorites: [], index: search).closeMatches)
+        #expect(!StopSearch.results("belmont", center: center, favorites: [], index: search).closeMatches)
+        let fav = Slot(line: Line(route: "22", dir: "Northbound"), stopID: "1001", fetchID: "1001", kind: .bus, meters: 400)
+        #expect(StopSearch.results("clark belmnt", center: center, favorites: [fav], index: search).favorites == [fav])
+    }
+
+    @Test func misspelledStartsWorkWhileTyping() {
+        let index = StopIndex(stops: [
+            Stop(id: "a", name: "Ashland", lat: 41.9, lon: -87.66, kind: .station, lines: nil,
+                 platforms: [Platform(id: "30001", lines: [Line(route: "G", dir: "Harlem")])]),
+            Stop(id: "h", name: "Harlem/Lake", lat: 41.88, lon: -87.80, kind: .station, lines: nil,
+                 platforms: [Platform(id: "30002", lines: [Line(route: "G", dir: "Harlem")])]),
+        ])
+        let search = StopSearch.Index(index)
+        #expect(ids("ashlnd", search) == ["a"])
+        #expect(ids("ashln", search) == ["a"])
+        #expect(ids("harlam", search) == ["h"])
+        #expect(ids("harla", search) == ["h"])
+    }
+
+    @Test func shortWordsGetOneTypoAndUnderFourNone() {
+        #expect(ids("clrk", search) == ["1001", "1002"])   // 4 letters, 1 typo
+        #expect(ids("clrak", search) == ["1001", "1002"])
+        #expect(ids("clk", search).isEmpty)                // 3 letters: exact only
+        #expect(ids("cxrk", search).isEmpty)               // 2 typos at 4 letters
+    }
+
+    @Test func routesAndDigitsAreNeverFuzzed() {
+        #expect(ids("23", search).isEmpty)                 // not route 22
+        #expect(ids("1222", search).isEmpty)               // not route 122
+        #expect(ids("23 clark", search).isEmpty)
+    }
+
+    @Test func exactHitsHideCloseOnes() {
+        let index = StopIndex(stops: [
+            Stop(id: "harlan", name: "Harlan & 95th", lat: 41.9399, lon: -87.6533, kind: .bus,
+                 lines: [Line(route: "95", dir: "Eastbound")], platforms: nil),
+            Stop(id: "harlem", name: "Harlem & Belmont", lat: 41.9380, lon: -87.8070, kind: .bus,
+                 lines: [Line(route: "90", dir: "Northbound")], platforms: nil),
+        ])
+        let search = StopSearch.Index(index)
+        #expect(ids("harlem", search) == ["harlem"])       // the nearer Harlan is a close spelling, never shown here
+        #expect(ids("harlan", search) == ["harlan"])
+        #expect(ids("harlam", search) == ["harlan", "harlem"])
     }
 }
 

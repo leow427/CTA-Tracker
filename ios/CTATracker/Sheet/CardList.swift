@@ -197,7 +197,7 @@ struct CardList: View {
     @ViewBuilder private func searchResults(_ r: StopSearch.Results, for query: String) -> some View {
         if !r.favorites.isEmpty { SectionHeader(title: "Favorites", symbol: "star.fill") }
         ForEach(r.favorites) { link($0).transition(.opacity) }
-        if !r.stops.isEmpty { SectionHeader(title: "Stops", symbol: "mappin") }
+        if !r.stops.isEmpty { SectionHeader(title: r.closeMatches ? "Showing close matches" : "Stops", symbol: "mappin") }
         ForEach(r.stops, id: \.stop.id) { hit in
             VStack(spacing: 0) {
                 Button {

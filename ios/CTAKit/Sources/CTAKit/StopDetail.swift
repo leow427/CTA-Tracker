@@ -50,6 +50,8 @@ public enum StopSearch {
     public struct Results: Sendable {
         public let favorites: [Slot]
         public let stops: [(stop: Stop, meters: Double)]
+        /// A typed word matched nothing, so it matched close spellings instead ("belmnt" finds Belmont).
+        public let closeMatches: Bool
     }
 
     /// Names and line keys split into words once, so a keystroke is a cheap scan of ~11k stops; distances are
@@ -57,6 +59,10 @@ public enum StopSearch {
     public struct Index: Sendable {
         let stops: StopIndex
         let entries: [Entry]
+        let vocabulary: [String]                           // every distinct name word
+        let spellings: [(word: String, letters: [UInt8])]  // its letters-only words, for close matches
+        let allRoutes: [String]
+        let allLineWords: [String]
 
         struct Entry: Sendable {
             let stop: Stop
@@ -73,6 +79,10 @@ public enum StopSearch {
                 return Entry(stop: stop, words: StopSearch.words(stop.name), routes: routes.map(StopSearch.normalized),
                              lineWords: stop.kind == .bus ? [] : StopSearch.lineWords(routes))
             }
+            vocabulary = Array(Set(entries.flatMap(\.words)))
+            spellings = vocabulary.filter { $0.allSatisfy(\.isLetter) }.map { ($0, Array($0.utf8)) }
+            allRoutes = Array(Set(entries.flatMap(\.routes)))
+            allLineWords = Array(Set(entries.flatMap(\.lineWords)))
         }
     }
 
@@ -81,16 +91,28 @@ public enum StopSearch {
                                kinds: Set<Kind> = [.bus, .station], index: Index) -> Results {
         let q = queryWords(query)
         let favorites = favorites.filter { kinds.contains($0.kind) }
-        guard !q.isEmpty else { return Results(favorites: favorites, stops: []) }
+        guard !q.isEmpty else { return Results(favorites: favorites, stops: [], closeMatches: false) }
+        // A word matching nothing at all may be misspelled: it matches the name words spelled close to it instead. A word
+        // that matches something never does, so a correct search's results never change, and close matches never share a
+        // list with exact ones.
+        let close = q.map { w in
+            matches(w, name: index.vocabulary, routes: index.allRoutes, lineWords: index.allLineWords)
+                ? nil : Set(closeSpellings(of: w, in: index.spellings))
+        }
+        let closeName = { (i: Int, name: [String]) in close[i].map { name.contains(where: $0.contains) } }
         let favs = favorites.filter { slot in
             let name = index.stops.stop(id: slot.fetchID).map { words($0.name) } ?? []
             let lines = slot.kind == .bus ? [] : lineWords([slot.line.route])
-            return q.allSatisfy { matches($0, name: name, routes: [normalized(slot.line.route)], lineWords: lines) }
+            return q.indices.allSatisfy {
+                closeName($0, name) ?? matches(q[$0], name: name, routes: [normalized(slot.line.route)], lineWords: lines)
+            }
         }
         var hits: [(stop: Stop, meters: Double, strong: Bool)] = []
         for e in index.entries where kinds.contains(e.stop.kind) {
-            let strong = q.allSatisfy { inName($0, e.words) || e.routes.contains($0) }
-            guard strong || q.allSatisfy({ matches($0, name: e.words, routes: e.routes, lineWords: e.lineWords) }) else { continue }
+            let strong = q.indices.allSatisfy { closeName($0, e.words) ?? (inName(q[$0], e.words) || e.routes.contains(q[$0])) }
+            guard strong || q.indices.allSatisfy({
+                closeName($0, e.words) ?? matches(q[$0], name: e.words, routes: e.routes, lineWords: e.lineWords)
+            }) else { continue }
             hits.append((e.stop, StopIndex.meters(center, CLLocationCoordinate2D(latitude: e.stop.lat, longitude: e.stop.lon)), strong))
         }
         // Stations first (a name search usually means the station, not the bus stops named after it); then stops where
@@ -101,7 +123,36 @@ public enum StopSearch {
             if a.strong != b.strong { return a.strong }
             return a.meters != b.meters ? a.meters < b.meters : a.stop.id < b.stop.id
         }
-        return Results(favorites: favs, stops: sorted.prefix(limit).map { ($0.stop, $0.meters) })
+        return Results(favorites: favs, stops: sorted.prefix(limit).map { ($0.stop, $0.meters) },
+                       closeMatches: close.contains { $0 != nil })
+    }
+
+    /// Name words spelled close to a typed word: 1 typo (a swapped pair counts as one) in 4–6 letters, 2 in 7 or more,
+    /// none under 4 letters or with a digit (routes and numbered streets are typed exactly). The word may be a misspelled
+    /// start ("fullertn" on the way to "fullerton"), so it's compared with each name word's closest start.
+    static func closeSpellings(of w: String, in spellings: [(word: String, letters: [UInt8])]) -> [String] {
+        let a = Array(w.utf8)
+        guard a.count >= 4, w.allSatisfy(\.isLetter) else { return [] }
+        let k = a.count >= 7 ? 2 : 1
+        return spellings.filter { startDistance(a, $0.letters, within: k) }.map(\.word)
+    }
+
+    /// Whether `a` is within `k` edits (insert, delete, change, or swap two neighbors) of some start of `b`: the optimal
+    /// string alignment table, one column per letter of `b`, read at `a`'s end.
+    static func startDistance(_ a: [UInt8], _ b: [UInt8], within k: Int) -> Bool {
+        var before = Array(0...a.count), last = before, column = before
+        for j in b.indices {
+            column[0] = j + 1
+            for i in 1...a.count {
+                var d = min(last[i] + 1, column[i - 1] + 1, last[i - 1] + (a[i - 1] == b[j] ? 0 : 1))
+                if i > 1, j > 0, a[i - 1] == b[j - 1], a[i - 2] == b[j] { d = min(d, before[i - 2] + 1) }
+                column[i] = d
+            }
+            if column[a.count] <= k { return true }
+            if column.min()! > k { return false }   // later columns only grow
+            (before, last, column) = (last, column, before)
+        }
+        return false
     }
 
     static func normalized(_ s: String) -> String {
