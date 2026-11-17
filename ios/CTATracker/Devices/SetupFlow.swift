@@ -69,9 +69,8 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         if candidate.kind == .dock, let id = candidate.deviceID { method = .code(id) }
     }
 
-    /// The setup flow's Wi-Fi step for a wearable that's already set up and connected over Bluetooth.
-    // shortcut: nil is a wearable set up before slots were counted (`paired` sets 0); it starts at slot 1, keeping
-    // home. Count its networks if that ever overwrites one.
+    /// The setup flow's Wi-Fi step for a wearable that's already set up and connected over Bluetooth. With no count
+    /// (set up before slots were counted) it starts at slot 0, so the first network added becomes home.
     init(addingNetworkTo device: DeviceLink.Device, link: DeviceLink) {
         candidate = SetupCandidate(kind: .handheld, peripheral: device.peripheral, deviceID: device.id)
         self.link = link
@@ -80,7 +79,7 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         method = .code(device.id)   // anything but `.waiting`, so `start` does nothing
         step = .wifi
         addingNetwork = true
-        firstSlot = device.wifiSlots ?? 1
+        firstSlot = device.wifiSlots ?? 0
     }
 
     /// Another network fits in the wearable's slots.
@@ -277,8 +276,8 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     private func paired(_ id: String, peripheral: UUID?) {
         if TokenStore.token() == nil { TokenStore.setToken(token) }
         link.add(id, kind: candidate.kind, peripheral: peripheral)
-        // A just-paired board holds no network the app wrote: a skipped Wi-Fi step must not leave an old count, or
-        // "Add a network" would skip slot 0 (home) and the board, clearing secrets.h's network, keeps no home.
+        // The count starts over, so "Add a network" never skips slot 0 (home). Pair again keeps the board's Wi-Fi, so
+        // its first network added then replaces the saved home; accepted, the app can't read the board's slots.
         if candidate.kind == .handheld { link.setWifiSlots(0, of: id) }
         deviceID = id
         message = nil

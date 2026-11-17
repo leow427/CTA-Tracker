@@ -1100,8 +1100,10 @@ brightness as a software dim).
   `settings` (`DeviceSettingsTests`). A per-device change goes to that device alone, debounced as before.
   `QuietHoursScreen` replaces `DeviceSettingsScreen`; `DevicePage` has Screen brightness, Route LEDs (dock) and
   Wi-Fi (wearable). "Add a network" opens `SetupScreen` on a `SetupFlow(addingNetworkTo:)` parked on the Wi-Fi step,
-  enabled only over Bluetooth; it writes the slots after the ones the app has counted (`Device.wifiSlots`; a wearable
-  set up before this starts at slot 1, keeping home).
+  enabled only over Bluetooth; it writes the slots after the ones the app has counted (`Device.wifiSlots`, set to 0 on
+  pairing; a wearable set up before this starts at 0 too). Limit, accepted: the app can't read the board's slots, so
+  after Pair again (which keeps Wi-Fi) the first network added becomes home and replaces the saved one; the screen
+  says so. A code-paired wearable has no Bluetooth link, so the page says to Pair again over Bluetooth.
 - [x] **Step 2:** Dock: screen brightness dims the frame with the night veil (darker wins, floor about 20%); `led` 0
   turns the route LEDs off. Native test if logic is added. *As built:* `cta::dockVeil(night, screen)` in
   `dock_status` (test `test_dock_veil`): the darker of night's 0.62 and 1 − screen, screen floored at 20%; `dock::Clock`

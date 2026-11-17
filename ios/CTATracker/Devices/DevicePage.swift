@@ -127,7 +127,10 @@ struct DevicePage: View {
             Text("Wi-Fi")
         } footer: {
             if !bluetooth {
-                Text("Adding a network works while Trackie is connected over Bluetooth, near your iPhone.")
+                Text(device.peripheral == nil
+                     ? "Trackie was set up with a code, without Bluetooth. To add a network, tap Pair again on "
+                        + "Trackie and set it up over Bluetooth."
+                     : "Adding a network works while Trackie is connected over Bluetooth, near your iPhone.")
                     .foregroundStyle(Theme.secondaryText)
             }
         }
