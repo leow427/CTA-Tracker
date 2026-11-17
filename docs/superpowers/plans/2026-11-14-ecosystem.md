@@ -830,8 +830,10 @@ Also: resend pet and settings on `.resendState`, and uncomment the wearable's `u
   Track K reviews) that reads `art/presets.txt` and compares.
 - [x] **Step 2:** Build the Pet screen (name, 6 swatches with a 128 pt Trackie preview) and Device settings (screen
   brightness, LED brightness, night hours).
-- [ ] **Step 3: Verify:** change the color and name in the app; Trackie changes on the dock and the wearable within
+- [x] **Step 3: Verify:** change the color and name in the app; Trackie changes on the dock and the wearable within
   3 s; reboot the wearable and it comes back recolored.
+  *Done 2026-11-16 (Leo): the color changed on both boards; a wearable reboot kept it. Leo: the dock's screen
+  brightness doesn't change (its backlight is on/off only); settings should be per device (follow-up).*
 - [x] **Step 4: Commit:** `feat(ios): one Trackie and device settings, synced to both boards`.
 
 **As built (worker notes):** presets are Blue, Green, Orange, Purple, Pink, Teal (`<name> 0xRRGGBB 0xRRGGBB` per
