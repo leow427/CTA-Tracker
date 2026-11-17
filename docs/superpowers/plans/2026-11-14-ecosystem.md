@@ -1142,8 +1142,9 @@ device's own change from `info.settings`).
   `AppModel.adopted(...)` adopts when the report differs from what the app last sent (kept across launches) and from
   the device's previous report (a stale report from before the app's write landed is ignored); pending is the 400 ms
   debounce or a `/config` still in flight. Quiet hours are never adopted. `DeviceSettingsTests`.
-- [ ] **Step 4: Verify** on both boards: change brightness on the device and the app's device page shows it within
+- [x] **Step 4: Verify** on both boards: change brightness on the device and the app's device page shows it within
   3 s; change it in the app and the device's Settings row follows; a reboot keeps it.
+  *Done 2026-11-16 (Leo: "Works").*
 - [x] **Step 5: Commit:** `feat: device settings on each device's own Settings screen, kept in step with the app`.
 
 ---
