@@ -43,7 +43,7 @@ Map (full screen, always there)
          │   └─ Stop detail:  arrivals by line and direction · alert text · ★
          └─ Search:  focusing the bar raises the sheet to full; favorites first, then matches
  Presented over everything:
-  ├─ Settings:  Devices · Pet · Device settings · Find my handheld · About
+  ├─ Settings:  Trackie · Quiet hours · Devices · About (2026-11-16 layout, ecosystem spec 5.2; Last seen is on Trackie's page)
   └─ "Dock found · Set up" card → setup steps (section 6)
 ```
 
@@ -55,7 +55,7 @@ Map (full screen, always there)
 - **Line filter:** tapping a drawn line filters the list to that line's cards. The filter shows as a chip next to the switch, and its × clears it.
 - **First launch:**
   1. The map appears and iOS asks for When In Use location.
-  2. One line appears: "Bluetooth finds your dock and handheld." Then iOS asks for Bluetooth.
+  2. One line appears: "Bluetooth finds your dock and Trackie." Then iOS asks for Bluetooth.
   3. Nothing else blocks the map.
 - **Presentation:** a view can present only one sheet, and the always-up sheet holds the base view's slot. Settings and the setup card are therefore presented from inside the sheet's content. The gear on the map sets a flag on `AppModel` that the sheet reacts to.
 
@@ -132,7 +132,7 @@ Apple builds the structure; pixel art carries the character.
 - **Accessibility:**
   - The contrast test (section 9).
   - Every screen works at the largest accessibility text size.
-  - VoiceOver reads each card as one sentence ("Red Line to Howard from Belmont, 3 minutes, live, delayed"), and the pet has a label ("Your pet is happy").
+  - VoiceOver reads each card as one sentence ("Red Line to Howard from Belmont, 3 minutes, live, delayed"), and Trackie has a label ("Trackie is happy"; 2026-11-17: the user only ever sees "Trackie", never "pet", "wearable" or "handheld").
   - Reduce Transparency swaps materials for solid system backgrounds.
 - **Art scope:**
   - Six pixel glyphs (live, train, bus, alert, dock, handheld), the pet's sprites, and one app icon of the pet. SF Symbols cover everything else: gear, recenter, star, search, chevrons, and the heading arrow.
@@ -169,7 +169,7 @@ Apple builds the structure; pixel art carries the character.
 ### 6.1 "Found" card
 
 - While the app is in the foreground, `BLEManager` scans for the CTA service UUID (base spec 10).
-- A `CTA-Dock-*` or `CTA-Pet-*` the app hasn't set up slides up a small card: "Dock found · Set up" or "Handheld found · Set up".
+- A `Trackie-*` (or, before the 2026-11-17 reflash, `CTA-Pet-*`) board the app hasn't set up slides up a small card: "Trackie found · Set up". The dock is Wi-Fi only and pairs by its on-screen code.
 - "Not now" hides that device until the next launch.
 - "Known" means its `CBPeripheral.identifier` is in the app's device list.
 
@@ -194,7 +194,7 @@ Full screen, one step per screen. The same flow runs from Settings → Devices �
   - iOS doesn't let apps remove a Bluetooth bond. Forget removes the device from the app, then tells the user to finish in iOS Settings → Bluetooth.
 - **Pet:** name and 6 color presets, with a live preview. Presets are palette swaps defined next to the art in `art/`.
 - **Device settings:** screen brightness, LED brightness (dock only), and night hours.
-- **Find my handheld:** a map with the last-seen pin and time, or "Connected now" (base spec 9.3).
+- **Last seen** (was "Find my handheld"): on Trackie's device page since 2026-11-16, a map with the last-seen pin and time, or "Connected now" (ecosystem spec 5.9).
 - **About:** the app version and the CTA's data attribution line.
 
 ### 6.4 Config sync
