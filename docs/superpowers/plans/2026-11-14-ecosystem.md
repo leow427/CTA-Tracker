@@ -956,7 +956,9 @@ id) in the App Group.
 
 - [x] **Step 1:** On `.wentOffline` take one location fix and save it; the page shows the pin and time, or
   "Connected now".
-- [ ] **Step 2: Verify:** power the wearable off → within 6 s the page shows the pin and the time.
+- [x] **Step 2: Verify:** power the wearable off → within 6 s the page shows the pin and the time.
+  *Done 2026-11-16 (Leo): the pin and time showed after the wearable was switched off, and "Connected now" when it
+  came back.*
 - [x] **Step 3: Commit:** `feat(ios): find my handheld`.
 
 **As built (worker notes):**
