@@ -272,8 +272,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CTATracker/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your Trackie dock and wearable on this Wi-Fi.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your dock and Trackie.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your dock and Trackie on this Wi-Fi.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows the stops and arrivals near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -304,8 +304,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CTATracker/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your Trackie dock and wearable.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your Trackie dock and wearable on this Wi-Fi.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your dock and Trackie.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your dock and Trackie on this Wi-Fi.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows the stops and arrivals near you.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -16,7 +16,7 @@ import os
 
     /// Device id -> peripheral, once an `info` notify came through (the characteristic is encrypted, so the link is).
     private(set) var connected: [String: UUID] = [:]
-    /// Unknown `CTA-Pet-*` boards in range while scanning, and known ones whose bond broke -> advertised name.
+    /// Unknown `Trackie-*` (or older `CTA-Pet-*`) boards in range while scanning, and known ones whose bond broke -> advertised name.
     private(set) var found: [UUID: String] = [:]
     /// Peripherals whose last connect or subscription failed, so setup can stop waiting; a new `connect` clears it.
     private(set) var failed: Set<UUID> = []
@@ -194,7 +194,7 @@ import os
         pendingWrite.removeValue(forKey: p.identifier)?.resume(throwing: DeviceLink.LinkError.disconnected)
         // Pending: iOS completes it whenever the wearable comes back.
         if after.reconnect && reconnect { pend(p) }
-        if after.addAgain { found[p.identifier] = p.name ?? "CTA-Pet" }
+        if after.addAgain { found[p.identifier] = p.name ?? "Trackie" }
         // A setup connect that went nowhere, or a reset wearable's stale bond: setup stops waiting.
         // Not a local cancel (setup's own, a forget, a replaced connect): those report no error.
         if (!known.contains(p.identifier) && error != nil) || after.addAgain { failed.insert(p.identifier) }
@@ -233,7 +233,7 @@ extension BLELink: @preconcurrency CBCentralManagerDelegate {
         log.info("seen \(name, privacy: .public) \(peripheral.identifier, privacy: .public) known \(self.known.contains(peripheral.identifier))")
         if known.contains(peripheral.identifier) {
             connect(peripheral.identifier)
-        } else if name.hasPrefix("CTA-Pet-") {
+        } else if SetupFlow.isTrackie(name) {
             peripherals[peripheral.identifier] = peripheral
             found[peripheral.identifier] = name
         }

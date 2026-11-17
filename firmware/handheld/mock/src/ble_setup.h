@@ -1,6 +1,6 @@
 #pragma once
 // The wearable's Bluetooth link on IDF's NimBLE (docs/superpowers/plans/2026-11-14-wearable-ble-link.md, "The link"):
-// it advertises the app's service as CTA-Pet-xxxx, with two characteristics. `link` takes the phone's framed
+// it advertises the app's service as Trackie-xxxx, with two characteristics. `link` takes the phone's framed
 // "POST /pin\n{json}" messages (encrypted, authenticated writes) into lan::apply; `info` carries the status JSON
 // (encrypted read, and framed notifies). Passkey pairing (the code on the screen, never logged) and bonds in NVS.
 // Always on in the live build; serial "b" turns it off and on. Live build only.

@@ -75,8 +75,8 @@ struct Model {
     cta::FollowView follow{};
     // The Settings page. The live build fills these (fromLive; main.cpp's applyPet sets petName); the mock shows
     // placeholders. Never a real network name in the repo: "Home Wi-Fi" stands in.
-    char deviceId[5] = "3f2a";                      // the MAC's end, as Bluetooth advertises it: "CTA-Pet-3f2a"
-    char petName[cta::kPetNameLen + 1] = "";        // Trackie's name from the app; "" = none: CTA-Pet-xxxx
+    char deviceId[5] = "3f2a";                      // the MAC's end, as Bluetooth advertises it: "Trackie-3f2a"
+    char petName[cta::kPetNameLen + 1] = "";        // Trackie's name from the app; "" = none: Trackie-xxxx
     char ssid[cta::kSsidLen + 1] = "Home Wi-Fi";    // the joined network; "" = not joined
     int8_t rssi = -58;                              // its signal in dBm; 0 = unknown
     bool wifiSetUp = true;                          // a network is saved, joined or not

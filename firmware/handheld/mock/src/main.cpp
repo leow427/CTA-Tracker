@@ -912,7 +912,7 @@ void setup() {
         esp_read_mac(mac, ESP_MAC_WIFI_STA);
         snprintf(info.id, sizeof(info.id), "%02x%02x", mac[4], mac[5]);
         snprintf(info.fw, sizeof(info.fw), "%s", __DATE__);
-        snprintf(model.pairName, sizeof(model.pairName), "CTA-Pet-%s", info.id);
+        snprintf(model.pairName, sizeof(model.pairName), "Trackie-%s", info.id);
         if (!ble_setup::start(model.pairName)) puts("ble: didn't start");   // always on (the plan's default 7)
     }
     live::start();

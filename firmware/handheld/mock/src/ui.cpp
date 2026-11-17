@@ -673,7 +673,7 @@ float settingsRow(Canvas& cv, int y, const char* label) {
 void drawSettings(Canvas& cv, const Model& m) {
     char buf[48], name[32];
     if (m.petName[0]) snprintf(name, sizeof(name), "%s", m.petName);
-    else snprintf(name, sizeof(name), "CTA-Pet-%s", m.deviceId);
+    else snprintf(name, sizeof(name), "Trackie-%s", m.deviceId);
     cv.text(F(900, 12), "SETTINGS", C, 34, col::mist, Align::Center);
     cv.text(F(900, 24), Canvas::fit(F(900, 24), name, 280, buf, sizeof(buf)), C, 54, col::white, Align::Center);
     const int R = kRowX + kRowW - 18;

@@ -114,19 +114,19 @@ struct SetupFlowTests {
 
     @Test func oneCardPerBoardWithItsAdvertisingMerged() throws {
         let stranger = UUID()
-        let cards = SetupFlow.candidates(bleFound: [p: "CTA-Pet-C3D4", stranger: "CTA-Pet-9E01"],
+        let cards = SetupFlow.candidates(bleFound: [p: "Trackie-c3d4", stranger: "Trackie-9e01"],
                                          unpaired: [try info("a1b2", .dock), try info("c3d4", .handheld)],
                                          known: [], dismissed: [])
         #expect(cards.count == 3)
         #expect(cards[0].kind == .dock && cards[0].peripheral == nil && cards[0].title == "Dock found")
-        #expect(cards[1].deviceID == "c3d4" && cards[1].peripheral == p && cards[1].name == "CTA-Pet-C3D4")
+        #expect(cards[1].deviceID == "c3d4" && cards[1].peripheral == p && cards[1].name == "Trackie-c3d4")
         #expect(cards[2].deviceID == nil && cards[2].peripheral == stranger && cards[2].action == "Set up")
     }
 
     @Test func aResetKnownDeviceOffersAddAgain() throws {
         let known = [DeviceLink.Device(id: "a1b2", kind: .dock, name: "Dock", lastIP: nil),
                      DeviceLink.Device(id: "c3d4", kind: .handheld, name: "Trackie", lastIP: nil, peripheral: p)]
-        let cards = SetupFlow.candidates(bleFound: [p: "CTA-Pet-C3D4"], unpaired: [try info("a1b2", .dock)],
+        let cards = SetupFlow.candidates(bleFound: [p: "Trackie-c3d4"], unpaired: [try info("a1b2", .dock)],
                                          known: known, dismissed: [])
         #expect(cards.map(\.again) == [true, true])   // unpaired on the network; bond lost over Bluetooth
         #expect(cards[0].title == "Dock was reset" && cards[0].action == "Add again")
@@ -135,12 +135,12 @@ struct SetupFlowTests {
     @Test func aCodePairedWearableIsNotNewOverBluetooth() {
         // Set up with the code (no bond), it still advertises: no card.
         let byCode = [DeviceLink.Device(id: "c3d4", kind: .handheld, name: "Trackie", lastIP: "10.0.0.9:80")]
-        #expect(SetupFlow.candidates(bleFound: [p: "CTA-Pet-C3D4"], unpaired: [], known: byCode, dismissed: []).isEmpty)
+        #expect(SetupFlow.candidates(bleFound: [p: "Trackie-c3d4"], unpaired: [], known: byCode, dismissed: []).isEmpty)
     }
 
     @Test func aResetWearableUnderANewAddressIsAddAgain() {
         let bonded = [DeviceLink.Device(id: "c3d4", kind: .handheld, name: "Trackie", lastIP: nil, peripheral: UUID())]
-        let cards = SetupFlow.candidates(bleFound: [p: "CTA-Pet-C3D4"], unpaired: [], known: bonded, dismissed: [])
+        let cards = SetupFlow.candidates(bleFound: [p: "Trackie-c3d4"], unpaired: [], known: bonded, dismissed: [])
         #expect(cards.map(\.again) == [true] && cards.first?.title == "Trackie was reset")
     }
 
@@ -150,13 +150,16 @@ struct SetupFlowTests {
     }
 
     @Test func notNowHidesACard() throws {
-        let cards = SetupFlow.candidates(bleFound: [p: "CTA-Pet-C3D4"], unpaired: [try info("a1b2", .dock)],
+        let cards = SetupFlow.candidates(bleFound: [p: "Trackie-c3d4"], unpaired: [try info("a1b2", .dock)],
                                          known: [], dismissed: ["a1b2"])
         #expect(cards.map(\.id) == [p.uuidString])
     }
 
     @Test func advertisingMatchesTheBoardID() {
+        #expect(SetupFlow.peripheral(for: "c3d4", in: [p: "Trackie-c3d4"]) == p)
+        #expect(SetupFlow.peripheral(for: "c3d5", in: [p: "Trackie-c3d4"]) == nil)
+        // Boards flashed before the rename still advertise the old name.
         #expect(SetupFlow.peripheral(for: "c3d4", in: [p: "CTA-Pet-C3D4"]) == p)
-        #expect(SetupFlow.peripheral(for: "c3d5", in: [p: "CTA-Pet-C3D4"]) == nil)
+        #expect(SetupFlow.isTrackie("CTA-Pet-c3d4") && SetupFlow.isTrackie("Trackie-c3d4") && !SetupFlow.isTrackie("CTA-Dock-c3d4"))
     }
 }

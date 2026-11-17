@@ -108,7 +108,7 @@ On the dock and home Wi-Fi, Trackie is Asleep. The screen is extra dim, with a c
 ### Settings
 
 Swipe left from Home (or tap its right edge). Swipe right, or tap the left edge, to go back. From the top:
-- "SETTINGS", then the device's name: Trackie's name from the app if set, else `CTA-Pet-xxxx` (its Bluetooth name)
+- "SETTINGS", then the device's name: Trackie's name from the app if set, else `Trackie-xxxx` (its Bluetooth name)
 - **Wi-Fi:** the joined network's name and four signal bars; "Not connected" when a network is saved but not joined;
   "Not set up" when none is saved
 - **Battery:** a pixel battery filled to the level (green while charging, amber at 20% or less) and "Charging · 64%"

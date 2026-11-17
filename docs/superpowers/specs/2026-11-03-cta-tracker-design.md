@@ -343,7 +343,7 @@ Home Screen and Lock Screen widgets (WidgetKit) show the pet and the next 2 arri
 > a 6-digit code (ecosystem spec 4.3), and so does the handheld as its fallback when Bluetooth isn't available.
 > Details: ecosystem spec 4.4 and the plan `docs/superpowers/plans/2026-11-14-wearable-ble-link.md`, "The link".
 
-One custom GATT service, implemented with ESP-IDF's NimBLE on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `CTA-Pet-xxxx`, where `xxxx` is the end of the MAC address.
+One custom GATT service, implemented with ESP-IDF's NimBLE on both ESP32s. Devices advertise as `CTA-Dock-xxxx` and `Trackie-xxxx` (was `CTA-Pet-xxxx` until 2026-11-17), where `xxxx` is the end of the MAC address.
 
 **Pairing:** the device shows a 6-digit passkey on screen and the user types it into iOS's pairing prompt (NimBLE's display-passkey flow). This encrypts and authenticates the link, which `wifi` requires because passwords cross it. Bonds are stored, so pairing happens once.
 

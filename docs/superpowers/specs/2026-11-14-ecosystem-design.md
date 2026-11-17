@@ -195,7 +195,7 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 
 | Characteristic | Properties | Payload |
 |---|---|---|
-| Service `d8d4388c-…` | | advertised as `CTA-Pet-xxxx` |
+| Service `d8d4388c-…` | | advertised as `Trackie-xxxx` |
 | `info` `fb360799-…` | read, notify (encrypted, authenticated) | the `GET /info` JSON; notified on subscribe, on any change, and every 30 s, at most once a second |
 | `link` `4a1eedc7-…` (new) | write with response (encrypted, authenticated) | an envelope `<POST or DELETE> <path>`, a newline, then the JSON body of the HTTP message above |
 
@@ -222,7 +222,9 @@ gets the matching encoders next to `BLEMessages.swift`.
 
 **The wearable,** Bluetooth first:
 
-- A fresh wearable advertises `CTA-Pet-xxxx`; the app, in the foreground, raises "Trackie found · Set up".
+- A fresh wearable advertises `Trackie-xxxx`; the app, in the foreground, raises "Trackie found · Set up". **Changed
+  2026-11-17 (Leo: the user only ever sees "Trackie", never "pet" or "wearable"):** the name was `CTA-Pet-xxxx`; the
+  app still accepts that prefix, so a board flashed before the rename keeps working until it's reflashed.
 - **Pair:** "Type the code shown on Trackie when your iPhone asks." Trackie's bubble shows the passkey
   (`docs/handheld-ui.md`'s Pairing state). Once bonded, the app writes the household token.
 - **Wi-Fi (optional, "Skip"):** network name and password, "Add another" up to 5, home first. Each goes over the
@@ -284,7 +286,7 @@ gets the matching encoders next to `BLEMessages.swift`.
 accident) wipe the token and reboot to the fresh state, showing a new pairing code. The dock has no Bluetooth bond,
 so it can be paired again at once. The wearable also clears its bonds and takes a new random Bluetooth address, so
 the iPhone sees a new device and asks for the passkey again (unverified; if not, the demo script adds "Forget
-CTA-Pet-xxxx in iOS Settings → Bluetooth").
+Trackie-xxxx in iOS Settings → Bluetooth").
 
 ### 5.5 Nearby on the wrist (step 4)
 
@@ -436,7 +438,7 @@ iOS map), and the bugs B1 and B2. They're planned separately, but they touch thi
 | Bluetooth doesn't fit in internal RAM next to Wi-Fi and TLS | **Happened** on the Arduino build (day 1: about 50 KB on both boards). On ESP-IDF it fits on the wearable (W5: 67.1 KB connected, before the controller moved to flash). If the RAM gate fails after the plan's ladder (11/18), Bluetooth carries status and messages but not the relay, Wi-Fi is required again, and step 7 stays cut. |
 | Bluetooth is unstable on the wearable: drops, or Wi-Fi/Bluetooth coexistence stalls TLS | The wearable's whole Wi-Fi path stays built and tested: the HTTP link, its own polling, and pairing by code (4.3). If Bluetooth isn't stable by 11/19 12:00, the wearable stops starting it, and the app's Bluetooth is switched off by a flag; nothing new has to be built. |
 | iOS background limits | The relay runs only with the app in the foreground (Auto-Lock off on the demo iPhone). In the background the connection and status stay; a force-quit app is never relaunched (base spec 9.5), and the wearable falls back to its own Wi-Fi polling if it has Wi-Fi. |
-| Re-pairing after a reset: iOS can't remove a bond from an app, and a wearable that forgot its bond gets refused | A reset gives the wearable a new random Bluetooth address, so the iPhone sees a new device (unverified). If that fails, the demo script adds "Forget CTA-Pet-xxxx in iOS Settings → Bluetooth"; pairing by code is the last resort. |
+| Re-pairing after a reset: iOS can't remove a bond from an app, and a wearable that forgot its bond gets refused | A reset gives the wearable a new random Bluetooth address, so the iPhone sees a new device (unverified). If that fails, the demo script adds "Forget Trackie-xxxx in iOS Settings → Bluetooth"; pairing by code is the last resort. |
 | The phone can't reach the boards on a network | The wearable no longer needs it: Bluetooth doesn't go through the router. The dock still does. **Happened at home** on day 1: the Mac and both boards reached each other, but the iPhone's connections never reached either board, likely the router keeping the phone apart from the 2.4 GHz boards. Campus is checked on campus or at the 11/22 dry run; if it fails there too, the phone's hotspot is the demo network (compiled into both boards' `secrets.h` lists). |
 | The showcase network keeps the phone and the dock apart, or refuses a board | The showcase runs on the lab network checked on 11/16 (Leo, 2026-11-16; no hotspot; names stay out of the repo). There the phone reached the dock and paired it by code, but the access point refused the wearable at authentication with either MAC: register the wearable's MAC with the network's admin, or the wearable shows Wi-Fi-free steps only (it needs Wi-Fi only for the HTTP fallback). Home still keeps the phone and the boards apart (day 1). |
 | iOS local network permission is denied | The app explains it and links to Settings, the way it handles location. |

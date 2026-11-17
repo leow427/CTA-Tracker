@@ -24,7 +24,7 @@ struct SetupHost: ViewModifier {
                             dismissed.insert(c.id)
                         }
                     } else if BLELink.enabled && needsAsking && !asked {
-                        SetupCard(title: "Bluetooth finds your dock and handheld.", action: "Continue",
+                        SetupCard(title: "Bluetooth finds your dock and Trackie.", action: "Continue",
                                   symbol: "dot.radiowaves.left.and.right") {
                             asked = true
                             link.ble.start()
@@ -171,20 +171,20 @@ struct SetupScreen: View {
         switch (flow.step, flow.method) {
         case (.pair, .bluetooth): flow.bluetoothFailed ? hint : "Type the code shown on Trackie when your iPhone asks."
         case (.pair, .code): "Type the code shown on \(flow.deviceName)."
-        case (.pair, .waiting): flow.asking ? "Bluetooth finds your dock and handheld." : "Looking for Trackie…"
+        case (.pair, .waiting): flow.asking ? "Bluetooth finds your dock and Trackie." : "Looking for Trackie…"
         case (.pair, .unavailable): "Turn on Bluetooth to set up Trackie."
         case (.wifi, _) where flow.addingNetwork && flow.firstSlot == 0 && flow.networks.isEmpty:
             "This becomes Trackie's home network and replaces the one saved before."
         case (.wifi, _) where flow.addingNetwork: "Trackie uses Wi-Fi when your iPhone isn't near."
         case (.wifi, _): "Optional. Trackie uses Wi-Fi when your iPhone isn't near. Home first."
-        case (.pet, _): "Your dock and Trackie share one pet."
+        case (.pet, _): "Your dock shows the same Trackie."
         default: nil
         }
     }
 
     /// The bond on the iPhone may be stale after a reset: only a failed fresh pairing says so (Leo 2026-11-14).
     private var hint: String {
-        "If Trackie was reset, forget \(flow.candidate.name ?? "CTA-Pet") in iOS Settings → Bluetooth, then try again."
+        "If Trackie was reset, forget \(flow.candidate.name ?? "Trackie") in iOS Settings → Bluetooth, then try again."
     }
 
     @ViewBuilder private var controls: some View {

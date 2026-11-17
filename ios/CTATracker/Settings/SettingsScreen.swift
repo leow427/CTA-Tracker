@@ -15,9 +15,6 @@ struct SettingsScreen: View {
                 }
                 DeviceList(link: link)
                 Section {
-                    row("Find my handheld", "location.magnifyingglass")
-                }
-                Section {
                     NavigationLink { AboutScreen() } label: { Label("About", systemImage: "info.circle") }
                 }
             }
@@ -28,15 +25,6 @@ struct SettingsScreen: View {
             }
         }
         .tint(.primary)
-    }
-
-    private func row(_ title: String, _ symbol: String) -> some View {
-        NavigationLink {
-            EmptyState(title: title, message: "Coming in a later build.")
-                .navigationTitle(title)
-        } label: {
-            Label(title, systemImage: symbol)
-        }
     }
 }
 

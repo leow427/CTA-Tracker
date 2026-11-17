@@ -19,7 +19,7 @@ struct DevicePage: View {
     private var info: InfoMessage? { link.online[device.id] }
     private var wearable: Bool { device.kind == .handheld }
     /// The wearable advertises the end of its MAC, which is its id (handheld mock README).
-    private var bluetoothName: String { "CTA-Pet-\(device.id)" }
+    private var bluetoothName: String { "Trackie-\(device.id)" }
 
     var body: some View {
         List {

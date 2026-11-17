@@ -15,7 +15,7 @@ struct PairMessage: Encodable, CustomStringConvertible, CustomDebugStringConvert
 /// A board the app could set up: seen over Bluetooth, answering unpaired on the network, or both.
 nonisolated struct SetupCandidate: Identifiable, Equatable {
     let kind: DeviceKind
-    var peripheral: UUID? = nil     // advertising `CTA-Pet-*`
+    var peripheral: UUID? = nil     // advertising `Trackie-*`
     var name: String? = nil         // its advertised name, for the iOS Settings hint
     var deviceID: String? = nil     // on the network with `paired: false`
     var again = false               // already in the app's list: it was reset (Leo 2026-11-14)
@@ -117,10 +117,21 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         }
     }
 
-    /// The `CTA-Pet-xxxx` advertising for the board whose id is `xxxx`.
-    // shortcut: matches on the name's suffix; unverified until W6a's advertising runs on the board.
+    /// Wearables advertise `Trackie-xxxx`; boards flashed before the rename still say `CTA-Pet-xxxx`.
+    nonisolated static let advertPrefixes = ["trackie-", "cta-pet-"]
+
+    nonisolated static func isTrackie(_ name: String) -> Bool {
+        advertPrefixes.contains { name.lowercased().hasPrefix($0) }
+    }
+
+    /// Whether `name` is the advertising of the board whose id is `xxxx`.
+    nonisolated static func advertises(_ name: String, id: String) -> Bool {
+        advertPrefixes.contains { name.lowercased() == $0 + id.lowercased() }
+    }
+
+    /// The `Trackie-xxxx` advertising for the board whose id is `xxxx`.
     nonisolated static func peripheral(for id: String, in found: [UUID: String]) -> UUID? {
-        found.first { $0.value.lowercased() == "cta-pet-\(id.lowercased())" }?.key
+        found.first { advertises($0.value, id: id) }?.key
     }
 
     /// One card per board: network boards (merged with their advertising), then wearables seen only over Bluetooth.
@@ -136,7 +147,7 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
         for (p, name) in ble.sorted(by: { $0.value < $1.value }) {
             // The advert names the board: one set up with the code (no bond) isn't new, and one with an older bond
             // was reset and came back under a new address.
-            let byName = known.first { "cta-pet-\($0.id.lowercased())" == name.lowercased() }
+            let byName = known.first { advertises(name, id: $0.id) }
             if let byName, byName.peripheral == nil { continue }
             let again = known.contains { $0.peripheral == p } || byName != nil
             out.append(SetupCandidate(kind: .handheld, peripheral: p, name: name, again: again))
@@ -287,7 +298,7 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     #if DEBUG
     /// Screenshots: a flow parked on one step (`-setupDemo pair|asking|code|wifi|pet|ready|failed`).
     init(demo: String, link: DeviceLink) {
-        candidate = SetupCandidate(kind: .handheld, peripheral: UUID(), name: "CTA-Pet-C3D4", deviceID: "c3d4")
+        candidate = SetupCandidate(kind: .handheld, peripheral: UUID(), name: "Trackie-c3d4", deviceID: "c3d4")
         self.link = link
         firstDevice = true
         switch demo {

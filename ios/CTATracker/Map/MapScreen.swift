@@ -186,7 +186,7 @@ struct PetAvatar: View {
         }
         .buttonStyle(PressableCard())
         .accessibilityLabel("Settings")
-        .accessibilityValue("Your pet is \(mood.rawValue)")
+        .accessibilityValue("Trackie is \(mood.rawValue)")
     }
 }
 
