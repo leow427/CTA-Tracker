@@ -134,6 +134,10 @@ Approved by Leo, 2026-11-15. Showcase 2026-11-23, dry run 11/22. **Day 1 (11/14�
 | Mon 11/16 | The biggest risk first, the phone reaching the dock: on the home network (Leo, 2026-11-15: the dock and the phone stay on the home network; no hotspot). Day 1 found the phone's connections never reached either board there (Task 1). Retry from the app (Bonjour finds the dock, `GET /info`, iOS's Local Network permission); if it's still blocked, find the router setting (client isolation, the 2.4/5 GHz bands kept apart, mDNS). Book a visit to the showcase network (a different home network) before 11/19 to run the same check there. Then pair the dock from the app by code, test the wearable's HTTP fallback after `b` and app code pairing with the phone's Bluetooth off. Start Task 11 (devices list and device page). |
 | Tue 11/17 | Task 14 (dock stops from the app, both ways; done 11/16). Task 22 (dock touch extras) on the dock, alongside Task 13 (one Trackie: presets, resend on `.resendState`, uncomment the wearable's `ui::petPalette565 = petPalette`). |
 | Wed 11/18 | Task 17 (find my handheld) and the step 8 docking check. Draft the demo script (Task 21 and BLE plan X2 Step 2). |
+
+> **2026-11-17 (Leo): Trackie runs on Bluetooth only at the showcase.** No MAC registration and no wearable Wi-Fi tests;
+> the phone relays its cards (step 7 is the normal mode on the day). Docking counts "no Wi-Fi joined" as home (Task 26).
+> Also done 11/17: the iPhone app polish (Task 27) and the demo script draft (`docs/ecosystem/demo-script.md`).
 | Thu 11/19 | The dock joins the stronger of the home and showcase networks from `secrets.h` (small; or rebuild it for the showcase network). First full run of showcase steps 1–8, on the showcase network if Leo can be there, else at home; fix list. |
 | Fri 11/20 | Step 7 go/no-go at 18:00 (no-Wi-Fi wearable boot with relayed cards, serial `W` demo). Fixes. B2 dock map fps if time. |
 | Sat 11/21 | Task 20 extras only if the full run passed twice. Final READMEs. Feature freeze 18:00. |
@@ -1048,7 +1052,7 @@ records); 19b `ios/CTATracker/Devices/HandheldRelay.swift`.
 the reset step before pairing, and what to do if a step fails; no network names). Drafted 11/18
 with BLE plan X2 Step 2.
 
-- [ ] **Step 1:** Write them. Check `git diff` for network names, home paths, tokens.
+- [ ] **Step 1:** Write them. Check `git diff` for network names, home paths, tokens. *Demo script drafted 2026-11-17 (Bluetooth-only Trackie); the READMEs and base spec pointers are still open.*
 - [ ] **Step 2: Verify:** run the script end to end on the showcase network (11/22), twice.
 - [ ] **Step 3: Commit:** `docs: ecosystem demo script, base spec points to the ecosystem design`.
 
@@ -1200,3 +1204,30 @@ code on screen and accepts `POST /pair {"code":"123456","token":"<hex>"}` once, 
 right code (constant-time compare; 5 wrong tries lock it until reboot). Tasks 7 and 9 become this endpoint plus the
 code on screen; Task 12's flow becomes Pair (type the code shown) → Pet → Ready, found by Bonjour instead of BLE;
 Task 19 is dropped. Everything else is unchanged.
+
+---
+
+### Task 26: Trackie docks without Wi-Fi; battery percent on every screen (Track H)
+
+Leo, 2026-11-17: Trackie stays on Bluetooth at the showcase, and its screens show the battery percent when a battery
+is fitted (todo F2). Wearable firmware only; one worker.
+
+- [ ] **Step 1:** Docked = USB power and a battery, and either the home network or no Wi-Fi joined at all (a joined
+  non-home network still isn't docked). Native tests for each case. Spec 8.4 note.
+- [ ] **Step 2:** A small battery and percent at the top of the main screens (green while charging, amber at 20% or
+  less, nothing with no battery), redrawn only on a change. `docs/handheld-ui.md`, todo F2.
+- [ ] **Step 3: Verify (Leo):** on the dock with no Wi-Fi joined, Trackie goes to sleep (Docked); off it, the percent
+  shows on each screen.
+
+### Task 27: iPhone app polish (Track A), done 2026-11-17
+
+Leo, 2026-11-17. Each change reviewed, on `main`, installed on Leo's phone after the simulator:
+
+- [x] Search by words in any order, no "&" needed; route and line words mix with street names.
+- [x] Search by place (MapKit, Chicago area): the map flies there and lists the stops near it.
+- [x] Typo tolerance ("belmnt", "van burn"), shown as "Showing close matches".
+- [x] "Trackie" everywhere the user sees it; the wearable advertises `Trackie-xxxx` (the app accepts `CTA-Pet-` too).
+- [x] "Send" label on the Send to Trackie button, with its states.
+- [x] Setup's Wi-Fi step says why Trackie couldn't join (`info.wifi.fail`); no network names in the wearable's logs.
+- [x] F6: the line's trains and buses on the map as round tokens; tap a tile or vehicle to focus it.
+- [ ] **Verify (Leo):** taps on map vehicles, the Send states with Trackie, a Blue Line token beside the location dot.
