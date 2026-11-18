@@ -146,6 +146,9 @@ volatile uint32_t discCount = 0;
 // Why joining fails, for info.wifi.fail: the last reason since Wi-Fi was up or a network was added. Our own
 // esp_wifi_disconnect() (ASSOC_LEAVE) doesn't count, so ending a stuck join keeps the reason before it.
 volatile uint8_t failReason = 0;
+// The last network joined since boot (or since a network was set) wasn't home: a drop or rejoin there keeps Trackie
+// undocked (spec 8.4). Network task only: publish() sets it, takeWifi() clears it.
+bool lastOther = false;
 
 void onWifiEvent(void*, esp_event_base_t base, int32_t id, void* data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -489,10 +492,12 @@ void publish() {
     if (ntpSynced()) store.updateFollow(static_cast<uint32_t>(time(nullptr)));   // after every poll (spec 5.7)
     clear(*building);
     store.fill(*building);
-    building->wifiUp = wifiUp;
     char ssid[33];
     wifiSsid(ssid, sizeof(ssid));
+    building->wifiUp = wifiUp && ssid[0];   // after the name: a drop between the two reads as not joined, not as away
     building->homeWifi = building->wifiUp && nets->nets[0].ssid[0] && strcmp(ssid, nets->nets[0].ssid) == 0;
+    if (building->wifiUp) lastOther = !building->homeWifi;
+    building->lastOther = lastOther;
     snprintf(building->status, sizeof(building->status), "%s", status);
     building->requests = requests;
     building->relaying = relaying();
@@ -794,6 +799,7 @@ bool takeWifi() {
     memset(&pendingLink->wifiMsg, 0, sizeof(pendingLink->wifiMsg));
     xSemaphoreGive(mu);
     if (!any) return false;
+    lastOther = false;   // home may have changed; the next join says where it is
     if (netsFromSecrets) {
         memset(nets, 0, sizeof(cta::WifiList));
         netsFromSecrets = false;

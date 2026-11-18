@@ -43,6 +43,7 @@ struct Snapshot {
     cta::FollowView follow;
     bool wifiUp = false;
     bool homeWifi = false;     // on the first saved network (spec 8.4); the prototype has one
+    bool lastOther = false;    // the last network joined since boot wasn't home, joined now or not (spec 8.4)
     char status[40] = "";      // what the network side is doing when there's no data: for Trackie's reason
     bool hasWeather = false;
     int wmo = 0;

@@ -758,8 +758,9 @@ void drawBattery(Canvas& cv, const Model& m) {
     const uint32_t ink = m.charging ? col::signal : pct <= kLowBattery ? col::amber : col::white;
     const int bolt = m.charging ? 14 : 0, w = bolt + 24 + 5 + static_cast<int>(ceilf(Canvas::measure(f, buf)));
     const int x = C - w / 2, y = kBattY, bx = x + bolt;
-    if (cv.hidden(x - 6, y - 4, w + 12, 20)) return;   // not in this strip
-    cv.fillRect(x - 6, y - 4, w + 12, 20, col::bg);
+    // The backing reaches past the top edge, so the dim burn-in shift can't uncover a scrolled page above it.
+    if (cv.hidden(x - 6, y - 12, w + 12, 28)) return;   // not in this strip
+    cv.fillRect(x - 6, y - 12, w + 12, 28, col::bg);
     if (m.charging) cv.ink(kBolt, 7, x, y - 1, 2, ink);
     cv.fillRect(bx, y, 22, 2, col::white); cv.fillRect(bx, y + 10, 22, 2, col::white);
     cv.fillRect(bx, y, 2, 12, col::white); cv.fillRect(bx + 20, y, 2, 12, col::white);

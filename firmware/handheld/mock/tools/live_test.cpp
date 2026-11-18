@@ -188,11 +188,15 @@ int main() {
         mock::fromLive(m, snap, dock, t0, true);
         CHECK(m.docked);
         snap.status[0] = 0;
-        snap.wifiUp = true;
+        snap.wifiUp = snap.lastOther = true;
         m = mock::Model();
         mock::fromLive(m, snap, dock, t0, true);
         CHECK(!m.docked);
-        snap.wifiUp = false;
+        snap.wifiUp = false;   // dropped off it (a gap, a rejoin): still not docked
+        m = mock::Model();
+        mock::fromLive(m, snap, dock, t0, true);
+        CHECK(!m.docked);
+        snap.lastOther = false;
     }
 
     // Docked: USB, a battery, and home Wi-Fi; never without a battery.
