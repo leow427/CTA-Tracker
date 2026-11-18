@@ -174,7 +174,8 @@ int main() {
     CHECK(m.offline);
     snap.status[0] = 0;
 
-    // Docked with no Wi-Fi saved (decision 1): USB and a battery are enough; with a network saved, home Wi-Fi too.
+    // Docked joined to no Wi-Fi (decision 1, Leo 2026-11-17): USB and a battery are enough, networks saved or not;
+    // joined to a network that isn't home, not docked.
     {
         power::State dock = bench;
         dock.battery = true;
@@ -185,12 +186,17 @@ int main() {
         snprintf(snap.status, sizeof(snap.status), "No Wi-Fi");
         m = mock::Model();
         mock::fromLive(m, snap, dock, t0, true);
-        CHECK(!m.docked);
+        CHECK(m.docked);
         snap.status[0] = 0;
+        snap.wifiUp = true;
+        m = mock::Model();
+        mock::fromLive(m, snap, dock, t0, true);
+        CHECK(!m.docked);
+        snap.wifiUp = false;
     }
 
     // Docked: USB, a battery, and home Wi-Fi; never without a battery.
-    snap.homeWifi = true;
+    snap.wifiUp = snap.homeWifi = true;
     m = mock::Model();
     mock::fromLive(m, snap, bench, t0, true);
     CHECK(!m.docked);

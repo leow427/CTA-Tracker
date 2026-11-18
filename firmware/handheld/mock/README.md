@@ -42,7 +42,7 @@ What replaced each Arduino piece:
 - **Buses once each.** A route and direction shows once, at the nearest listed stop that serves it.
 - **Alerts.** Only unplanned service alerts count (`accessibility=false&planned=false`). Without that filter, elevator outages and planned bus-stop notes marked Red, Brown, Purple, 22, and 8 as alerted on a normal weekday, and Trackie would be Sad all day.
 - **Offline.** Until Wi-Fi and the clock are up, the bubble says "No signal" and a tap shows why ("Connecting to Wi-Fi", "Setting the clock", "No Wi-Fi set up"). Data older than 5 min greys out, as in the mock's Offline state.
-- **Docked (spec §8.4).** USB power, a battery, and the home network (the first network the app sent, else `WIFI_SSID`; or no Wi-Fi set up at all). A board with no battery runs on USB whenever it's on, so it never counts as docked.
+- **Docked (spec §8.4).** USB power, a battery, and the home network (the first network the app sent, else `WIFI_SSID`) or no Wi-Fi network joined at all, saved networks or not (Leo 2026-11-17; `cta::handheldDocked`). A board with no battery runs on USB whenever it's on, so it never counts as docked.
 - **Battery log (spec §8.5).** `power: usb …, battery …%, … mV` at boot and every 15 min.
 - **TLS.** Every request verifies the server against the ESP-IDF certificate bundle. Request URLs carry the keys and are never logged.
 - **Countdown.** Between polls, minutes count down from each record's fetch time; arrivals that have passed drop, as in the app. Once a record is stale (over 5 min) it stays as fetched, greyed out (spec §8.3).

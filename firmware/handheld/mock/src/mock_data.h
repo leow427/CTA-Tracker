@@ -59,7 +59,7 @@ struct Model {
     bool offline = false;      // no fresh data: no Wi-Fi, or every record has gone stale
     bool loaded = true;        // a first fetch has landed (until then the lists say "Loading")
     char status[40] = "";      // why it's offline, for Trackie's reason ("Connecting to Wi-Fi")
-    bool powerDocked = false;  // on USB power with a battery, on the home network (spec 8.4)
+    bool powerDocked = false;  // on USB power with a battery, on home Wi-Fi or none (spec 8.4)
     int battery = 64;          // percent; -1 with no battery
     bool charging = true;
     bool hasWeather = false;   // wmo and tempC came from Open-Meteo

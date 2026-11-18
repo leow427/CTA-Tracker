@@ -135,6 +135,17 @@ static void test_device_majority() {
     EQ(Happy, device(g, 4));
 }
 
+// Docked (spec 8.4; Leo 2026-11-17): args are usb, battery, Wi-Fi joined, on the home network.
+void test_handheld_docked() {
+    TEST_ASSERT_TRUE(cta::handheldDocked(true, true, false, false));    // on Bluetooth alone, networks saved or not
+    TEST_ASSERT_FALSE(cta::handheldDocked(true, true, true, false));    // joined some other network
+    TEST_ASSERT_TRUE(cta::handheldDocked(true, true, true, true));      // on home Wi-Fi
+    TEST_ASSERT_FALSE(cta::handheldDocked(true, false, false, false));  // no battery: never docked
+    TEST_ASSERT_FALSE(cta::handheldDocked(true, false, true, true));
+    TEST_ASSERT_FALSE(cta::handheldDocked(false, true, false, false));  // on battery, off USB
+    TEST_ASSERT_FALSE(cta::handheldDocked(false, true, true, true));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_stop_mood);
@@ -142,5 +153,6 @@ int main(int, char**) {
     RUN_TEST(test_device_sleepy_cases);
     RUN_TEST(test_device_hyped);
     RUN_TEST(test_device_majority);
+    RUN_TEST(test_handheld_docked);
     return UNITY_END();
 }

@@ -270,8 +270,13 @@ The handheld saves up to 3 Wi-Fi networks, all set from the app.
 
 > **Changed 2026-11-14 (Leo):** docked = USB power and a battery, plus the first saved network (home) joined *only
 > if any network is saved*. A handheld with no Wi-Fi, on Bluetooth alone, docks on power alone.
+>
+> **Changed 2026-11-17 (Leo 2026-11-17: no Wi-Fi joined counts as home):** docked = USB power and a battery, plus
+> either the first saved network (home) joined or no Wi-Fi network joined at all, saved networks or not. A handheld
+> on Bluetooth alone docks on power alone even where its saved networks refuse it; joined to any other network (a
+> friend's), it isn't docked.
 
-Docked means the AXP2101 reports USB power **and** a battery **and** the handheld is on its first saved network (home). A board with no battery runs on USB whenever it's on at all, so it never counts as docked (Leo, 2026-11-09). While docked, the pet is Asleep, the screen dims further, and polling slows (section 6.6).
+Docked means the AXP2101 reports USB power **and** a battery **and** the handheld is on its first saved network (home) or on no Wi-Fi network at all. A board with no battery runs on USB whenever it's on at all, so it never counts as docked (Leo, 2026-11-09). While docked, the pet is Asleep, the screen dims further, and polling slows (section 6.6).
 
 ### 8.5 Battery
 

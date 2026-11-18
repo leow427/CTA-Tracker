@@ -148,9 +148,8 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
     snprintf(m.status, sizeof(m.status), "%s", s.status);
     // The Settings page. live.cpp says "No Wi-Fi set up" when no network is saved; any other state has one.
     m.wifiSetUp = s.wifiUp || strcmp(s.status, "No Wi-Fi set up") != 0;
-    // Docked (spec 8.4, decision 1): USB power and a battery, plus the home network when any network is saved. A
-    // board with no battery is on USB whenever it's on at all, so it never counts as docked.
-    m.powerDocked = p.usb && p.battery && (s.homeWifi || !m.wifiSetUp);
+    // Docked (spec 8.4, decision 1): on home Wi-Fi or joined to none (cta::handheldDocked).
+    m.powerDocked = cta::handheldDocked(p.usb, p.battery, s.wifiUp, s.homeWifi);
     m.battery = p.battery ? p.percent : -1;
     m.charging = p.charging;
     m.hasWeather = s.hasWeather;

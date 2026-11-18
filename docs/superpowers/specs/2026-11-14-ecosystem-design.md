@@ -371,7 +371,9 @@ Back 2026-11-14 with Bluetooth first (Leo), shown in the showcase if the gates p
 
 - Docked detection and Trackie asleep are already built (8.4). The wearable reports `docked` in `info`. **Changed
   2026-11-14 (Leo):** docked = USB power and a battery, plus slot 0 joined only if any Wi-Fi network is saved, so a
-  wearable on Bluetooth alone still sleeps on the dock.
+  wearable on Bluetooth alone still sleeps on the dock. **Changed 2026-11-17 (Leo 2026-11-17: no Wi-Fi joined counts
+  as home):** USB power and a battery, plus slot 0 joined or no network joined at all, saved networks or not (the
+  showcase refuses its Wi-Fi); joined to any other network, not docked.
 - **Find my handheld:** when a wearable that was online misses 3 polls in a row (about 6 s) with neither link
   working (Bluetooth disconnected and HTTP not answering), the app saves the
   phone's location and the time. **Changed 2026-11-16 (Settings layout):** the wearable's device page has a "Last

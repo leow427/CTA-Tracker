@@ -1,5 +1,6 @@
 #pragma once
-// Pet moods (spec 6.3). Mirrored by the app's MoodRules. Asleep (docked) is the pet layer's call, not decided here.
+// Pet moods (spec 6.3). Mirrored by the app's MoodRules. Asleep (docked) is the pet layer's call, not decided here;
+// whether the handheld counts as docked is handheldDocked below.
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,5 +24,12 @@ Mood stopMood(const StopRecord& r, uint32_t now, bool night);
 // the handheld, all 3 on the dock); nullptr means none.
 Mood deviceMood(const StopRecord* recs, const bool* hypedEligible, size_t n, uint32_t now, bool night,
                 bool hasLocation);
+
+// Docked (spec 8.4, decision 1; Leo 2026-11-17): USB power and a battery, and on the home network (the first saved
+// one) or joined to no Wi-Fi at all, so a handheld on Bluetooth alone sleeps on the dock even with networks saved. On
+// another network (a friend's) it isn't docked. With no battery it's on USB whenever it's on at all, so never docked.
+inline bool handheldDocked(bool usb, bool battery, bool wifiJoined, bool homeWifi) {
+    return usb && battery && (homeWifi || !wifiJoined);
+}
 
 }  // namespace cta
