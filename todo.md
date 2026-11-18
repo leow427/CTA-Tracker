@@ -118,8 +118,9 @@ it looks.
 
 ### F2. Battery level at the top of the handheld
 
-**Status (2026-11-15): partly done.** The battery and charging show on the wearable's Settings page (S-W); not yet at
-the top of every screen.
+**Status (2026-11-17): built, board check open.** The battery and charging show on the wearable's Settings page (S-W),
+and now at the top of every main screen off the dock: a small pixel battery and the percent, green with a bolt while
+charging, amber at 20% or less, nothing with no battery (`docs/handheld-ui.md`, "The battery at the top").
 
 Today the handheld only shows its charge while it's docked (the ring and "Charging · 64%" on the home screen).
 Off the dock there's no way to tell how much battery is left.

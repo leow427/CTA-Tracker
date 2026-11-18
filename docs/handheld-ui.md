@@ -40,6 +40,16 @@ The written guide to the handheld's screens (Waveshare 1.75" round AMOLED, 466 �
 
 ## Screens
 
+### The battery at the top (todo F2)
+
+With a battery fitted, the top edge of Home, Stops, Stop detail, Settings and Pair again? shows a small pixel battery
+(Settings' battery, smaller) filled to the level and the percent, "64%", centred above the tabs and the clock. While on
+USB it's green with a pixel bolt before it; at 20% or less it's amber. It sits on black, so a stop page scrolled
+under it doesn't run into it, and it stays put while screens slide. Not shown with no battery (the board reports
+none), docked (Home shows the charge there), dimmed, or on First run and Pairing. It only changes the frame when the
+percent or charging changes (the list at rest keys on it, `ui::restKey`). The code: `drawBattery` in
+`firmware/handheld/mock/src/ui.cpp`; renders: `tools/preview.cpp` writes `battery_<screen>_<state>`.
+
 ### Home
 
 From the top:
@@ -98,7 +108,7 @@ After 15 s with no touch, the screen dims to black with Trackie alone, and he sh
 
 ### Docked
 
-On the dock and home Wi-Fi, Trackie is Asleep. The screen is extra dim, with a charging ring around the edge and "Charging · 64%".
+On the dock (USB power and a battery) and on home Wi-Fi or no Wi-Fi at all, Trackie is Asleep (spec 8.4; Leo 2026-11-17: no Wi-Fi joined counts as home). The screen is extra dim, with a charging ring around the edge and "Charging · 64%".
 
 ### First run and pairing
 

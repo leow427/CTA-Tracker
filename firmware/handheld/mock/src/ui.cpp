@@ -739,6 +739,35 @@ void drawConfirm(Canvas& cv) {
 
 bool isAod(const App& a, const View& v) { return a.dim && (v.screen == Screen::Home || v.screen == Screen::First); }
 
+// ---------- the battery at the top edge (todo F2) ----------
+// Settings' pixel battery, small, and the percent, centred above the tabs (30), Home's clock (54) and a bus page's
+// number (24): green with a bolt while on USB, amber at kLowBattery or less. On black, so a page scrolled under it
+// doesn't run into it. With a battery only, off the dock (Home shows the charge there), and not on the dim always-on
+// screen, Pair or First.
+constexpr int kLowBattery = 20, kBattY = 7;
+bool showsBattery(const App& a, const Model& m) {
+    const Screen s = a.view.screen;
+    return m.battery >= 0 && !m.docked && !isAod(a, a.view) && s != Screen::Pair && s != Screen::First;
+}
+void drawBattery(Canvas& cv, const Model& m) {
+    static const char* const kBolt[] = {"...##", "..##.", ".##..", "#####", "..##.", ".##..", "##..."};
+    const int pct = m.battery > 100 ? 100 : m.battery;
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", pct);
+    const Font* f = F(900, 13);
+    const uint32_t ink = m.charging ? col::signal : pct <= kLowBattery ? col::amber : col::white;
+    const int bolt = m.charging ? 14 : 0, w = bolt + 24 + 5 + static_cast<int>(ceilf(Canvas::measure(f, buf)));
+    const int x = C - w / 2, y = kBattY, bx = x + bolt;
+    if (cv.hidden(x - 6, y - 4, w + 12, 20)) return;   // not in this strip
+    cv.fillRect(x - 6, y - 4, w + 12, 20, col::bg);
+    if (m.charging) cv.ink(kBolt, 7, x, y - 1, 2, ink);
+    cv.fillRect(bx, y, 22, 2, col::white); cv.fillRect(bx, y + 10, 22, 2, col::white);
+    cv.fillRect(bx, y, 2, 12, col::white); cv.fillRect(bx + 20, y, 2, 12, col::white);
+    cv.fillRect(bx + 22, y + 4, 2, 4, col::white);
+    cv.fillRect(bx + 3, y + 3, 16 * pct / 100, 6, ink);
+    cv.text(f, buf, bx + 29, y + 6, ink, Align::Left, Base::Middle);
+}
+
 void drawView(Canvas& cv, App& a, const Model& m, const View& v, uint32_t ms, uint16_t* scratch) {
     const bool aod = isAod(a, v);
     switch (v.screen) {
@@ -894,6 +923,9 @@ uint32_t restKey(const App& a, const Model& m, uint32_t ms, Mark* marks, int max
     if (a.dim) aodShift(ms, ox, oy);
     mix(&ox, sizeof(ox));
     mix(&oy, sizeof(oy));
+    // draw(): the battery at the top.
+    const int batt = showsBattery(a, m) ? m.battery * 2 + m.charging : -1;
+    mix(&batt, sizeof(batt));
     // drawStops: the tabs, the stale line, the empty-list message, the cards and their marks, the scroll bar.
     const Tab tab = a.view.tab;
     const bool trains = tab == Tab::Trains, stale = anyStale(m);
@@ -1030,6 +1062,8 @@ void draw(Canvas& cv, App& a, const Model& m, uint32_t ms, uint16_t* scratch) {
         cv.ox = bx + tx; cv.oy = by + ty;
         drawView(cv, a, m, a.view, ms, scratch);
     } else drawView(cv, a, m, a.view, ms, scratch);
+    cv.ox = bx; cv.oy = by;   // the battery stays put while screens slide
+    if (showsBattery(a, m)) drawBattery(cv, m);
     cv.ox = cv.oy = 0;
     if (a.toast[0] && ms - a.toastT0 < 1800 && !a.dim) {
         const float w = Canvas::measure(F(900, 13), a.toast) + 24;

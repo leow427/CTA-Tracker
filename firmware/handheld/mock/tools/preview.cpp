@@ -263,5 +263,42 @@ int main(int argc, char** argv) {
         writePng(out + "/" + s.name + ".png", fb, ui::brightness(a, m));
         printf("%s\n", s.name);
     }
+    // The battery at the top edge (todo F2) on each screen: 64% charging, 64%, 15% (low), and no battery.
+    struct BattScreen { const char* name; ui::Screen screen; ui::Tab tab; int detailIdx; float scrolled; };
+    const BattScreen bscreens[] = {
+        {"home", ui::Screen::Home, ui::Tab::Trains, -1, 0},       {"trains", ui::Screen::Stops, ui::Tab::Trains, -1, 0},
+        {"buses", ui::Screen::Stops, ui::Tab::Buses, -1, 0},      {"detail_train", ui::Screen::Detail, ui::Tab::Trains, 0, 0},
+        {"detail_bus", ui::Screen::Detail, ui::Tab::Buses, 1, 0}, {"detail_bus_scrolled", ui::Screen::Detail, ui::Tab::Buses, 1, 60},
+        {"settings", ui::Screen::Settings, ui::Tab::Trains, -1, 0}, {"confirm", ui::Screen::Confirm, ui::Tab::Trains, -1, 0},
+    };
+    struct BattState { const char* name; int battery; bool charging; };
+    const BattState bstates[] = {{"64_charging", 64, true}, {"64", 64, false}, {"15", 15, false}, {"none", -1, false}};
+    for (const BattScreen& b : bscreens)
+        for (const BattState& st : bstates) {
+            static mock::Model m;
+            m = mock::Model();
+            m.scenario = mock::Scenario::Worried;
+            mock::update(m, start, start);
+            m.battery = st.battery;
+            m.charging = st.charging;
+            ui::App a;
+            ui::init(a, 1000);
+            a.view.screen = b.screen;
+            a.view.tab = b.tab;
+            a.detailScroll = a.detailTarget = b.scrolled;
+            if (b.detailIdx >= 0) {
+                const mock::Card& c = b.tab == ui::Tab::Trains ? m.trains[b.detailIdx] : m.buses[b.detailIdx];
+                a.view.station = c.station;
+                snprintf(a.view.route, sizeof(a.view.route), "%s", c.rec.route);
+                snprintf(a.view.dir, sizeof(a.view.dir), "%s", c.rec.dir);
+            }
+            for (int pass = 0; pass < 2; ++pass) {
+                if (strips) drawStrips(fb, a, m, 1000, scratch);
+                else ui::draw(cv, a, m, 1000, scratch);
+            }
+            const std::string name = std::string("battery_") + b.name + "_" + st.name;
+            writePng(out + "/" + name + ".png", fb, ui::brightness(a, m));
+            printf("%s\n", name.c_str());
+        }
     return 0;
 }

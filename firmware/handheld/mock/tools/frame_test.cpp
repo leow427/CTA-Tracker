@@ -344,7 +344,8 @@ void testRestMarks() {
     CHECK(markFrames > frames / 4);
 
     // Equal keys, the same frame outside the marks (and inside them too at the same blink phase), over separate
-    // states at rest: each tab and scroll position, awake and dim (its burn-in shift), minutes ticking, and offline.
+    // states at rest: each tab and scroll position, awake and dim (its burn-in shift), minutes ticking, offline, and
+    // the battery at the top (charging, not, low, none).
     std::map<uint32_t, uint64_t> outside;
     std::map<std::pair<uint32_t, int>, uint64_t> whole;
     int samples = 0, clashes = 0, repeats = 0;
@@ -356,6 +357,9 @@ void testRestMarks() {
                         m = mock::Model();
                         m.scenario = off ? mock::Scenario::Offline : mock::Scenario::Live;
                         mock::update(m, kStart + ms / 1000, kStart);
+                        const int bk = (ms / 10000) % 4;
+                        m.battery = bk == 3 ? -1 : bk == 2 ? 15 : 64;
+                        m.charging = bk == 0;
                         ui::App b;
                         ui::init(b, dim ? ms - 16000 : ms);
                         b.view.screen = ui::Screen::Stops;
