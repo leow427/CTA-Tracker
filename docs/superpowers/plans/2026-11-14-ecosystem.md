@@ -1212,9 +1212,9 @@ Task 19 is dropped. Everything else is unchanged.
 Leo, 2026-11-17: Trackie stays on Bluetooth at the showcase, and its screens show the battery percent when a battery
 is fitted (todo F2). Wearable firmware only; one worker.
 
-- [ ] **Step 1:** Docked = USB power and a battery, and either the home network or no Wi-Fi joined at all (a joined
+- [x] **Step 1:** Docked = USB power and a battery, and either the home network or no Wi-Fi joined at all (a joined
   non-home network still isn't docked). Native tests for each case. Spec 8.4 note.
-- [ ] **Step 2:** A small battery and percent at the top of the main screens (green while charging, amber at 20% or
+- [x] **Step 2:** A small battery and percent at the top of the main screens (green while charging, amber at 20% or
   less, nothing with no battery), redrawn only on a change. `docs/handheld-ui.md`, todo F2.
 - [ ] **Step 3: Verify (Leo):** on the dock with no Wi-Fi joined, Trackie goes to sleep (Docked); off it, the percent
   shows on each screen.
