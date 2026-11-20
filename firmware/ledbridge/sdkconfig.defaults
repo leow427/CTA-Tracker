@@ -2,8 +2,10 @@
 # IDF's default, UART0 plus USB-Serial-JTAG as secondary.
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-# One 1.5 MB app: Wi-Fi, mDNS and the HTTP client don't fit the default 1 MB one with room to spare
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+# Two OTA slots (partitions.csv) for POST /ota; a new image that never marks itself valid rolls back at the next boot
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_FREERTOS_HZ=1000
 # Never above WARN, as on the dock
 CONFIG_LOG_DEFAULT_LEVEL_WARN=y

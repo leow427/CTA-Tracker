@@ -20,7 +20,8 @@ The LED board's SN74AHCT125 takes the S3's 3.3 V data.
 ## Build and flash
 
 Any ESP32-S3 board: the build assumes 4 MB flash and no PSRAM. It needs `firmware/secrets.h` (git-ignored; template
-`firmware/secrets.example.h`) with `DOCK_WIFI_SSID` / `DOCK_WIFI_PASS`, and uses `WIFI_MAC` too if it's set.
+`firmware/secrets.example.h`) with `DOCK_WIFI_SSID` / `DOCK_WIFI_PASS`, and uses `WIFI_MAC` and
+`LEDBRIDGE_OTA_KEY` too if they're set.
 
 ```bash
 cd firmware/ledbridge
@@ -35,11 +36,27 @@ cd firmware/ledbridge
   PlatformIO folder, `~/.platformio-dock`, so don't build both at once.
 - Serial at 115200 on the same port: the IDF console is on UART0 and USB-Serial-JTAG.
 
+## Updating over Wi-Fi (OTA)
+
+With `LEDBRIDGE_OTA_KEY` set in `firmware/secrets.h`, the bridge takes a new `firmware.bin` on `POST /ota` (port 80)
+with the key in an `X-OTA-Key` header; without it, OTA is off. Build, then send the image:
+
+```bash
+curl --data-binary @$HOME/.platformio-ledbridge/build/ledbridge/firmware.bin -H "X-OTA-Key: <key>" http://<bridge-ip>/ota
+```
+
+- The bridge's IP is in its serial log (`ledbridge: Wi-Fi joined, IP …`); `ledbridge.local` works too where mDNS
+  does (`ping ledbridge.local`).
+- It writes the other of two app slots (`partitions.csv`), reboots into it and logs the running version at boot. A
+  new image keeps itself once it has joined Wi-Fi; one that reboots before that rolls back to the old one. A new
+  image that hangs without rebooting doesn't roll back: flash it over USB.
+- The first flash with this layout must be over USB.
+
 ## What boot should look like
 
 1. Self-test, before Wi-Fi: each LED lights dim white in chain order, row 1 LED 1 to row 3 LED 7, about 50 ms each
    (about 1 s in all), then all go off. A gap or a wrong order is a wiring or chain fault.
-2. Serial: `ledbridge: Wi-Fi joined`, `ledbridge: dock found at <ip>`, `ledbridge: first good frame`. The rows then
+2. Serial: `ledbridge: running <version>`, then `ledbridge: Wi-Fi joined, IP <ip>`, `ledbridge: dock found at <ip>`, `ledbridge: first good frame`. The rows then
    follow the dock.
 3. `ledbridge: fetch failed (N in a row)` at most every 10 s while the dock doesn't answer; after about 3 s of
    failures the bridge asks mDNS for the dock again.

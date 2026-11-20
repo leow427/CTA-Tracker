@@ -7,8 +7,11 @@
 
 #include <driver/rmt_encoder.h>
 #include <driver/rmt_tx.h>
+#include <esp_app_desc.h>
 #include <esp_event.h>
 #include <esp_http_client.h>
+#include <esp_http_server.h>
+#include <esp_ota_ops.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
@@ -25,6 +28,9 @@
 #endif
 #ifndef DOCK_WIFI_PASS
 #define DOCK_WIFI_PASS ""
+#endif
+#ifndef LEDBRIDGE_OTA_KEY
+#define LEDBRIDGE_OTA_KEY ""   // undefined or empty: no POST /ota
 #endif
 
 // The LED board's DATA screw. GPIO 4: not a strapping, USB or flash/PSRAM pin, and on every common S3 board.
@@ -117,7 +123,7 @@ void onWifiEvent(void*, esp_event_base_t base, int32_t id, void*) {
 void wifiStart() {
     esp_netif_init();
     esp_event_loop_create_default();
-    esp_netif_set_hostname(esp_netif_create_default_wifi_sta(), "cta-ledbridge");
+    esp_netif_set_hostname(esp_netif_create_default_wifi_sta(), "ledbridge");
     const wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
@@ -198,9 +204,73 @@ bool fetch(uint32_t ip) {
     return true;
 }
 
+// ---------- OTA: POST /ota, the raw firmware.bin, with header X-OTA-Key ----------
+esp_err_t say(httpd_req_t* r, const char* status, const char* body) {
+    httpd_resp_set_status(r, status);
+    httpd_resp_sendstr(r, body);
+    return ESP_OK;
+}
+
+bool keyOk(httpd_req_t* r) {
+    char got[96] = "";
+    httpd_req_get_hdr_value_str(r, "X-OTA-Key", got, sizeof(got));
+    const char* want = LEDBRIDGE_OTA_KEY;
+    const size_t n = strlen(want);
+    if (strlen(got) != n) return false;
+    uint8_t diff = 0;   // every byte compared, so the time says nothing about the key
+    for (size_t i = 0; i < n; ++i) diff |= got[i] ^ want[i];
+    return diff == 0;
+}
+
+esp_err_t postOta(httpd_req_t* r) {
+    if (!keyOk(r)) return say(r, "401 Unauthorized", "bad key\n");
+    const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr);
+    esp_ota_handle_t h;
+    if (!p || esp_ota_begin(p, OTA_WITH_SEQUENTIAL_WRITES, &h) != ESP_OK) return say(r, "500 Internal Server Error", "no slot\n");
+    printf("ledbridge: OTA of %u bytes to %s\n", static_cast<unsigned>(r->content_len), p->label);
+    static char buf[1024];
+    int timeouts = 0;
+    for (size_t left = r->content_len; left > 0;) {
+        const int n = httpd_req_recv(r, buf, std::min(left, sizeof(buf)));
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+        if (n <= 0 || esp_ota_write(h, buf, n) != ESP_OK) {
+            esp_ota_abort(h);
+            printf("ledbridge: OTA failed while receiving\n");
+            return say(r, "500 Internal Server Error", "write failed\n");
+        }
+        left -= n;
+    }
+    if (esp_ota_end(h) != ESP_OK || esp_ota_set_boot_partition(p) != ESP_OK) {   // end checks the image
+        printf("ledbridge: OTA image refused\n");
+        return say(r, "400 Bad Request", "bad image\n");
+    }
+    say(r, "200 OK", "ok, rebooting\n");
+    printf("ledbridge: OTA done, rebooting\n");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
+void otaStart() {
+    if (!LEDBRIDGE_OTA_KEY[0]) {
+        printf("ledbridge: OTA off (no LEDBRIDGE_OTA_KEY)\n");
+        return;
+    }
+    httpd_handle_t server = nullptr;
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.recv_wait_timeout = 10;
+    const httpd_uri_t uri = {"/ota", HTTP_POST, postOta, nullptr};
+    if (httpd_start(&server, &cfg) == ESP_OK && httpd_register_uri_handler(server, &uri) == ESP_OK)
+        printf("ledbridge: OTA on port 80, POST /ota\n");
+    else
+        printf("ledbridge: OTA server didn't start\n");
+}
+
 }  // namespace
 
 extern "C" void app_main() {
+    const esp_app_desc_t* app = esp_app_get_description();
+    printf("ledbridge: running %s (%s %s)\n", app->version, app->date, app->time);
     printf("ledbridge: LED data on GPIO %d\n", LED_DATA_PIN);
     if (!ledSetUp()) {
         printf("ledbridge: RMT setup failed\n");
@@ -216,6 +286,7 @@ extern "C" void app_main() {
     }
     wifiStart();
     mdns_init();
+    mdns_hostname_set("ledbridge");   // ledbridge.local
     uint32_t dockIp = 0, lastJoin = 0, lastFailLog = 0;
     int failures = 0;
     bool joined = false, first = true, joining = false;
@@ -233,7 +304,16 @@ extern "C" void app_main() {
         joining = false;
         if (!joined) {
             joined = true;
-            printf("ledbridge: Wi-Fi joined\n");
+            esp_netif_ip_info_t ip = {};
+            esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip);
+            printf("ledbridge: Wi-Fi joined, IP " IPSTR " (ledbridge.local)\n", IP2STR(&ip.ip));
+            static bool up = false;
+            if (!up) {
+                up = true;
+                otaStart();
+                // On the network with OTA reachable: keep this image (a new one that never got here rolls back).
+                esp_ota_mark_app_valid_cancel_rollback();
+            }
         }
         if (!dockIp) {
             dockIp = findDock();
