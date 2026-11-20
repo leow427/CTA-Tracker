@@ -12,6 +12,7 @@
 #include <freertos/queue.h>
 #include <string.h>
 
+#include "net.h"
 #include "pins.h"
 
 namespace leds {
@@ -78,7 +79,7 @@ void ledTask(void*) {
         if (!have) continue;
         const uint32_t ms = nowMs();
         cta::ledFrame(in.rows, in.now ? in.now + (ms - in.postedMs) / 1000 : 0, in.night, LED_MAX_BRIGHTNESS, ms, rgb);
-        if (memcmp(rgb, last, sizeof(rgb)) == 0) continue;
+        if (memcmp(rgb, last, sizeof(rgb)) == 0 && !net::fake()) continue;   // fake data: send every tick (data pin tests)
         memcpy(last, rgb, sizeof(rgb));
         show(rgb);   // brightness is already in the colors (cta::ledFrame caps it)
     }

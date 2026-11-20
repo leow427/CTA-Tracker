@@ -12,7 +12,7 @@
 // default picks back, "g" times the drawing primitives over the next frame. Tearing diagnostics: "0" all off, "1" freeze
 // the screen, "2" a static test pattern, "3" Wi-Fi off/on, "4" single buffer, "5" the next panel timing, "6" the panel restart after a late frame off/on; "f" sends the frame on screen
 // (tools/frame_grab.py), "l" prints the LED colors, "w" checks that the dock's Wi-Fi network is on the
-// air, "x" swaps sections 1 and 2 (a real flash write), "z" powers down (LEDs and backlight off, deep sleep).
+// air, "x" swaps sections 1 and 2 (a real flash write), "k" fake arrivals and LED positions on/off (no CTA calls), "z" powers down (LEDs and backlight off, deep sleep).
 // The link (ecosystem spec 5.4): "R" forgets the token and reboots to pairing (as POST /reset and three fingers held
 // 10 s anywhere on screen do); "T <32 hex>" sets the household token by hand, as POST /pair does (never echoed).
 #include <stdio.h>
@@ -289,6 +289,9 @@ void pollSerial() {
             diagStep = c == '.' ? 0 : static_cast<char>(c);
             forceFrame = true;
             uprintf("diag: step %c\n", c);
+        } else if (c == 'k') {
+            net::setFake(!net::fake());
+            uprintf("test: fake train data %s\n", net::fake() ? "on" : "off");
         } else if (c == 'w') {
             net::checkWifi();
         } else if (c == 'l') {
@@ -550,7 +553,7 @@ void loop() {
     clock.night = clock.now && cta::inNightHours(localMinute(clock.now), linkCfg.settings.nightStart, linkCfg.settings.nightEnd);
     clock.screen = static_cast<uint8_t>(linkCfg.settings.screen);
 #ifdef PERF_LOG
-    if (stress::running()) clock.night = false;   // runs keep daytime polling and look at any hour
+    if (stress::running() || net::fake()) clock.night = false;   // runs keep daytime polling and look at any hour
 #endif
     net::setSlow(clock.night);
     if (ms / 500 != lastHalf) { lastHalf = ms / 500; dirty = true; }

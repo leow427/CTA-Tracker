@@ -32,6 +32,9 @@ bool readLists(dock::PickerLists& out, uint32_t& version);
 void checkWifi();
 // Diagnostic: the radio off (nothing polled) or back on.
 void setWifiOff(bool off);
+// Test: made-up arrivals and LED positions every 10 s instead of CTA (serial "k" toggles).
+void setFake(bool on);
+bool fake();
 // Wi-Fi joined with an IP (any task).
 bool wifiUp();
 // Unix time once the clock is set, else 0.

@@ -88,6 +88,11 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
   app drops a pin the wearable cleared, so it isn't resent.
 - **Rewrite git history for the network name in old commit f9ed1e2?** The repo is public. Leo's call.
 
+## Found 2026-11-19
+
+- **The dock boots into fake train data** (`fakeData = true` in `firmware/dock/src/net.cpp`; serial `k` toggles it) while
+  the CTA API is down, for the LED board tests. Set it back to `false` and reflash before the showcase.
+
 ## Found 2026-11-16
 
 - ~~**The setup flow's Wi-Fi step says "Couldn't join. Check the password." for every failure.**~~ Done 2026-11-17:

@@ -90,6 +90,9 @@ volatile uint32_t nRequests = 0;
 volatile bool joinFailed = false;
 volatile bool scanWanted = false;   // the serial "w" check
 volatile bool wifiOff = false;      // the diagnostic "Wi-Fi off" mode
+// Serial "k": made-up arrivals and positions, nothing fetched. shortcut: on at boot while the CTA API is down (Leo
+// 2026-11-19, LED board tests); set back to false for the showcase.
+volatile bool fakeData = true;
 volatile uint8_t discReason = 0;    // the last disconnect's reason, and how many there have been (the event handler)
 volatile uint32_t discCount = 0;
 volatile bool gotIp = false;        // Wi-Fi joined with an IP (the event handler)
@@ -521,6 +524,47 @@ void reportScan() {
            nearMiss ? " (but a near match is: check upper/lower case and extra characters)" : "");
     heap_caps_free(aps);
     esp_wifi_clear_ap_list();
+}
+
+// Serial "k": every picked section gets 3 live arrivals and two vehicles walking down its LED row, every 10 s.
+void fakeSections(uint32_t now) {
+    static uint8_t step = 0;
+    ++step;
+    if (!clockSet()) {   // no network: a daytime clock, so the LED rows count as fresh (SNTP corrects it later)
+        timeval tv = {1795111200, 0};
+        settimeofday(&tv, nullptr);
+        now = nowUnix();
+    }
+    for (int i = 0; i < cta::kDockStops; ++i) {
+        cta::PickedStop& p = building->sec[i].pick;
+        if (!p.id[0]) {   // an empty section gets a bus, so every LED row has something on it
+            p = cta::PickedStop{};
+            p.type = cta::Kind::Bus;
+            snprintf(p.route, sizeof(p.route), "22");
+            snprintf(p.dir, sizeof(p.dir), "Southbound");
+            snprintf(p.id, sizeof(p.id), "1828");
+            snprintf(p.name, sizeof(p.name), "Clark & Belmont");
+        }
+        cta::StopRecord r;
+        memset(&r, 0, sizeof(r));
+        r.type = p.type;
+        snprintf(r.id, sizeof(r.id), "%s", p.id);
+        snprintf(r.route, sizeof(r.route), "%s", p.route);
+        snprintf(r.dir, sizeof(r.dir), "%.24s", p.dir);
+        snprintf(r.name, sizeof(r.name), "%s", p.name);
+        r.count = 3;
+        for (int k = 0; k < 3; ++k) {
+            cta::Arrival& a = r.arrivals[k];
+            a.min = static_cast<int16_t>((k * 6 + i * 2 + 12 - step % 12) % 20);   // counts down, wraps
+            snprintf(a.dest, sizeof(a.dest), "Test");
+            a.live = true;
+            snprintf(a.vehicle, sizeof(a.vehicle), "9%d%d", i, k);
+        }
+        r.ts = now;
+        building->sec[i].rec = r;
+        building->sec[i].mask = static_cast<uint8_t>((1u << ((step + i * 2) % 6)) | (1u << ((step + i * 2 + 3) % 6)));
+        building->sec[i].posTs = now;
+    }
 }
 
 // ---------- picks ----------
@@ -990,6 +1034,18 @@ void netTask(void*) {
             joining = false;
             uprintf("net: Wi-Fi back on\n");
         }
+        if (fakeData) {   // serial "k": no Wi-Fi, clock or CTA needed
+            static uint32_t fakeAt = 0;
+            if (!fakeAt || nowMs() - fakeAt >= 10000) {
+                fakeAt = nowMs();
+                fakeSections(nowUnix());
+                setStatus("");
+                publish();
+            }
+            takePendingPicks();
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
         if (lostIp) {   // as Arduino did on a lost lease: leave and rejoin through the usual path below
             lostIp = false;
             const uint32_t before = discCount;
@@ -1165,6 +1221,8 @@ bool readLists(dock::PickerLists& out, uint32_t& version) {
 
 void checkWifi() { scanWanted = true; }
 void setWifiOff(bool off) { wifiOff = off; }
+void setFake(bool on) { fakeData = on; }
+bool fake() { return fakeData; }
 
 bool wifiUp() { return gotIp; }
 
