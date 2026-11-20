@@ -7,6 +7,7 @@
 #include <freertos/task.h>
 
 #include "clock_ms.h"
+#include <driver/gpio.h>
 #include <driver/rmt_encoder.h>
 #include <driver/rmt_tx.h>
 #include <freertos/queue.h>
@@ -30,6 +31,9 @@ struct Input {
     bool night;
 };
 QueueHandle_t mailbox;
+// Test (no scope): true makes the data pin plain GPIO, 5 s at 3.3 V then 5 s at 0 V with what the pad reads on serial,
+// and sends no frames, so a meter can trace the line to the route board (Leo 2026-11-19).
+constexpr bool kPinTest = false;
 
 // Our own RMT channel with a zeroed config: a channel config built on the stack with a leftover flags.allow_pd bit
 // is refused by the ESP32-S3, which made the LEDs fail at random boots under the old NeoPixel library.
@@ -44,8 +48,9 @@ bool setUp() {
     cc.mem_block_symbols = 48;     // one block, refilled from the interrupt while sending
     cc.trans_queue_depth = 1;
     rmt_bytes_encoder_config_t ec = {};
-    // WS2812B bits at 0.1 µs: a 0 is 0.4 µs high then 0.8 µs low, a 1 is 0.8 µs high then 0.4 µs low.
-    ec.bit0.level0 = 1; ec.bit0.duration0 = 4; ec.bit0.level1 = 0; ec.bit0.duration1 = 8;
+    // WS2812B bits at 0.1 µs: a 0 is 0.3 µs high then 0.9 µs low, a 1 is 0.8 µs high then 0.4 µs low. The route board's
+    // WS2812B-B-V6 is a newer part: its 0 must be high 0.22–0.38 µs (older WS2812B: 0.25–0.55), so 0.4 was too long.
+    ec.bit0.level0 = 1; ec.bit0.duration0 = 3; ec.bit0.level1 = 0; ec.bit0.duration1 = 9;
     ec.bit1.level0 = 1; ec.bit1.duration0 = 8; ec.bit1.level1 = 0; ec.bit1.duration1 = 4;
     ec.flags.msb_first = 1;
     return rmt_new_tx_channel(&cc, &chan) == ESP_OK && rmt_new_bytes_encoder(&ec, &encoder) == ESP_OK &&
@@ -66,6 +71,17 @@ void show(const uint32_t* rgb) {
 }
 
 void ledTask(void*) {
+    if (kPinTest) {   // plain GPIO, no RMT: 5 s at 3.3 V, 5 s at 0 V, with what the pad itself reads
+        const gpio_num_t pin = static_cast<gpio_num_t>(LED_DATA_PIN);
+        gpio_reset_pin(pin);
+        gpio_set_direction(pin, GPIO_MODE_INPUT_OUTPUT);
+        for (int high = 1;; high ^= 1) {
+            gpio_set_level(pin, high);
+            vTaskDelay(pdMS_TO_TICKS(10));
+            uprintf("leds test: GPIO %d set %d, reads %d\n", LED_DATA_PIN, high, gpio_get_level(pin));
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        }
+    }
     if (!setUp()) {
         uprintf("leds: RMT channel setup failed\n");
         vTaskDelete(nullptr);
