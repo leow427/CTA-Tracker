@@ -30,7 +30,8 @@ The bridge must share a network with the dock. It knows two from `secrets.h`, sk
 2. the handheld's, `WIFI_SSID` / `WIFI_PASS`, joined as WPA2-Personal (`WIFI_EAP_USER` is ignored).
 
 It scans and joins the first of the two in sight. On a drop, or after 60 s on a network without finding the dock, it
-moves to the other one if it's in sight. Serial names the pair ("dock net" or "handheld net"), never the network.
+moves to the other one if it's in sight. If neither shows in the scan (a hidden network), it tries them directly, in
+turn every 15 s. Serial names the pair ("dock net" or "handheld net"), never the network.
 
 ```bash
 cd firmware/ledbridge

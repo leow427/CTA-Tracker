@@ -161,7 +161,8 @@ void netsFromSecrets() {
 }
 
 // Scans, then the first of the two networks in sight, in order, leaving out the slots in skip (the one just left)
-// unless nothing else is in sight; -1 if neither is.
+// unless nothing else is in sight. If neither is seen (hidden, or a missed beacon), a direct try at the first set one
+// not in skip, so the 15 s join timeout alternates them; -1 only if neither is set.
 int pickNet(uint8_t skip) {
     static wifi_ap_record_t aps[20];
     uint16_t n = 20;
@@ -172,6 +173,9 @@ int pickNet(uint8_t skip) {
     for (uint8_t mask : {skip, uint8_t(0)})
         for (int slot = 0; slot < 2; ++slot)   // strongestSaved with every other slot skipped: is this one in sight?
             if (!(mask & 1u << slot) && cta::strongestSaved(nets, seen, n, ~(1u << slot) & 0xFF) == slot) return slot;
+    for (uint8_t mask : {skip, uint8_t(0)})
+        for (int slot = 0; slot < 2; ++slot)
+            if (!(mask & 1u << slot) && nets.nets[slot].ssid[0]) return slot;
     return -1;
 }
 
@@ -336,7 +340,7 @@ extern "C" void app_main() {
                     printf("ledbridge: joining the %s\n", kNetName[slot]);
                     wifiJoin(nets.nets[slot]);
                 } else {
-                    printf("ledbridge: neither network in sight\n");
+                    printf("ledbridge: no network set in secrets.h\n");
                 }
                 lastJoin = nowMs();
                 joining = slot >= 0;
