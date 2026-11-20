@@ -78,3 +78,15 @@ phone is on the showcase network (for the dock) and has Bluetooth on (for Tracki
 - **Trackie stops updating:** bring the phone closer; reopen the app (the relay runs while the app is open).
 - **The dock shows offline in the app:** check the phone is on the showcase network; the dock rejoins on its own.
 - **Anything stuck:** reset that device (Pair again) and pair it again; it takes under a minute.
+
+## If the dock's LED wire fails
+
+The LED bridge (`firmware/ledbridge/README.md`) is a spare ESP32-S3 that drives the route board from the dock's
+`GET /leds` over the same Wi-Fi.
+
+- Before the demo: flash it, wire S3 GPIO 4 to the board's DATA screw, GND to GND, and the board's 5 V to the S3's
+  5V pin. Leave the dock's LED wire unplugged.
+- At power-up the 21 LEDs light one by one, then go dark until the bridge finds the dock (a few seconds after
+  both are on Wi-Fi). From then on the rows match the dock, LED 7 breathing included.
+- If they stay dark after the self-test, check the dock is on the network (the app shows it online), then reset the
+  bridge.

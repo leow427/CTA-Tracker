@@ -1,8 +1,9 @@
 #pragma once
-// The dock's HTTP link on the home network (ecosystem spec 4.2–4.4): GET /info, GET/POST /config, POST /pair,
-// POST /reset on port 80, announced over mDNS as _ctatracker._tcp. Handlers run on the httpd task (core 0): they
-// check the body's size (413), the token (401) and the JSON (400), copy a good write into an inbox under a mutex and
-// answer at once; the frame loop only drains the inbox (take) and publishes what GET serves (setInfo, setConfig).
+// The dock's HTTP link on the home network (ecosystem spec 4.2–4.4): GET /info, GET /leds (the LED bridge),
+// GET/POST /config, POST /pair, POST /reset on port 80, announced over mDNS as _ctatracker._tcp. Handlers run on the
+// httpd task (core 0): they check the body's size (413), the token (401) and the JSON (400), copy a good write into an
+// inbox under a mutex and answer at once; the frame loop only drains the inbox (take) and publishes what GET serves
+// (setInfo, setConfig).
 #include <stddef.h>
 #include <stdint.h>
 

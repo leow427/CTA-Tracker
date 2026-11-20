@@ -24,4 +24,11 @@ struct LedRow {
 void ledFrame(const LedRow rows[kLedRows], uint32_t now, bool night, uint8_t maxBrightness, uint32_t ms,
               uint32_t out[kLedCount]);
 
+// The LED state as one line of space-separated decimals, for the dock's GET /leds (the LED bridge board reads it):
+// "now night" then "mask rgb ts due" for each row, e.g. "1763500000 0 96 14949155 1763499990 1 0 0 0 0 0 0 0 0".
+// Writes at most n bytes (with the NUL) and returns the length, as snprintf does.
+int formatLedState(char* out, int n, const LedRow rows[kLedRows], uint32_t now, bool night);
+// Reads formatLedState's line. False on short, garbage or out-of-range input, leaving the outputs untouched.
+bool parseLedState(const char* s, LedRow rows[kLedRows], uint32_t* now, bool* night);
+
 }  // namespace cta

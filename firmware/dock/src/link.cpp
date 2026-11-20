@@ -17,6 +17,7 @@
 #include <new>
 
 #include "cta_config.h"
+#include "leds.h"
 #include "net.h"
 
 namespace lan {
@@ -64,6 +65,21 @@ esp_err_t getInfo(httpd_req_t* r) {
     snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? reinterpret_cast<const char*>(ap.ssid) : "");
     char buf[cta::kMaxInfo];   // an SSID of escaped control bytes makes it up to 530 bytes
     return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
+}
+
+// The LED rows for the LED bridge board (firmware/ledbridge), as cta::formatLedState's line. No token: read-only,
+// and LED colors aren't private. 503 before the loop's first post.
+esp_err_t getLeds(httpd_req_t* r) {
+    cta::LedRow rows[cta::kLedRows];
+    uint32_t now;
+    bool night;
+    char buf[128];
+    if (!leds::last(rows, now, night)) return reply(r, "503 Service Unavailable", "");
+    cta::formatLedState(buf, sizeof(buf), rows, now, night);
+    httpd_resp_set_type(r, "text/plain");
+    httpd_resp_send(r, buf, HTTPD_RESP_USE_STRLEN);
+    noteStack();
+    return ESP_OK;
 }
 
 esp_err_t getConfig(httpd_req_t* r) {
@@ -175,7 +191,7 @@ void start(const char* hostLabel) {
     // mutex, parse, ask the Wi-Fi driver for the network's name, and answer; saving is the loop's job.
     cfg.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     cfg.max_open_sockets = 3;   // the app and a tool at once; each socket costs internal RAM in lwIP
-    cfg.max_uri_handlers = 5;
+    cfg.max_uri_handlers = 6;
     cfg.lru_purge_enable = true;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         uprintf("link: httpd didn't start\n");
@@ -185,6 +201,7 @@ void start(const char* hostLabel) {
     uprintf("link: httpd up; internal free %u\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     const httpd_uri_t uris[] = {
         {"/info", HTTP_GET, getInfo, nullptr},
+        {"/leds", HTTP_GET, getLeds, nullptr},
         {"/config", HTTP_GET, getConfig, nullptr},
         {"/config", HTTP_POST, post, nullptr},
         {"/pair", HTTP_POST, postPair, nullptr},

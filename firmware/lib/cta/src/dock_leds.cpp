@@ -1,6 +1,9 @@
 #include "dock_leds.h"
 
+#include <errno.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "cta_config.h"
 
@@ -28,6 +31,47 @@ void ledFrame(const LedRow rows[kLedRows], uint32_t now, bool night, uint8_t max
             out[ledIndex(r, i)] = k > 0 ? scaled(row.rgb, k * cap) : 0;
         }
     }
+}
+
+}  // namespace cta
+
+namespace cta {
+
+int formatLedState(char* out, int n, const LedRow rows[kLedRows], uint32_t now, bool night) {
+    int len = snprintf(out, n, "%lu %d", (unsigned long)now, night ? 1 : 0);
+    for (int r = 0; r < kLedRows; ++r)
+        len += snprintf(len < n ? out + len : nullptr, len < n ? n - len : 0, " %u %lu %lu %d", rows[r].mask,
+                        (unsigned long)rows[r].rgb, (unsigned long)rows[r].ts, rows[r].due ? 1 : 0);
+    return len;
+}
+
+bool parseLedState(const char* s, LedRow rows[kLedRows], uint32_t* now, bool* night) {
+    constexpr int kFields = 2 + 4 * kLedRows;
+    // Field limits: now, night, then mask, rgb, ts, due per row.
+    static const unsigned long kMax[4] = {255, 0xFFFFFF, 0xFFFFFFFF, 1};
+    unsigned long v[kFields];
+    for (int i = 0; i < kFields; ++i) {
+        while (*s == ' ') ++s;
+        if (*s < '0' || *s > '9') return false;   // no sign, no empty field
+        char* end;
+        errno = 0;
+        v[i] = strtoul(s, &end, 10);
+        const unsigned long max = i == 0 ? 0xFFFFFFFF : i == 1 ? 1 : kMax[(i - 2) % 4];
+        if (errno || v[i] > max || (*end != ' ' && *end != '\0' && *end != '\n' && *end != '\r')) return false;
+        s = end;
+    }
+    while (*s == ' ' || *s == '\r' || *s == '\n') ++s;
+    if (*s) return false;
+    *now = v[0];
+    *night = v[1];
+    for (int r = 0; r < kLedRows; ++r) {
+        const unsigned long* f = v + 2 + 4 * r;
+        rows[r].mask = f[0];
+        rows[r].rgb = f[1];
+        rows[r].ts = f[2];
+        rows[r].due = f[3];
+    }
+    return true;
 }
 
 }  // namespace cta

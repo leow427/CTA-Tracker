@@ -427,6 +427,63 @@ static void test_dock_veil() {
     TEST_ASSERT_EQUAL_FLOAT(0.8f, cta::dockVeil(false, 0));
 }
 
+// ---------- LED state line (GET /leds, the LED bridge) ----------
+
+static void test_led_state_round_trip() {
+    cta::LedRow rows[cta::kLedRows];
+    rows[0].mask = 0x60; rows[0].rgb = 0xE41B23; rows[0].ts = 1763499990; rows[0].due = true;
+    rows[2].mask = 0x7F; rows[2].rgb = 0xFFFFFF; rows[2].ts = 0xFFFFFFFF;
+    char line[160];
+    const int len = cta::formatLedState(line, sizeof(line), rows, 1763500000, true);
+    TEST_ASSERT_EQUAL((int)strlen(line), len);
+    TEST_ASSERT_EQUAL_STRING("1763500000 1 96 14949155 1763499990 1 0 0 0 0 127 16777215 4294967295 0", line);
+    cta::LedRow got[cta::kLedRows];
+    uint32_t now = 0;
+    bool night = false;
+    TEST_ASSERT_TRUE(cta::parseLedState(line, got, &now, &night));
+    TEST_ASSERT_EQUAL_UINT32(1763500000, now);
+    TEST_ASSERT_TRUE(night);
+    for (int r = 0; r < cta::kLedRows; ++r) {
+        TEST_ASSERT_EQUAL(rows[r].mask, got[r].mask);
+        TEST_ASSERT_EQUAL_UINT32(rows[r].rgb, got[r].rgb);
+        TEST_ASSERT_EQUAL_UINT32(rows[r].ts, got[r].ts);
+        TEST_ASSERT_EQUAL(rows[r].due, got[r].due);
+    }
+    char crlf[170];
+    snprintf(crlf, sizeof(crlf), "%s\r\n", line);
+    TEST_ASSERT_TRUE(cta::parseLedState(crlf, got, &now, &night));
+    TEST_ASSERT_EQUAL(len, cta::formatLedState(line, 5, rows, 1763500000, true));   // too small: cut, NUL-ended
+    TEST_ASSERT_EQUAL_STRING("1763", line);
+}
+
+static void test_led_state_rejects_garbage() {
+    const char* bad[] = {
+        "",
+        "1763500000 0",                                        // short
+        "1763500000 0 96 14948899 1763499990 1 0 0 0 0 0 0 0",  // one field short
+        "1763500000 0 96 14948899 1763499990 1 0 0 0 0 0 0 0 0 7",   // one too many
+        "1763500000 2 96 14948899 1763499990 1 0 0 0 0 0 0 0 0",     // night not 0/1
+        "1763500000 0 256 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // mask over 8 bits
+        "1763500000 0 96 16777216 1763499990 1 0 0 0 0 0 0 0 0",     // rgb over 24 bits
+        "1763500000 0 96 14948899 4294967296 1 0 0 0 0 0 0 0 0",     // ts over 32 bits
+        "1763500000 0 -96 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // sign
+        "1763500000 0 96x 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // junk in a field
+        "<html>404 Not Found</html>",
+    };
+    cta::LedRow rows[cta::kLedRows];
+    rows[1].mask = 5; rows[1].rgb = 0x123456;
+    uint32_t now = 42;
+    bool night = true;
+    for (const char* s : bad) {
+        TEST_ASSERT_FALSE_MESSAGE(cta::parseLedState(s, rows, &now, &night), s);
+        TEST_ASSERT_EQUAL_UINT32(42, now);
+        TEST_ASSERT_TRUE(night);
+        TEST_ASSERT_EQUAL(5, rows[1].mask);
+        TEST_ASSERT_EQUAL_UINT32(0x123456, rows[1].rgb);
+        TEST_ASSERT_EQUAL(0, rows[0].mask);
+    }
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_default_picks);
@@ -454,5 +511,7 @@ int main() {
     RUN_TEST(test_geo_worth_saving);
     RUN_TEST(test_gestures);
     RUN_TEST(test_picker_list_matches);
+    RUN_TEST(test_led_state_round_trip);
+    RUN_TEST(test_led_state_rejects_garbage);
     return UNITY_END();
 }

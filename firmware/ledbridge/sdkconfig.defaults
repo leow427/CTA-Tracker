@@ -1,0 +1,11 @@
+# The LED bridge on any ESP32-S3 dev board: 4 MB flash in DIO (every S3 module boots it), no PSRAM. The console is
+# IDF's default, UART0 plus USB-Serial-JTAG as secondary.
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# One 1.5 MB app: Wi-Fi, mDNS and the HTTP client don't fit the default 1 MB one with room to spare
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+CONFIG_FREERTOS_HZ=1000
+# Never above WARN, as on the dock
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+# The repo folder ("Final Project") has a space, which this flag (-fmacro-prefix-map) cannot take
+CONFIG_COMPILER_HIDE_PATHS_MACROS=n

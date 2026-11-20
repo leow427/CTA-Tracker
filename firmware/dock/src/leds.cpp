@@ -31,6 +31,10 @@ struct Input {
     bool night;
 };
 QueueHandle_t mailbox;
+// post()'s latest Input for last(), which runs on the httpd task: a copy behind a spinlock, held for a ~60-byte memcpy.
+portMUX_TYPE lastMux = portMUX_INITIALIZER_UNLOCKED;
+Input lastIn;
+bool posted = false;
 // Test (no scope): true makes the data pin plain GPIO, 5 s at 3.3 V then 5 s at 0 V with what the pad reads on serial,
 // and sends no frames, so a meter can trace the line to the route board (Leo 2026-11-19).
 constexpr bool kPinTest = false;
@@ -117,6 +121,22 @@ void post(const cta::LedRow rows[cta::kLedRows], uint32_t now, bool night) {
     in.postedMs = nowMs();
     in.night = night;
     xQueueOverwrite(mailbox, &in);
+    portENTER_CRITICAL(&lastMux);
+    lastIn = in;
+    posted = true;
+    portEXIT_CRITICAL(&lastMux);
+}
+
+bool last(cta::LedRow rows[cta::kLedRows], uint32_t& now, bool& night) {
+    portENTER_CRITICAL(&lastMux);
+    const Input in = lastIn;
+    const bool ok = posted;
+    portEXIT_CRITICAL(&lastMux);
+    if (!ok) return false;
+    memcpy(rows, in.rows, sizeof(in.rows));
+    now = in.now ? in.now + (nowMs() - in.postedMs) / 1000 : 0;
+    night = in.night;
+    return true;
 }
 
 }  // namespace leds

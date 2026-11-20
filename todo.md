@@ -92,6 +92,9 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
 
 - **The dock boots into fake train data** (`fakeData = true` in `firmware/dock/src/net.cpp`; serial `k` toggles it) while
   the CTA API is down, for the LED board tests. Set it back to `false` and reflash before the showcase.
+- **The route LED board stays dark on the dock's wire.** Leo is trying a soldered wire in place of the JST PH socket.
+  If that fails, flash `firmware/ledbridge` on a spare ESP32-S3 by the board (it reads the dock's `GET /leds` over
+  Wi-Fi); not yet tried on hardware.
 
 ## Found 2026-11-16
 

@@ -11,5 +11,8 @@ namespace leds {
 void begin();
 // The rows (mask, color, positions' time, due), the time, and night hours, as they stand now.
 void post(const cta::LedRow rows[cta::kLedRows], uint32_t now, bool night);
+// The last post (for GET /leds, read by the LED bridge board), its time moved on by the seconds since. Safe from any
+// task; false before the first post.
+bool last(cta::LedRow rows[cta::kLedRows], uint32_t& now, bool& night);
 
 }  // namespace leds
