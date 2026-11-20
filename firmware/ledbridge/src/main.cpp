@@ -99,7 +99,14 @@ cta::LedRow rows[cta::kLedRows];
 uint32_t dockNow = 0, gotMs = 0;
 bool night = false, have = false;
 
+// On core 1, away from Wi-Fi on core 0: the RMT channel's refill interrupt runs on the core that set it up, and Wi-Fi
+// holding it up garbles the colors further down the chain (as on the dock, whose quiet core is 0).
 void ledTask(void*) {
+    if (!ledSetUp()) {
+        printf("ledbridge: RMT setup failed\n");
+        vTaskDelete(nullptr);
+    }
+    selfTest();
     uint32_t rgb[cta::kLedCount] = {};
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(40));   // 25 Hz
@@ -137,12 +144,6 @@ void wifiStart() {
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, onWifiEvent, nullptr);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, onWifiEvent, nullptr);
     esp_wifi_set_mode(WIFI_MODE_STA);
-#ifdef WIFI_MAC
-    {
-        uint8_t mac[6] = WIFI_MAC;   // a replacement MAC from secrets.h, for a router that has blocked the board's own
-        printf("ledbridge: using the MAC from secrets.h%s\n", esp_wifi_set_mac(WIFI_IF_STA, mac) == ESP_OK ? "" : " (refused)");
-    }
-#endif
     esp_wifi_start();
     for (int i = 0; i < 200 && !staStarted; ++i) vTaskDelay(pdMS_TO_TICKS(10));   // joining before this fails
 }
@@ -293,6 +294,7 @@ void otaStart() {
     httpd_handle_t server = nullptr;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.recv_wait_timeout = 10;
+    cfg.stack_size = 6144;   // esp_ota_end checks the image's SHA-256 and partition headers on this task
     const httpd_uri_t uri = {"/ota", HTTP_POST, postOta, nullptr};
     if (httpd_start(&server, &cfg) == ESP_OK && httpd_register_uri_handler(server, &uri) == ESP_OK)
         printf("ledbridge: OTA on port 80, POST /ota\n");
@@ -306,12 +308,8 @@ extern "C" void app_main() {
     const esp_app_desc_t* app = esp_app_get_description();
     printf("ledbridge: running %s (%s %s)\n", app->version, app->date, app->time);
     printf("ledbridge: LED data on GPIO %d\n", LED_DATA_PIN);
-    if (!ledSetUp()) {
-        printf("ledbridge: RMT setup failed\n");
-        return;
-    }
-    selfTest();
-    xTaskCreate(ledTask, "leds", 3072, nullptr, 5, nullptr);
+    xTaskCreatePinnedToCore(ledTask, "leds", 3072, nullptr, 5, nullptr, 1);
+    vTaskDelay(pdMS_TO_TICKS(1200));   // the self-test (about 1 s) before Wi-Fi starts
 
     esp_err_t nvs = nvs_flash_init();   // the Wi-Fi driver needs NVS
     if (nvs == ESP_ERR_NVS_NO_FREE_PAGES || nvs == ESP_ERR_NVS_NEW_VERSION_FOUND) {

@@ -7,6 +7,8 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_FREERTOS_HZ=1000
+# The poll loop runs esp_http_client, mDNS queries and printf on the main task (default 3584)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 # Never above WARN, as on the dock
 CONFIG_LOG_DEFAULT_LEVEL_WARN=y
 # The repo folder ("Final Project") has a space, which this flag (-fmacro-prefix-map) cannot take

@@ -20,7 +20,7 @@ The LED board's SN74AHCT125 takes the S3's 3.3 V data.
 ## Build and flash
 
 Any ESP32-S3 board: the build assumes 4 MB flash and no PSRAM. It needs `firmware/secrets.h` (git-ignored; template
-`firmware/secrets.example.h`) and uses `WIFI_MAC` and `LEDBRIDGE_OTA_KEY` too if they're set.
+`firmware/secrets.example.h`) and uses `LEDBRIDGE_OTA_KEY` too if it's set. It keeps its own MAC (no `WIFI_MAC`).
 
 ## Networks
 
