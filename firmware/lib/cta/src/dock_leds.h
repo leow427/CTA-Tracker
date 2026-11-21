@@ -7,8 +7,10 @@ namespace cta {
 
 constexpr int kLedRows = 3, kLedsPerRow = 7, kLedCount = kLedRows * kLedsPerRow;
 constexpr int ledIndex(int row, int pos) { return row * kLedsPerRow + pos; }
-// One breath of LED 7: 2π × 300 ms, the mockup's sin(ms / 300), rounded to whole ms.
-constexpr uint32_t kLedBreathMs = 1885;
+// One pulse of LED 7 while a vehicle is at the stop, and its low point: fully off and back once a second, so it reads
+// from across a room (Leo 2026-11-21: the old 45-100% over 1.9 s was too subtle).
+constexpr uint32_t kLedBreathMs = 1000;
+constexpr float kLedPulseLow = 0.0f;
 
 // The look (spec 6.4), each tuned by eye on the board: a dim white track, vehicles in their line's LED color, and
 // the picked stop in a hue no line or bus uses.
@@ -26,7 +28,7 @@ struct LedRow {
 
 // Fills out (0xRRGGBB per LED, in chain order). A row with a pick shows the track on LEDs 1-6, kLedStopColor on
 // LED 7, and its vehicles (the mask) in rgb while its positions are at most kLedStaleSec old. While due and fresh,
-// LED 7 breathes in rgb instead (45-100%, a sine of period kLedBreathMs, its phase taken from ms modulo the period so
+// LED 7 pulses in rgb instead (kLedPulseLow to 100%, a sine of period kLedBreathMs, its phase taken from ms modulo the period so
 // it stays smooth at any uptime). Stale or never-fetched positions leave just the track and a steady stop (so a
 // bridge whose dock went quiet doesn't pulse forever). Everything is dark at night. Every channel is scaled by
 // maxBrightness / 255 (LED_MAX_BRIGHTNESS, spec 3) and the row's level, rounded.

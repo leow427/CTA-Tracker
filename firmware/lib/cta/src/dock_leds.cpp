@@ -19,7 +19,7 @@ uint32_t scaled(uint32_t rgb, float k) {
 void ledFrame(const LedRow rows[kLedRows], uint32_t now, bool night, uint8_t maxBrightness, uint32_t ms,
               uint32_t out[kLedCount]) {
     const float phase = (ms % kLedBreathMs) * (6.2831853f / kLedBreathMs);   // reduced first: exact at any uptime
-    const float breath = 0.45f + 0.55f * (0.5f + 0.5f * sinf(phase));
+    const float breath = kLedPulseLow + (1 - kLedPulseLow) * (0.5f + 0.5f * sinf(phase));
     for (int r = 0; r < kLedRows; ++r) {
         const LedRow& row = rows[r];
         const float cap = maxBrightness / 255.f * row.level / 100.f;

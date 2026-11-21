@@ -211,7 +211,7 @@ static void test_led_breath_keeps_its_shape_with_uptime() {
         cta::ledFrame(rows, 1000, false, 255, big + t + cta::kLedBreathMs, b);
         TEST_ASSERT_EQUAL_HEX32(a[6], b[6]);
     }
-    // And it still has its full range: 45% to 100%.
+    // And it still has its full range: kLedPulseLow to 100%.
     uint32_t lo = 0xFFFFFFFF, hi = 0;
     for (uint32_t t = 0; t < cta::kLedBreathMs; t += 5) {
         cta::ledFrame(rows, 1000, false, 255, big + t, b);
@@ -220,7 +220,7 @@ static void test_led_breath_keeps_its_shape_with_uptime() {
         hi = r8 > hi ? r8 : hi;
     }
     TEST_ASSERT_EQUAL_UINT32((red >> 16) & 255, hi);
-    TEST_ASSERT_UINT32_WITHIN(2, static_cast<uint32_t>(((red >> 16) & 255) * 0.45f + 0.5f), lo);
+    TEST_ASSERT_UINT32_WITHIN(2, static_cast<uint32_t>(((red >> 16) & 255) * cta::kLedPulseLow + 0.5f), lo);
 }
 
 static void test_same_pick() {
