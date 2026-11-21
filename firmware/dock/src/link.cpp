@@ -9,7 +9,9 @@
 #include "clock_ms.h"
 #include <esp_heap_caps.h>
 #include <esp_http_server.h>
+#include <esp_ota_ops.h>
 #include <esp_random.h>
+#include <esp_system.h>
 #include <esp_wifi.h>
 #include <mdns.h>
 #include <string.h>
@@ -19,6 +21,11 @@
 #include "cta_config.h"
 #include "leds.h"
 #include "net.h"
+#include "secrets.h"
+
+#ifndef DOCK_OTA_KEY
+#define DOCK_OTA_KEY ""   // undefined or empty: no POST /ota
+#endif
 
 namespace lan {
 
@@ -26,7 +33,8 @@ namespace {
 
 // A 1 KB body buffer plus about 700 B of parsing (ConfigMsg, decodePicks) on top of httpd's own needs, with headroom;
 // stackLeft() shows what's really used. The stack is in PSRAM (start()), so the headroom costs no internal RAM.
-constexpr size_t kStack = 8192;
+// 10 KB, not 8, for POST /ota: its 1 KB buffer plus esp_ota_end's image check (the LED bridge does that in 6 KB).
+constexpr size_t kStack = 10240;
 
 SemaphoreHandle_t mu;
 char token[cta::kTokenLen + 1] = "";
@@ -65,6 +73,57 @@ esp_err_t getInfo(httpd_req_t* r) {
     snprintf(m.ssid, sizeof(m.ssid), "%s", m.wifiConnected ? reinterpret_cast<const char*>(ap.ssid) : "");
     char buf[cta::kMaxInfo];   // an SSID of escaped control bytes makes it up to 530 bytes
     return cta::encodeInfo(m, buf, sizeof(buf)) ? reply(r, "200 OK", buf) : reply(r, "500 Internal Server Error", "{}");
+}
+
+// POST /ota: the raw firmware.bin, with header X-OTA-Key (DOCK_OTA_KEY; not the household token). The LED bridge's
+// handler (firmware/ledbridge/src/main.cpp). Writing flash from this PSRAM-stack task is safe: with XIP from PSRAM
+// (sdkconfig: SPIRAM_FETCH_INSTRUCTIONS + SPIRAM_RODATA) IDF never disables the cache for flash ops, so the panel
+// keeps drawing. No rollback (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is off): a bad image is fixed over USB.
+esp_err_t say(httpd_req_t* r, const char* status, const char* body) {
+    httpd_resp_set_status(r, status);
+    httpd_resp_sendstr(r, body);
+    noteStack();
+    return ESP_OK;
+}
+
+bool otaKeyOk(httpd_req_t* r) {
+    char got[96] = "";
+    httpd_req_get_hdr_value_str(r, "X-OTA-Key", got, sizeof(got));
+    const char* want = DOCK_OTA_KEY;
+    const size_t n = strlen(want);
+    if (strlen(got) != n) return false;
+    uint8_t diff = 0;   // every byte compared, so the time says nothing about the key
+    for (size_t i = 0; i < n; ++i) diff |= got[i] ^ want[i];
+    return diff == 0;
+}
+
+esp_err_t postOta(httpd_req_t* r) {
+    if (!otaKeyOk(r)) return say(r, "401 Unauthorized", "bad key\n");
+    const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr);
+    esp_ota_handle_t h;
+    if (!p || esp_ota_begin(p, OTA_WITH_SEQUENTIAL_WRITES, &h) != ESP_OK) return say(r, "500 Internal Server Error", "no slot\n");
+    uprintf("link: OTA of %u bytes to %s\n", static_cast<unsigned>(r->content_len), p->label);
+    char buf[1024];   // on the task's PSRAM stack: no internal RAM
+    int timeouts = 0;
+    for (size_t left = r->content_len; left > 0;) {
+        const int n = httpd_req_recv(r, buf, left < sizeof(buf) ? left : sizeof(buf));
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+        if (n <= 0 || esp_ota_write(h, buf, n) != ESP_OK) {
+            esp_ota_abort(h);
+            uprintf("link: OTA failed while receiving\n");
+            return say(r, "500 Internal Server Error", "write failed\n");
+        }
+        left -= n;
+    }
+    if (esp_ota_end(h) != ESP_OK || esp_ota_set_boot_partition(p) != ESP_OK) {   // end checks the image
+        uprintf("link: OTA image refused\n");
+        return say(r, "400 Bad Request", "bad image\n");
+    }
+    say(r, "200 OK", "ok, rebooting\n");
+    uprintf("link: OTA done, rebooting\n");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
 }
 
 // The LED rows for the LED bridge board (firmware/ledbridge), as cta::formatLedState's line. No token: read-only,
@@ -186,12 +245,12 @@ void start(const char* hostLabel) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.core_id = 0;   // never the frame loop's core
     cfg.stack_size = kStack;
-    // The task's stack in PSRAM (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY): internal RAM is for Wi-Fi and TLS. Safe
-    // because no handler touches flash or NVS (a task with an external stack must not): they read RAM under the
-    // mutex, parse, ask the Wi-Fi driver for the network's name, and answer; saving is the loop's job.
+    // The task's stack in PSRAM (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY): internal RAM is for Wi-Fi and TLS. The
+    // handlers read RAM under the mutex, parse, ask the Wi-Fi driver for the network's name, and answer; saving is the
+    // loop's job. Only /ota writes flash, which XIP from PSRAM makes safe from an external stack (see postOta).
     cfg.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     cfg.max_open_sockets = 3;   // the app and a tool at once; each socket costs internal RAM in lwIP
-    cfg.max_uri_handlers = 6;
+    cfg.max_uri_handlers = 7;
     cfg.lru_purge_enable = true;
     if (httpd_start(&server, &cfg) != ESP_OK) {
         uprintf("link: httpd didn't start\n");
@@ -208,6 +267,9 @@ void start(const char* hostLabel) {
         {"/reset", HTTP_POST, post, nullptr},
     };
     for (const httpd_uri_t& u : uris) httpd_register_uri_handler(server, &u);
+    const httpd_uri_t ota = {"/ota", HTTP_POST, postOta, nullptr};
+    if (!DOCK_OTA_KEY[0]) uprintf("link: OTA off (no DOCK_OTA_KEY)\n");
+    else if (httpd_register_uri_handler(server, &ota) == ESP_OK) uprintf("link: OTA on, POST /ota\n");
     const char* id = hostLabel + strlen(hostLabel) - 4;   // "xxxx"
     // _ctatracker._tcp with its underscores: Arduino's MDNS.addService("ctatracker", "tcp") added them, IDF doesn't.
     mdns_txt_item_t txt[] = {{"type", "dock"}, {"id", id}};

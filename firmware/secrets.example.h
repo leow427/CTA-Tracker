@@ -20,3 +20,6 @@
 
 // Optional: the LED bridge's OTA key (firmware/ledbridge, POST /ota with header X-OTA-Key). Undefined or empty = no OTA.
 // #define LEDBRIDGE_OTA_KEY ""
+
+// Optional: the dock's OTA key (firmware/dock, POST /ota with header X-OTA-Key). Undefined or empty = no OTA.
+// #define DOCK_OTA_KEY ""

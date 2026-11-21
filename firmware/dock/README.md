@@ -17,6 +17,18 @@ cd firmware/dock
 - `-e perf` is the same build plus the perf logger and the stress test (`tools/dock_perf_run.py` flashes and runs it).
 - Serial runs on the same port at 115200. Open it with DTR and RTS off: RTS on the CH343 holds the dock in reset.
 
+## Over-the-air updates
+
+With `DOCK_OTA_KEY` set in `secrets.h`, the dock takes a new build over Wi-Fi at `POST /ota` (the two app slots in
+`partitions.csv`; NVS, the pairing and the picks stay). The first install of an OTA-capable build needs a USB flash.
+
+```bash
+curl --data-binary @firmware.bin -H "X-OTA-Key: <key>" http://<dock>.local/ota
+```
+
+`firmware.bin` is in the build folder (`~/.platformio-dock/build/dock/dock/`). The dock checks the image, replies,
+and reboots into it. There's no rollback: a build that won't boot is fixed with a USB flash.
+
 ## Toolchain
 
 The dock is native ESP-IDF 5.4.1, built by PlatformIO (`framework = espidf`, pioarduino platform 54.03.20) in its

@@ -185,6 +185,7 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 | `POST /pin`, `DELETE /pin` | wearable | **new:** one picked stop, the `ConfigStop` shape `{type, route, dir, id, name}` | Step 5. |
 | `POST /follow`, `DELETE /follow` | wearable | **new:** `{type, route, dir, id, name, vehicle, dest}` | Step 6. `vehicle` is the train run number (`rn`) or bus vehicle ID (`vid`). |
 | `POST /reset` | both | `{}` | Forgets the token, then reboots fresh (section 5.4). The wearable also clears its bonds and makes a new Bluetooth address. |
+| `POST /ota` | dock | **new:** the raw `firmware.bin` | Over-the-air update. An `X-OTA-Key` header (`DOCK_OTA_KEY` in `secrets.h`), not the household token; no key set means no endpoint. `401` bad key, `400` bad image, `500` write failed; `200` then a reboot into the new slot. No rollback. |
 | `POST /token` | wearable | `{token}` | **Bluetooth only** (404 on HTTP). The household token, written after the bond. |
 | `POST /wifi` | wearable | `{slot, ssid, pass}`, slots 0–4 | **Bluetooth only** (404 on HTTP). Saves a network; the wearable rejoins strongest-first. |
 | `POST /relay` | wearable | `{now, wmo?, temp?}` | The relay tick: sets the clock if unset, weather if present; over Bluetooth it marks the wearable "relaying" for 90 s, and it stops its own CTA polling meanwhile. |
