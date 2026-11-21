@@ -822,10 +822,13 @@ void pollWeather(uint32_t now) {
 // One poll per call: bus patterns first (a new pick's LED row), then the train requests together (one connection),
 // then the buses, the weather, and the alerts. False when nothing was due.
 bool pollOne(uint32_t now) {
-    for (int i = 0; i < cta::kDockStops; ++i) {
+    static int patNext = 0;   // rotates, so a section whose patterns always fail can't keep the others from a try
+    for (int k = 0; k < cta::kDockStops; ++k) {
+        const int i = (patNext + k) % cta::kDockStops;
         Sec& s = secs[i];
         if (hasPick(s) && isBus(s) && !s.rowsReady && (s.patTried == 0 || now - s.patTried >= kRetrySec)) {
             pollPatterns(i, now);
+            patNext = (i + 1) % cta::kDockStops;
             return true;
         }
     }
