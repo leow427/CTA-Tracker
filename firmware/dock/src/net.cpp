@@ -617,7 +617,9 @@ bool takePendingPicks() {
 // ---------- the polls (spec 6.6) ----------
 
 uint32_t every(uint32_t sec) { return slow && sec < cta::kSlowPollSec ? cta::kSlowPollSec : sec; }
-uint32_t retryStamp(uint32_t now, uint32_t sec) { return now - every(sec) + kRetrySec; }
+// Retries count from when the failure ended, not from the fetch's start: a host that fails slowly (15–37 s) would
+// otherwise be due again at once, and failing bus patterns (pollOne's first pick) could starve everything else.
+uint32_t retryStamp(uint32_t sec) { return nowUnix() - every(sec) + kRetrySec; }
 bool due(uint32_t polled, uint32_t sec, uint32_t now) { return cta::pollDue(polled, sec, now, slow); }
 
 void pollPatterns(int i, uint32_t now) {
@@ -628,7 +630,11 @@ void pollPatterns(int i, uint32_t now) {
     const int code = get(url);
     const int n = code == 200 ? cta::buildBusRows(body, bodyLen, s.pick.id, s.rows, kRows) : -1;
     uprintf("net: patterns for route %s: HTTP %d, %d rows\n", s.pick.route, code, n);
-    if (n < 0) return;
+    if (n < 0) {
+        const uint32_t t = nowUnix();   // the retry counts from the failure's end (as retryStamp)
+        s.patTried = t ? t : 1;
+        return;
+    }
     s.nRows = n;
     s.rowsReady = true;
     s.opp = s.pick;
@@ -657,7 +663,7 @@ void pollTrainArrivals(int i, uint32_t now) {
     const bool ok = code == 200 && cta::parseTrainArrivals(body, bodyLen, now, r, s.pick.route);
     uprintf("net: trains %s: HTTP %d, %d arrivals, %u ms\n", s.pick.id, code, ok ? r.count : -1,
                   static_cast<unsigned>(nowMs() - t0));
-    if (!ok) { s.arrPolled = retryStamp(now, cta::kDockPollSec); return; }
+    if (!ok) { s.arrPolled = retryStamp(cta::kDockPollSec); return; }
     r.alert = s.alerted;
     building->sec[i].rec = r;
 }
@@ -676,7 +682,7 @@ void pollTrainPositions(int i, uint32_t now) {
     for (int j = 0; j < cta::kDockStops; ++j) {
         Sec& s = secs[j];
         if (!hasPick(s) || isBus(s) || strcmp(s.pick.route, route) != 0) continue;
-        if (n < 0) { s.posPolled = retryStamp(now, cta::kDockPollSec); continue; }
+        if (n < 0) { s.posPolled = retryStamp(cta::kDockPollSec); continue; }
         building->sec[j].mask = s.nRows ? cta::litMaskTrains(s.rows[0], pos, n) : 0;
         building->sec[j].posTs = now;
     }
@@ -699,7 +705,7 @@ void pollBusArrivals(uint32_t now) {
     cta::StopRecord* recs = busRecs;
     const int got = code == 200 ? cta::parseBusPredictions(body, bodyLen, now, nullptr, recs, kMaxBusRecs) : -1;
     uprintf("net: buses, %d stops: HTTP %d, %d records\n", n, code, got);
-    if (got < 0) { busPredPolled = retryStamp(now, cta::kDockPollSec); return; }
+    if (got < 0) { busPredPolled = retryStamp(cta::kDockPollSec); return; }
     for (int i = 0; i < cta::kDockStops; ++i) {
         const Sec& s = secs[i];
         if (!hasPick(s) || !isBus(s)) continue;
@@ -741,7 +747,7 @@ void pollBusPositions(uint32_t now) {
     for (int i = 0; i < cta::kDockStops; ++i) {
         Sec& s = secs[i];
         if (!hasPick(s) || !isBus(s)) continue;
-        if (got < 0) { s.posPolled = retryStamp(now, cta::kDockPollSec); continue; }
+        if (got < 0) { s.posPolled = retryStamp(cta::kDockPollSec); continue; }
         building->sec[i].mask = cta::litMaskBuses(s.rows, s.nRows, v, got);
         building->sec[i].posTs = now;
     }
@@ -763,7 +769,7 @@ void pollAlerts(uint32_t now) {
     bool alerted[cta::kDockStops] = {};
     const int got = code == 200 ? cta::parseAlertRoutes(body, bodyLen, routes, n, alerted) : -1;
     uprintf("net: alerts, %d routes: HTTP %d, %d alerted\n", n, code, got);
-    if (got < 0) { alertsPolled = retryStamp(now, cta::kAlertsPollSec); return; }
+    if (got < 0) { alertsPolled = retryStamp(cta::kAlertsPollSec); return; }
     for (int i = 0; i < cta::kDockStops; ++i) {
         Sec& s = secs[i];
         s.alerted = false;
@@ -804,7 +810,7 @@ void pollWeather(uint32_t now) {
     float t;
     const bool ok = code == 200 && cta::parseWeather(body, bodyLen, wmo, t);
     uprintf("net: weather: HTTP %d, %s\n", code, ok ? "ok" : "failed");
-    if (!ok) { weatherPolled = retryStamp(now, cta::kWeatherPollSec); return; }
+    if (!ok) { weatherPolled = retryStamp(cta::kWeatherPollSec); return; }
     building->hasWeather = true;
     building->wmo = wmo;
     building->tempC = t;
