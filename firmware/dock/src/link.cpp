@@ -33,8 +33,7 @@ namespace {
 
 // A 1 KB body buffer plus about 700 B of parsing (ConfigMsg, decodePicks) on top of httpd's own needs, with headroom;
 // stackLeft() shows what's really used. The stack is in PSRAM (start()), so the headroom costs no internal RAM.
-// 10 KB, not 8, for POST /ota: its 1 KB buffer plus esp_ota_end's image check (the LED bridge does that in 6 KB).
-constexpr size_t kStack = 10240;
+constexpr size_t kStack = 8192;
 
 SemaphoreHandle_t mu;
 char token[cta::kTokenLen + 1] = "";
@@ -76,13 +75,15 @@ esp_err_t getInfo(httpd_req_t* r) {
 }
 
 // POST /ota: the raw firmware.bin, with header X-OTA-Key (DOCK_OTA_KEY; not the household token). The LED bridge's
-// handler (firmware/ledbridge/src/main.cpp). Writing flash from this PSRAM-stack task is safe: with XIP from PSRAM
-// (sdkconfig: SPIRAM_FETCH_INSTRUCTIONS + SPIRAM_RODATA) IDF never disables the cache for flash ops, so the panel
-// keeps drawing. No rollback (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is off): a bad image is fixed over USB.
+// handler (firmware/ledbridge/src/main.cpp), run on a task of its own: esp_ota_get_next_update_partition, esp_ota_end
+// and esp_ota_set_boot_partition map flash, which disables the cache and asserts the caller's stack is internal, and
+// httpd's stack is in PSRAM. That task's stack (xTaskCreate: always internal RAM, 9 KB) exists only during an upload.
+// No rollback (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is off): a bad image is fixed over USB.
+volatile bool otaBusy = false;   // set on the httpd task only; cleared by the OTA task if it fails
+
 esp_err_t say(httpd_req_t* r, const char* status, const char* body) {
     httpd_resp_set_status(r, status);
     httpd_resp_sendstr(r, body);
-    noteStack();
     return ESP_OK;
 }
 
@@ -97,32 +98,54 @@ bool otaKeyOk(httpd_req_t* r) {
     return diff == 0;
 }
 
-esp_err_t postOta(httpd_req_t* r) {
-    if (!otaKeyOk(r)) return say(r, "401 Unauthorized", "bad key\n");
+[[noreturn]] void otaFail(httpd_req_t* r, const char* status, const char* body, const char* log) {
+    uprintf("link: OTA failed: %s\n", log);
+    say(r, status, body);
+    httpd_req_async_handler_complete(r);
+    otaBusy = false;
+    vTaskDelete(nullptr);
+    for (;;) {}   // not reached
+}
+
+void otaTask(void* arg) {
+    httpd_req_t* r = static_cast<httpd_req_t*>(arg);
     const esp_partition_t* p = esp_ota_get_next_update_partition(nullptr);
     esp_ota_handle_t h;
-    if (!p || esp_ota_begin(p, OTA_WITH_SEQUENTIAL_WRITES, &h) != ESP_OK) return say(r, "500 Internal Server Error", "no slot\n");
+    if (!p || esp_ota_begin(p, OTA_WITH_SEQUENTIAL_WRITES, &h) != ESP_OK)
+        otaFail(r, "500 Internal Server Error", "no slot\n", "no slot");
     uprintf("link: OTA of %u bytes to %s\n", static_cast<unsigned>(r->content_len), p->label);
-    char buf[1024];   // on the task's PSRAM stack: no internal RAM
+    char buf[1024];   // on this task's stack, so it costs internal RAM only during an upload
     int timeouts = 0;
     for (size_t left = r->content_len; left > 0;) {
         const int n = httpd_req_recv(r, buf, left < sizeof(buf) ? left : sizeof(buf));
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
         if (n <= 0 || esp_ota_write(h, buf, n) != ESP_OK) {
             esp_ota_abort(h);
-            uprintf("link: OTA failed while receiving\n");
-            return say(r, "500 Internal Server Error", "write failed\n");
+            otaFail(r, "500 Internal Server Error", "write failed\n", "while receiving");
         }
         left -= n;
     }
-    if (esp_ota_end(h) != ESP_OK || esp_ota_set_boot_partition(p) != ESP_OK) {   // end checks the image
-        uprintf("link: OTA image refused\n");
-        return say(r, "400 Bad Request", "bad image\n");
-    }
+    if (esp_ota_end(h) != ESP_OK || esp_ota_set_boot_partition(p) != ESP_OK)   // end checks the image
+        otaFail(r, "400 Bad Request", "bad image\n", "image refused");
     say(r, "200 OK", "ok, rebooting\n");
+    httpd_req_async_handler_complete(r);
     uprintf("link: OTA done, rebooting\n");
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
+}
+
+esp_err_t postOta(httpd_req_t* r) {
+    if (!otaKeyOk(r)) return say(r, "401 Unauthorized", "bad key\n");
+    if (otaBusy) return say(r, "409 Conflict", "busy\n");
+    httpd_req_t* copy = nullptr;
+    if (httpd_req_async_handler_begin(r, &copy) != ESP_OK) return say(r, "500 Internal Server Error", "no memory\n");
+    otaBusy = true;
+    // 9 KB: the LED bridge runs this in 6 KB with buf static, plus buf, plus headroom. Core 0, never the frame loop's.
+    if (xTaskCreatePinnedToCore(otaTask, "ota", 9216, copy, 5, nullptr, 0) != pdPASS) {
+        otaBusy = false;
+        say(copy, "500 Internal Server Error", "no memory\n");
+        httpd_req_async_handler_complete(copy);
+    }
     return ESP_OK;
 }
 
@@ -245,9 +268,10 @@ void start(const char* hostLabel) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.core_id = 0;   // never the frame loop's core
     cfg.stack_size = kStack;
-    // The task's stack in PSRAM (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY): internal RAM is for Wi-Fi and TLS. The
-    // handlers read RAM under the mutex, parse, ask the Wi-Fi driver for the network's name, and answer; saving is the
-    // loop's job. Only /ota writes flash, which XIP from PSRAM makes safe from an external stack (see postOta).
+    // The task's stack in PSRAM (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY): internal RAM is for Wi-Fi and TLS. Safe
+    // because no handler touches flash or NVS (a task with an external stack must not): they read RAM under the
+    // mutex, parse, ask the Wi-Fi driver for the network's name, and answer; saving is the loop's job, and /ota's
+    // flash work runs on a task of its own (postOta).
     cfg.task_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     cfg.max_open_sockets = 3;   // the app and a tool at once; each socket costs internal RAM in lwIP
     cfg.max_uri_handlers = 7;
