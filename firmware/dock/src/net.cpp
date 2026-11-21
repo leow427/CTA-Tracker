@@ -407,7 +407,7 @@ int fetchNow(const char* url, bool wantBody, bool keep, char kind) {
     bool fullRetried = false;
     for (int attempt = 0;; ++attempt) {
         const bool reused = s->open;
-        if (!reused && !resolve(name)) return kErrConnect;
+        if (!reused && !resolve(name)) { uprintf("net: no address for %s (DNS)\n", name); return kErrConnect; }
         int code;
         connectedUs = 0;
         certChecked = false;
@@ -431,6 +431,8 @@ int fetchNow(const char* url, bool wantBody, bool keep, char kind) {
         }
         bool unread = false;   // headers in, body not read to its end
         if (err != ESP_OK) {
+            uprintf("net: %s: connection failed, %s after %d ms\n", name, esp_err_to_name(err),
+                    static_cast<int>((esp_timer_get_time() - t0) / 1000));
             code = err == ESP_ERR_HTTP_CONNECT ? kErrConnect : kErrSend;
         } else {
             const int64_t len = esp_http_client_fetch_headers(s->h);
