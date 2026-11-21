@@ -93,7 +93,7 @@ struct Clock {
 
 enum class Screen : uint8_t { Home, Map, Picker, Settings };
 enum class Act : uint8_t { None, Poke, MapToggle, OpenPicker, Back, Kind, Line, Route, Dir, Stop, Retry, Recenter, Home, Settings, PairAsk, PairCancel, PairAgain,
-                         Ahead, Peek, CloseAhead, StepScreen, StepLed };
+                         Ahead, Peek, CloseAhead, StepScreen, StepLed, Zoom };
 struct Hit { int16_t x, y, w, h; Act tap, hold; int16_t arg; };
 
 // What the device must do after an input: fetch a picker list, or save a new pick.
@@ -111,6 +111,7 @@ struct App {
         float scroll = 0;
     } picker;
     int panX = 0, panY = 0;
+    int zoom = 0;                      // the map: 0 frames every picked zone, else section zoom - 1's zone
     uint32_t pokeMs = 0;
     bool poked = false;
     // the press in progress

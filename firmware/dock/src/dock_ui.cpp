@@ -656,15 +656,20 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     drawStrip(cv, a, d, c, ms);
     const int px0 = a.panX, py0 = a.panY;
     // The frame: every picked zone between the pads, at one scale for both axes.
+    // Zoomed (a tapped pin), only that section's zone: its stop and the 6 before it, as its LED row.
     cta::LatLon pts[cta::kDockStops * 7];
     size_t np = 0;
     bool picked[8] = {}, busPicked = false;
-    for (const Section& s : d.sec) {
-        if (!hasPick(s)) continue;
-        for (const cta::LatLon& z : s.zone)
-            if (z.lat != 0 || z.lon != 0) pts[np++] = z;
-        if (isBus(s)) busPicked = true;
-        else for (int k = 0; k < 8; ++k) if (strcmp(kLines[k].route, s.pick.route) == 0) picked[k] = true;
+    for (int pass = 0; pass < 2 && np == 0; ++pass) {   // a zoomed zone gone empty (a new pick) zooms back out
+        if (pass) a.zoom = 0;
+        for (const Section& s : d.sec) {
+            if (!hasPick(s)) continue;
+            if (!a.zoom || &s == &d.sec[a.zoom - 1])
+                for (const cta::LatLon& z : s.zone)
+                    if (z.lat != 0 || z.lon != 0) pts[np++] = z;
+            if (isBus(s)) busPicked = true;
+            else for (int k = 0; k < 8; ++k) if (strcmp(kLines[k].route, s.pick.route) == 0) picked[k] = true;
+        }
     }
     const cta::MapFrame fr = cta::mapFrame(pts, np, W, MAP.top, H, MAP.padX, MAP.padTop, MAP.padBottom);
     auto proj = [&](float lat, float lon, int& x, int& y) { cta::mapProject(fr, lat, lon, px0, py0, x, y); };
@@ -820,6 +825,7 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     // Labels: beside the pin (right, then left), else a row above or below, kept on screen and off every other pin
     // and label.
     constexpr int PIN_S = 30;
+    if (a.zoom) hit(a, 0, MAP.top, W, H - MAP.top, Act::Zoom);   // zoomed: a tap anywhere zooms back out
     Box placed[cta::kDockStops * 2];
     int nPlaced = 0;
     for (int p = 0; p < nPins; ++p) placed[nPlaced++] = Box{pins[p].x - PIN_S / 2 - 2, pins[p].y - PIN_S / 2 - 2, PIN_S + 4, PIN_S + 4};
@@ -869,8 +875,8 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         snprintf(num, sizeof(num), "%d", pn.i + 1);
         cv.pixelText(num, pn.x + 1, py + 8, 2, t.outline ? 0xffffff : t.card, Align::Center);
         cv.alpha = saved;
-        hit(a, px, py, PIN_S, PIN_S, Act::Home);
-        hit(a, lx, ly, lw, lh, Act::Home);
+        hit(a, px - 16, py - 16, PIN_S + 32, PIN_S + 32, Act::Zoom, Act::None, pn.i);   // generous: a finger's width around
+        hit(a, lx, ly, lw, lh, Act::Zoom, Act::None, pn.i);
     }
     cv.resetClip();
     if (!nPins) {
@@ -1020,7 +1026,7 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
         case Act::StepLed: a.settings.led = cta::stepPct(a.settings.led, arg, 0); a.settingsChanged = true; break;
         case Act::MapToggle:
             if (a.screen == Screen::Map) a.screen = Screen::Home;
-            else { a.screen = Screen::Map; a.panX = a.panY = 0; }   // the map opens framed on the picks
+            else { a.screen = Screen::Map; a.panX = a.panY = a.zoom = 0; }   // the map opens framed on the picks
             break;
         case Act::OpenPicker: openPicker(a, arg); break;
         case Act::Ahead: {
@@ -1035,6 +1041,7 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
             break;
         }
         case Act::CloseAhead: a.ahead.id = 0; break;
+        case Act::Zoom: a.zoom = a.zoom ? 0 : arg + 1; a.panX = a.panY = 0; break;   // in on a pin's zone, or back out
         case Act::Peek:
             if (a.peek.id && a.peek.section == arg) { a.peek.id = 0; break; }   // tapped again: back now
             a.peek.section = arg;
@@ -1196,6 +1203,7 @@ void tick(App& a, uint32_t ms) {
     // Here, not in drawHome: on the map or Settings a peek left open would keep its LED row the other way.
     if (a.peek.id && ms - a.peek.ms > kExtraMs) a.peek.id = 0;
     auto& p = a.press;
+    if (a.zoom && !p.down && static_cast<int32_t>(ms - p.t0) > 30000) a.zoom = a.panX = a.panY = 0;   // 30 s untouched: back out
     // Signed: a press stamped by the touch task just after this frame's ms is not 4 billion ms old.
     if (!p.down || p.moved || p.held || a.screen != Screen::Home || !cta::longPressDue(p.t0, ms)) return;
     if (const Hit* h = find(a, p.x0, p.y0, true)) {

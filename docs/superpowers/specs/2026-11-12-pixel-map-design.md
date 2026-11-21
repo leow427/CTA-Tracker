@@ -50,6 +50,11 @@ Pixel size follows each mockup's existing art:
 As the dock map zooms out, side streets drop away first, then main streets, so it never turns into a solid block.
 Expressways, water and the bigger parks always show.
 
+**Tap to zoom (dock, Leo 2026-11-21):** the dock map opens framed on every picked zone. Tapping a pin or its label
+zooms in on that stop's approach, its stop and the 6 before it (the same stops as its LED row), with their vehicles.
+Another tap anywhere on the map, or 30 s without a touch, zooms back out. Drags still pan, and the edge swipe still
+goes back to the stops. Tapping a pin used to go back to the stops; the map button and the edge swipe still do.
+
 ```
  ┌────────────────────────────┐
  │ Trackie   [map]  7:42 41°  │  dock status strip (unchanged)
