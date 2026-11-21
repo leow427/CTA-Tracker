@@ -26,7 +26,7 @@
 
 // The dock is used in portrait. 1: the panel's top edge (its long side with the FPC at the top of the landscape
 // picture) faces right; 0: it faces left. Flip it if the UI is upside down; touch follows.
-#define DISPLAY_ROTATE_CW 1
+#define DISPLAY_ROTATE_CW 0   // 0 since 2026-11-20: the dock's panel as mounted in the printed enclosure
 
 // Route board: 3 rows × 7 NeoPixels through an SN74AHCT125 level shifter, on the header pin labelled "AD" (Leo,
 // 2026-11-12). One chain: row r, position i is index 7r + i (spec 3; cta::ledIndex).

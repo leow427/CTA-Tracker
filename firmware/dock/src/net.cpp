@@ -90,9 +90,8 @@ volatile uint32_t nRequests = 0;
 volatile bool joinFailed = false;
 volatile bool scanWanted = false;   // the serial "w" check
 volatile bool wifiOff = false;      // the diagnostic "Wi-Fi off" mode
-// Serial "k": made-up arrivals and positions, nothing fetched. shortcut: on at boot while the CTA API is down (Leo
-// 2026-11-19, LED board tests); set back to false for the showcase.
-volatile bool fakeData = true;
+// Serial "k": made-up arrivals and positions, nothing fetched (LED board tests; real data at boot since 2026-11-20).
+volatile bool fakeData = false;
 volatile uint8_t discReason = 0;    // the last disconnect's reason, and how many there have been (the event handler)
 volatile uint32_t discCount = 0;
 volatile bool gotIp = false;        // Wi-Fi joined with an IP (the event handler)
