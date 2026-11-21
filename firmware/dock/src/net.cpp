@@ -248,6 +248,18 @@ bool resolve(const char* host) {
         }
     }
     dnsWant = 0;
+    // On some joins the lab network never answers the dock's lookups (public resolvers went unanswered too, with the
+    // same AP and IP as a good join), while a fresh join usually works. After 3 failures in a row, about a minute,
+    // rejoin Wi-Fi as a reboot would, at most every 3 min, so a real outage doesn't churn the AP (2026-11-21).
+    static int fails = 0;
+    static uint32_t rejoinedAt = 0;
+    if (ok) fails = 0;
+    else if (++fails >= 3 && (!rejoinedAt || nowMs() - rejoinedAt >= 180000)) {
+        fails = 0;
+        rejoinedAt = nowMs();
+        uprintf("net: lookups keep failing; rejoining Wi-Fi\n");
+        esp_wifi_disconnect();
+    }
     return ok;
 }
 
@@ -1103,7 +1115,12 @@ void netTask(void*) {
         joinFailures = 0;
         if (!wasUp) {
             wasUp = true;
-            uprintf("net: Wi-Fi up, RSSI %d\n", wifiRssi());
+            wifi_ap_record_t ap = {};
+            esp_wifi_sta_get_ap_info(&ap);   // which access point: a network of several can have one that misbehaves
+            esp_netif_ip_info_t ipi = {};
+            esp_netif_get_ip_info(sta, &ipi);
+            uprintf("net: Wi-Fi up, RSSI %d, AP ..%02x:%02x channel %u, IP " IPSTR "\n", wifiRssi(), ap.bssid[4],
+                    ap.bssid[5], static_cast<unsigned>(ap.primary), IP2STR(&ipi.ip));
             // httpd and mDNS, on core 0, only now the link has an IP (before it, socket() asserts in lwIP); later
             // reconnects call it again and it does nothing
             lan::start(hostLabel);
