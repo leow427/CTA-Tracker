@@ -825,7 +825,15 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
     // Labels: beside the pin (right, then left), else a row above or below, kept on screen and off every other pin
     // and label.
     constexpr int PIN_S = 30;
-    if (a.zoom) hit(a, 0, MAP.top, W, H - MAP.top, Act::Zoom);   // zoomed: a tap anywhere zooms back out
+    // Zooms: in on a pin's zone, or, zoomed (arg -1), back out from a tap anywhere. Kept below the strip, so a pin
+    // panned under it can't take the strip's taps. Every pin's finger-wide margin comes first, so a drawn pin or label
+    // (registered later, found first) always wins over another pin's margin.
+    auto zoomHit = [&](int x, int y, int w, int h, int i) {
+        const int top = std::max(y, MAP.top);
+        if (y + h - top > 0) hit(a, x, top, w, y + h - top, Act::Zoom, Act::None, a.zoom ? -1 : i);
+    };
+    if (a.zoom) zoomHit(0, MAP.top, W, H - MAP.top, -1);
+    for (int p = 0; p < nPins; ++p) zoomHit(pins[p].x - PIN_S / 2 - 16, pins[p].y - PIN_S / 2 - 16, PIN_S + 32, PIN_S + 32, pins[p].i);
     Box placed[cta::kDockStops * 2];
     int nPlaced = 0;
     for (int p = 0; p < nPins; ++p) placed[nPlaced++] = Box{pins[p].x - PIN_S / 2 - 2, pins[p].y - PIN_S / 2 - 2, PIN_S + 4, PIN_S + 4};
@@ -875,8 +883,8 @@ void drawMap(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
         snprintf(num, sizeof(num), "%d", pn.i + 1);
         cv.pixelText(num, pn.x + 1, py + 8, 2, t.outline ? 0xffffff : t.card, Align::Center);
         cv.alpha = saved;
-        hit(a, px - 16, py - 16, PIN_S + 32, PIN_S + 32, Act::Zoom, Act::None, pn.i);   // generous: a finger's width around
-        hit(a, lx, ly, lw, lh, Act::Zoom, Act::None, pn.i);
+        zoomHit(px, py, PIN_S, PIN_S, pn.i);
+        zoomHit(lx, ly, lw, lh, pn.i);
     }
     cv.resetClip();
     if (!nPins) {
@@ -1041,7 +1049,7 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
             break;
         }
         case Act::CloseAhead: a.ahead.id = 0; break;
-        case Act::Zoom: a.zoom = a.zoom ? 0 : arg + 1; a.panX = a.panY = 0; break;   // in on a pin's zone, or back out
+        case Act::Zoom: a.zoom = arg < 0 ? 0 : arg + 1; a.panX = a.panY = 0; break;   // in on a pin's zone, or back out
         case Act::Peek:
             if (a.peek.id && a.peek.section == arg) { a.peek.id = 0; break; }   // tapped again: back now
             a.peek.section = arg;
@@ -1113,7 +1121,7 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
             a.screen = Screen::Home;
             break;
         }
-        case Act::Recenter: a.panX = a.panY = 0; break;
+        case Act::Recenter: a.panX = a.panY = a.zoom = 0; break;   // back to the frame on every pick
         case Act::Home: a.screen = Screen::Home; break;
     }
     (void)d;
