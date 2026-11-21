@@ -169,10 +169,10 @@ Each picked stop has a row of 7 LEDs. LEDs 1–6 are the 6 stops before the pick
 - **Trains:** the 6 preceding platform IDs come from `train_sequences.h`. `ttpositions` for the line gives each train's next stop. A train lights the LED of its next stop if that stop is in the row.
 - **Buses:** `getpatterns` for the route gives the ordered stops with distance along the route. For each pattern that contains the picked stop, the 6 preceding stops are taken. `getvehicles` gives each bus's pattern and distance. A bus lights the LED of the next stop ahead of it. Patterns are cached until the stop is changed.
 - **Track:** in a row with a pick, LEDs 1–6 with no vehicle are white at 20%, so vehicles stand out. A row with no pick stays off; night hours turn everything off.
-- **Color:** a vehicle lights its LED at full in an LED palette of its own, saturated for WS2812s rather than the screen's hex values (which wash out: red reads pink): Red `FF0000`, Blue `0000FF`, Brown `801000` (orange at half, as true brown can't be lit), Green `00FF00`, Orange `FF5000`, Pink `FF0050`, Purple `6000FF`, Yellow `FFB000`. Every bus is purple `A000FF`. All are tuned by eye on the board.
+- **Color:** a vehicle lights its LED at full in an LED palette of its own, saturated for WS2812s rather than the screen's hex values (which wash out: red reads pink): Red `FF0000`, Blue `0000FF`, Brown `801000` (orange at half, as true brown can't be lit), Green `00FF00`, Orange `FF5000`, Pink `FF0050`, Purple `6000FF`, Yellow `FFB000`. Every bus is a deep violet `5000FF`. All are tuned by eye on the board.
 - **LED 7** (the picked stop) is steady cyan `00FFFF`, a hue no line or bus uses. While a vehicle is at the stop (the next live arrival is 1 min or less away, CTA's "Due" or "Approaching", counted down from the fetch, until it drops off the predictions) it pulses in that vehicle's color instead.
 - **Staleness:** when a row's positions are more than 2 min old (or never fetched), its vehicles go out and LED 7 stops pulsing; the white track and the cyan stop stay on.
-- **Brightness:** `LED_MAX_BRIGHTNESS` is 255 (21 LEDs at full white draw about 1.3 A of the 3 A supply), scaled by the dock's LED brightness setting.
+- **Brightness:** `LED_MAX_BRIGHTNESS` is 179, 70 % (by eye; full, 255, would draw about 1.3 A for 21 LEDs at full white of the 3 A supply), scaled by the dock's LED brightness setting.
 
 ### 6.5 Line colors
 

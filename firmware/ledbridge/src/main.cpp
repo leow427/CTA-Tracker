@@ -42,8 +42,8 @@
 
 // The LED board's DATA screw. GPIO 4: not a strapping, USB or flash/PSRAM pin, and on every common S3 board.
 #define LED_DATA_PIN 4
-// The dock's cap (firmware/dock/include/pins.h): full, about 1.3 A for 21 LEDs at full white.
-#define LED_MAX_BRIGHTNESS 255
+// The dock's cap (firmware/dock/include/pins.h): 70 %.
+#define LED_MAX_BRIGHTNESS 179
 
 namespace {
 

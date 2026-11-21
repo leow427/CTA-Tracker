@@ -97,7 +97,7 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
 
 - **The route LEDs' new look needs Leo's by-eye tuning on the board** (spec 6.4): the LED line palette
   (`kLedLineColors` in `line_colors.cpp`), `kLedBusColor`, `kLedTrackLevel`, `kLedStopColor` (`dock_leds.h`) and
-  `kAtStopMaxMin`. The bus purple (`A000FF`) and the Purple Line (`6000FF`) are close; pick one to move.
+  `kAtStopMaxMin`. The bus violet (`5000FF`) and the Purple Line (`6000FF`) are close; pick one to move if a Purple Line stop is picked.
 
 ## Features
 
