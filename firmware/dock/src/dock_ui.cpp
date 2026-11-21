@@ -410,8 +410,7 @@ void drawAhead(Canvas& cv, App& a, const Data& d, const Clock& c, int k) {
 }
 
 void drawHome(Canvas& cv, App& a, const Data& d, const Clock& c, uint32_t ms) {
-    // The extras close after 30 s; the stops ahead also when the vehicle leaves the card or service.
-    if (a.peek.id && ms - a.peek.ms > kExtraMs) a.peek.id = 0;
+    // The stops ahead close after 30 s, or when the vehicle leaves the card or service (the peek's 30 s: tick).
     int k = -1;
     if (a.ahead.id) {
         k = aheadIndex(a, d);
@@ -1194,6 +1193,8 @@ void draw(Canvas& cv, App& a, const Data& d, const PickerLists& pl, const Clock&
 // ---------- input ----------
 
 void tick(App& a, uint32_t ms) {
+    // Here, not in drawHome: on the map or Settings a peek left open would keep its LED row the other way.
+    if (a.peek.id && ms - a.peek.ms > kExtraMs) a.peek.id = 0;
     auto& p = a.press;
     // Signed: a press stamped by the touch task just after this frame's ms is not 4 billion ms old.
     if (!p.down || p.moved || p.held || a.screen != Screen::Home || !cta::longPressDue(p.t0, ms)) return;
