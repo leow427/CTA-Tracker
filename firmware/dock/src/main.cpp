@@ -600,10 +600,11 @@ void loop() {
         for (int i = 0; i < cta::kLedRows; ++i) {
             const dock::Section& s = data->sec[i];
             if (!s.pick.id[0]) continue;
-            rows[i].mask = s.mask;
+            const bool peek = dock::peekShown(app, *data, i);   // the row follows the card's other way (spec 6.4)
+            rows[i].mask = peek ? s.peekMask : s.mask;
             rows[i].rgb = s.pick.type == cta::Kind::Bus ? cta::kLedBusColor : cta::ledLineColor(s.pick.route);
             rows[i].ts = s.posTs;
-            rows[i].due = cta::atStop(s.rec, clock.now);
+            rows[i].due = cta::atStop(peek ? data->peek.rec : s.rec, clock.now);
             rows[i].level = linkCfg.settings.led > 100 ? 100 : linkCfg.settings.led;   // GET /leds allows 0-100
         }
         leds::post(rows, clock.now, clock.night);

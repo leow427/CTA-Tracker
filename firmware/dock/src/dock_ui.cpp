@@ -279,7 +279,7 @@ void drawSection(Canvas& cv, App& a, const Data& d, const Clock& c, int i, uint3
     // A tap flips the card to the other direction for a while (spec 5.10); a hold opens the picker.
     hit(a, x, y, w, h, Act::Peek, Act::OpenPicker, i);
     const bool peeking = a.peek.id && a.peek.section == i;
-    const bool peekIn = peeking && d.peek.id == a.peek.id && d.peek.state == Load::Ready;
+    const bool peekIn = peekShown(a, d, i);
     Section shown = d.sec[i];
     if (peekIn) { shown.pick = d.peek.pick; shown.rec = d.peek.rec; }
     const Section& s = shown;
@@ -1116,6 +1116,10 @@ void act(App& a, const Data& d, const PickerLists& pl, Act what, int arg, uint32
 }  // namespace
 
 // ---------- derived (the logic is cta's dock_status) ----------
+
+bool peekShown(const App& a, const Data& d, int i) {
+    return a.peek.id && a.peek.section == i && d.peek.id == a.peek.id && d.peek.state == Load::Ready;
+}
 
 bool dueNow(const Section& s, uint32_t now) { return s.pick.id[0] && cta::dueNow(s.rec, now); }
 

@@ -396,8 +396,9 @@ struggles. Dock only; nothing changes in the app or the messages.
   overlay.
 - **The other direction, as a peek.** Tapping a stop card (outside its times) flips it to the other direction for
   30 s, or until tapped again: trains show the station's opposite platform; buses the closest stop on the same route
-  going the other way (one request on tap). The saved pick, its LED row and `picks_ver` don't change. Holding a card
-  still opens the picker.
+  going the other way (one request on tap). The saved pick and `picks_ver` don't change. While the card shows the
+  other way, its LED row follows it (spec 6.4), and goes back to the pick when the card does (Leo, 2026-11-21).
+  Holding a card still opens the picker.
 
 ## 6. Constraints
 

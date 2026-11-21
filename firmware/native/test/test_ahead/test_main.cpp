@@ -9,6 +9,7 @@
 #include "../fixture.h"
 #include "../json_bound.h"
 #include "ahead.h"
+#include "approach.h"
 
 void setUp() {}
 void tearDown() {}
@@ -129,6 +130,41 @@ static void test_opposite_bus_stop() {
     TEST_ASSERT_FALSE(cta::oppositeBusStop(far.c_str(), far.size(), "22", "1828", "Southbound", o));
 }
 
+// The LED row follows a peek (spec 6.4): the stop the other way has an approach row from the same data.
+static void test_peek_rows() {
+    cta::PickedStop o = {};
+    cta::ApproachRow row;
+    TEST_ASSERT_TRUE(cta::oppositeTrainPlatform("Red", "30256", "95th/Dan Ryan", o));
+    TEST_ASSERT_TRUE(cta::trainRowFor(o.route, o.id, row));
+    TEST_ASSERT_EQUAL_STRING(o.id, row.stops[6]);
+    TEST_ASSERT_TRUE(cta::oppositeTrainPlatform("Brn", "30104", "Loop", o));
+    TEST_ASSERT_TRUE(cta::trainRowFor(o.route, o.id, row));
+    TEST_ASSERT_EQUAL_STRING(o.id, row.stops[6]);
+    // a bus: one getpatterns reply gives the picked stop's rows, the stop across the street, and its rows
+    const std::string j =
+        "{\"bustime-response\":{\"ptr\":["
+        "{\"pid\":1,\"rtdir\":\"Southbound\",\"pt\":["
+        "{\"typ\":\"S\",\"stpid\":\"1827\",\"stpnm\":\"Clark & Roscoe\",\"pdist\":100,\"lat\":41.9436,\"lon\":-87.6496},"
+        "{\"typ\":\"S\",\"stpid\":\"1828\",\"stpnm\":\"Clark & Belmont\",\"pdist\":900,\"lat\":41.9399,\"lon\":-87.6482}]},"
+        "{\"pid\":2,\"rtdir\":\"Northbound\",\"pt\":["
+        "{\"typ\":\"S\",\"stpid\":\"1913\",\"stpnm\":\"Clark & Barry\",\"pdist\":200,\"lat\":41.9375,\"lon\":-87.6470},"
+        "{\"typ\":\"S\",\"stpid\":\"1914\",\"stpnm\":\"Clark & Belmont\",\"pdist\":1000,\"lat\":41.9401,\"lon\":-87.6484}]}]}}";
+    TEST_ASSERT_TRUE(cta::oppositeBusStop(j.c_str(), j.size(), "22", "1828", "Southbound", o));
+    cta::ApproachRow rows[4];
+    TEST_ASSERT_EQUAL_INT(1, cta::buildBusRows(j.c_str(), j.size(), o.id, rows, 4));
+    TEST_ASSERT_EQUAL_INT(2, rows[0].pid);
+    TEST_ASSERT_EQUAL_STRING("1914", rows[0].stops[6]);
+    TEST_ASSERT_EQUAL_STRING("1913", rows[0].stops[5]);
+    // a northbound bus between the two stops lights LED 7's approach on the peeked row only
+    cta::BusVehicle v = {};
+    v.pid = 2;
+    v.pdist = 600;
+    TEST_ASSERT_EQUAL_UINT8(1u << 6, cta::litMaskBuses(rows, 1, &v, 1));
+    cta::ApproachRow picked[4];
+    TEST_ASSERT_EQUAL_INT(1, cta::buildBusRows(j.c_str(), j.size(), "1828", picked, 4));
+    TEST_ASSERT_EQUAL_UINT8(0, cta::litMaskBuses(picked, 1, &v, 1));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_train_follow_fixture);
@@ -137,5 +173,6 @@ int main(int, char**) {
     RUN_TEST(test_bus_follow_gone_and_errors);
     RUN_TEST(test_opposite_train_platform);
     RUN_TEST(test_opposite_bus_stop);
+    RUN_TEST(test_peek_rows);
     return UNITY_END();
 }

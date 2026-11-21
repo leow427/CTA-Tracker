@@ -26,6 +26,7 @@ struct Section {
     cta::StopRecord rec;           // rec.ts 0 = no arrivals yet
     uint8_t mask = 0;              // lit LEDs (litMaskTrains / litMaskBuses), bit k = LED k + 1
     uint32_t posTs = 0;            // when the mask's positions were fetched, 0 = never
+    uint8_t peekMask = 0;          // the same for the stop the other way (Data::peek's), so the row follows a peek
     cta::LatLon zone[7] = {};      // the row's stops on the map, farthest first; 0, 0 = unknown
 };
 
@@ -155,6 +156,8 @@ int wifiBars(int rssi);
 // True while something on screen moves faster than the 2 Hz bob and blink (a drag).
 bool animating(const App& a);
 
+// True while section i's card shows the other way (spec 5.10): the peek asked for is in.
+bool peekShown(const App& a, const Data& d, int i);
 // cta::dueNow for a picked section (the map's vehicle at the stop).
 bool dueNow(const Section& s, uint32_t now);
 // cta::dockMood and cta::moodReason over the picked sections.

@@ -111,6 +111,8 @@ struct Sec {
     bool alerted = false;
     bool hasOpp = false;             // a bus stop's closest stop the other way, from getpatterns (spec 5.10)
     cta::PickedStop opp;
+    cta::ApproachRow oppRows[kRows]; // the other way's LED rows, for a peek (trains: the other platform's)
+    int nOppRows = 0;
 };
 Sec secs[cta::kDockStops];
 uint32_t busPredPolled = 0, alertsPolled = 0, weatherPolled = 0, geoTried = 0;
@@ -574,7 +576,7 @@ void clearSection(int i) {
     dock::Section& s = building->sec[i];
     s.pick = secs[i].pick;
     memset(&s.rec, 0, sizeof(s.rec));
-    s.mask = 0;
+    s.mask = s.peekMask = 0;
     s.posTs = 0;
     memset(s.zone, 0, sizeof(s.zone));
     building->busPathN[i] = 0;
@@ -596,6 +598,8 @@ void applyPicks(const cta::PickedStop* picks) {
             if (s.nRows)
                 for (int k = 0; k < 7; ++k) building->sec[i].zone[k] = {s.rows[0].lat[k], s.rows[0].lon[k]};
             else uprintf("net: section %d: platform %s isn't in the train tables; no LED row\n", i + 1, p.id);
+            cta::PickedStop o;   // servePeek's platform the other way
+            if (cta::oppositeTrainPlatform(p.route, p.id, p.dir, o)) s.nOppRows = cta::trainRowFor(o.route, o.id, s.oppRows[0]) ? 1 : 0;
         }
     }
     busPredPolled = 0;
@@ -642,6 +646,10 @@ void pollPatterns(int i, uint32_t now) {
     s.rowsReady = true;
     s.opp = s.pick;
     s.hasOpp = cta::oppositeBusStop(body, bodyLen, s.pick.route, s.pick.id, s.pick.dir, s.opp);
+    if (s.hasOpp) {   // getpatterns has both directions: the peek's rows come from the same reply
+        const int m = cta::buildBusRows(body, bodyLen, s.opp.id, s.oppRows, kRows);
+        s.nOppRows = m > 0 ? m : 0;
+    }
     if (n) {
         for (int k = 0; k < 7; ++k) building->sec[i].zone[k] = {s.rows[0].lat[k], s.rows[0].lon[k]};
         const int m = cta::busPatternPath(body, bodyLen, s.rows[0].pid, building->busPath[i], dock::kMaxPath);
@@ -687,6 +695,7 @@ void pollTrainPositions(int i, uint32_t now) {
         if (!hasPick(s) || isBus(s) || strcmp(s.pick.route, route) != 0) continue;
         if (n < 0) { s.posPolled = retryStamp(cta::kDockPollSec); continue; }
         building->sec[j].mask = s.nRows ? cta::litMaskTrains(s.rows[0], pos, n) : 0;
+        building->sec[j].peekMask = s.nOppRows ? cta::litMaskTrains(s.oppRows[0], pos, n) : 0;
         building->sec[j].posTs = now;
     }
 }
@@ -752,6 +761,7 @@ void pollBusPositions(uint32_t now) {
         if (!hasPick(s) || !isBus(s)) continue;
         if (got < 0) { s.posPolled = retryStamp(cta::kDockPollSec); continue; }
         building->sec[i].mask = cta::litMaskBuses(s.rows, s.nRows, v, got);
+        building->sec[i].peekMask = cta::litMaskBuses(s.oppRows, s.nOppRows, v, got);
         building->sec[i].posTs = now;
     }
 }
