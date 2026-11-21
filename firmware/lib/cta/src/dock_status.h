@@ -13,6 +13,8 @@ namespace cta {
 int minutesLeft(const StopRecord& r, int k, uint32_t now);
 // The next arrival is live and within kHypedMaxMin, counted down, and the record is fresh (not isStale).
 bool dueNow(const StopRecord& r, uint32_t now);
+// As dueNow, but within kAtStopMaxMin: a vehicle is at the stop (CTA's Due or Approaching), so LED 7 pulses.
+bool atStop(const StopRecord& r, uint32_t now);
 // A fetched record is greyed out while Wi-Fi is lost, or once it's stale.
 bool cardStale(const StopRecord& r, uint32_t now, bool wifiLost);
 // deviceMood over the dock's records, all Hyped-eligible, with the arrivals counted down to now.

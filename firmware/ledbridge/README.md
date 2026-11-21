@@ -3,11 +3,11 @@
 A fallback for the dock's route LED board. If the dock's own wire to the board doesn't work, a spare ESP32-S3 dev
 board sits by the LED board, joins the dock's network (see Networks), finds the dock by mDNS (`_ctatracker._tcp`
 with `type=dock`), reads `GET /leds` every 500 ms and drives the 21 LEDs itself. It uses the dock's LED driver settings and
-`cta::ledFrame` at 25 Hz, so the rows look the same: LED 7 breathes, and a row goes dark by itself once its data is
-stale (also when the dock stops answering).
+`cta::ledFrame` at 25 Hz, so the rows look the same: LED 7 pulses while a vehicle is at the stop, and a row drops to
+its bare track and stop by itself once its data is stale (also when the dock stops answering).
 
 `GET /leds` answers one line, `cta::formatLedState`'s: the dock's Unix time, night (0/1), then mask, color, positions'
-time and due for each of the 3 rows. No token: it's read-only.
+time, at the stop (0/1) and LED brightness (percent) for each of the 3 rows. No token: it's read-only.
 
 ## Wiring
 

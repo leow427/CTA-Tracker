@@ -40,6 +40,7 @@
 #include "cta_config.h"
 #include "display.h"
 #include "dock_leds.h"
+#include "dock_status.h"
 #include "dock_ui.h"
 #include "json_heap.h"
 #include "leds.h"
@@ -204,12 +205,6 @@ void applyPet() {
 // The backlight is on or off only (the CH422G's EXIO2): screen 0 turns it off, anything else on; dock::draw dims the
 // frame in software (cta::dockVeil).
 void applySettings() { display::backlight(linkCfg.settings.screen > 0); }
-
-// An LED color scaled to the app's LED brightness (percent), under LED_MAX_BRIGHTNESS; 0 is black, the app's Off.
-uint32_t ledScaled(uint32_t rgb) {
-    const uint32_t k = linkCfg.settings.led;
-    return ((rgb >> 16 & 0xff) * k / 100) << 16 | ((rgb >> 8 & 0xff) * k / 100) << 8 | (rgb & 0xff) * k / 100;
-}
 
 // Forgets the token, then boots fresh, showing a pairing code (POST /reset, serial "R", the three-finger hold).
 void resetLink(const char* why) {
@@ -598,7 +593,7 @@ void loop() {
         }
 #endif
     }
-    // the LED rows: their state goes to the LED task (leds.cpp), which breathes LED 7 on its own 25 Hz tick
+    // the LED rows: their state goes to the LED task (leds.cpp), which pulses LED 7 on its own 25 Hz tick
     if (ms - lastLeds >= 200 || dataChanged) {
         lastLeds = ms;
         cta::LedRow rows[cta::kLedRows];
@@ -606,9 +601,10 @@ void loop() {
             const dock::Section& s = data->sec[i];
             if (!s.pick.id[0]) continue;
             rows[i].mask = s.mask;
-            rows[i].rgb = ledScaled(s.pick.type == cta::Kind::Bus ? cta::kBusColor : cta::lineColor(s.pick.route));
+            rows[i].rgb = s.pick.type == cta::Kind::Bus ? cta::kLedBusColor : cta::ledLineColor(s.pick.route);
             rows[i].ts = s.posTs;
-            rows[i].due = dock::dueNow(s, clock.now);
+            rows[i].due = cta::atStop(s.rec, clock.now);
+            rows[i].level = linkCfg.settings.led > 100 ? 100 : linkCfg.settings.led;   // GET /leds allows 0-100
         }
         leds::post(rows, clock.now, clock.night);
         if (printLeds) {

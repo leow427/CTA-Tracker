@@ -168,13 +168,15 @@ Each picked stop has a row of 7 LEDs. LEDs 1–6 are the 6 stops before the pick
 
 - **Trains:** the 6 preceding platform IDs come from `train_sequences.h`. `ttpositions` for the line gives each train's next stop. A train lights the LED of its next stop if that stop is in the row.
 - **Buses:** `getpatterns` for the route gives the ordered stops with distance along the route. For each pattern that contains the picked stop, the 6 preceding stops are taken. `getvehicles` gives each bus's pattern and distance. A bus lights the LED of the next stop ahead of it. Patterns are cached until the stop is changed.
-- **Color:** the line's CTA color for trains and a single bus color for buses.
-- **LED 7** pulses while a vehicle is due in 3 min or less.
-- **Staleness:** all LEDs in a row turn off when its data is more than 2 min old.
+- **Track:** in a row with a pick, LEDs 1–6 with no vehicle are white at 20%, so vehicles stand out. A row with no pick stays off; night hours turn everything off.
+- **Color:** a vehicle lights its LED at full in an LED palette of its own, saturated for WS2812s rather than the screen's hex values (which wash out: red reads pink): Red `FF0000`, Blue `0000FF`, Brown `801000` (orange at half, as true brown can't be lit), Green `00FF00`, Orange `FF5000`, Pink `FF0050`, Purple `6000FF`, Yellow `FFB000`. Every bus is purple `A000FF`. All are tuned by eye on the board.
+- **LED 7** (the picked stop) is steady cyan `00FFFF`, a hue no line or bus uses. While a vehicle is at the stop (the next live arrival is 1 min or less away, CTA's "Due" or "Approaching", counted down from the fetch, until it drops off the predictions) it pulses in that vehicle's color instead.
+- **Staleness:** when a row's positions are more than 2 min old (or never fetched), its vehicles go out and LED 7 stops pulsing; the white track and the cyan stop stay on.
+- **Brightness:** `LED_MAX_BRIGHTNESS` is 255 (21 LEDs at full white draw about 1.3 A of the 3 A supply), scaled by the dock's LED brightness setting.
 
 ### 6.5 Line colors
 
-The CTA's published line colors are used for train cards, LEDs, and badges: Red, Blue, Brown, Green, Orange, Pink, Purple, Yellow. All buses share one color. The Blue Line uses a deeper blue (`0x2F7BFF`) than the CTA's published `0x00A1DE`, which read too light on the cards; bus cards on the handheld and in the app are white with gray text and a light blue outline (redesign revision 4; Leo, 2026-11-10). The values live in one table in the shared library and its Swift mirror.
+The CTA's published line colors are used for train cards and badges (the LEDs have their own palette, 6.4): Red, Blue, Brown, Green, Orange, Pink, Purple, Yellow. All buses share one color. The Blue Line uses a deeper blue (`0x2F7BFF`) than the CTA's published `0x00A1DE`, which read too light on the cards; bus cards on the handheld and in the app are white with gray text and a light blue outline (redesign revision 4; Leo, 2026-11-10). The values live in one table in the shared library and its Swift mirror.
 
 ### 6.6 Polling and time
 
@@ -218,7 +220,7 @@ Shown in the status strip at 64 px, using the mood rules in 6.3 over the 3 picke
 
 ### 7.4 Offline and setup
 
-- **Wi-Fi lost:** the Wi-Fi icon turns red, arrivals stay on screen greyed out with "updated N min ago," and the LEDs go dark after 2 min.
+- **Wi-Fi lost:** the Wi-Fi icon turns red, arrivals stay on screen greyed out with "updated N min ago," and after 2 min the LED rows drop their vehicles, leaving the white track and cyan stops.
 - **No saved Wi-Fi:** the screen shows "Open the CTA app to set up Wi-Fi."
 - **No API key compiled in:** the screen shows "No API key."
 - **Night hours:** the screen dims and the LEDs turn off.

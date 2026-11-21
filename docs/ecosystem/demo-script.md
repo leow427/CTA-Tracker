@@ -87,6 +87,7 @@ The LED bridge (`firmware/ledbridge/README.md`) is a spare ESP32-S3 that drives 
 - Before the demo: flash it, wire S3 GPIO 4 to the board's DATA screw, GND to GND, and the board's 5 V to the S3's
   5V pin. Leave the dock's LED wire unplugged.
 - At power-up the 21 LEDs light one by one, then go dark until the bridge finds the dock (a few seconds after
-  both are on Wi-Fi). From then on the rows match the dock, LED 7 breathing included.
+  both are on Wi-Fi). From then on the rows match the dock: a dim white track, vehicles in their line's color (buses
+  purple), and a cyan LED 7 that pulses in a vehicle's color while it's at the stop.
 - If they stay dark after the self-test, check the dock is on the network (the app shows it online), then reset the
   bridge.

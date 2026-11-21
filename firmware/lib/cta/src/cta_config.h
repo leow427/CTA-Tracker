@@ -18,6 +18,7 @@ constexpr uint32_t kGeoLookupSec = 86400;        // the dock's weather location 
 constexpr int kHypedMaxMin = 3;
 constexpr uint32_t kStaleSec = 300;
 constexpr uint32_t kLedStaleSec = 120;
+constexpr int kAtStopMaxMin = 1;              // a live arrival this close is at the stop: LED 7 pulses (6.4)
 
 // Night hours default 1:00–5:00 (minutes after midnight; end is exclusive)
 constexpr int kNightStartMin = 60;

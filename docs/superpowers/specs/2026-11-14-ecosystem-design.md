@@ -178,7 +178,7 @@ New or changed shapes are marked. All JSON; IDs and names keep the base spec's s
 | Endpoint | Device | Body | Notes |
 |---|---|---|---|
 | `GET /info` | both | `{type, id, fw, battery, charging, wifi:{connected, ssid}, last_update, picks_ver, wake, docked, paired}` | **New fields:** `picks_ver` (dock: goes up on every pick, from either side), `wake` (wearable: goes up on every wake, 8.2), `docked` (wearable, 8.4), `paired` (has a token; false raises the app's found card). |
-| `GET /leds` | dock | **new:** one text line, `cta::formatLedState`: `now night`, then `mask rgb ts due` per row | For the LED bridge (`firmware/ledbridge`). No bearer token (a read, as in 4.3). `503` before the LED rows' first post. Not JSON. |
+| `GET /leds` | dock | **new:** one text line, `cta::formatLedState`: `now night`, then `mask rgb ts due level` per row (`due`: a vehicle is at the stop; `level`: the LED brightness setting, 0–100) | For the LED bridge (`firmware/ledbridge`). No bearer token (a read, as in 4.3). `503` before the LED rows' first post. Not JSON. |
 | `POST /pair` | both | **new:** `{code, token}` | Pairing (4.3). No bearer token. HTTP only; on the wearable, the fallback. |
 | `GET /config`, `POST /config` | both | base spec §10 `config`: `{stops, pet, settings}`, any subset | `stops` is dock-only. The app writes `pet` and `settings` to every device on connect and on change (app spec §6). |
 | `POST /nearby` | wearable | base spec §10 `nearby` | Parsed by the existing `cta::parseNearby`; same path as `send_nearby.py` today. |

@@ -14,10 +14,15 @@ int minutesLeft(const StopRecord& r, int k, uint32_t now) {
     return m < 0 ? 0 : m;
 }
 
-bool dueNow(const StopRecord& r, uint32_t now) {
+namespace {
+bool liveWithin(const StopRecord& r, uint32_t now, int maxMin) {
     if (!r.count || isStale(r, now)) return false;
-    return r.arrivals[0].live && minutesLeft(r, 0, now) <= kHypedMaxMin;
+    return r.arrivals[0].live && minutesLeft(r, 0, now) <= maxMin;
 }
+}  // namespace
+
+bool dueNow(const StopRecord& r, uint32_t now) { return liveWithin(r, now, kHypedMaxMin); }
+bool atStop(const StopRecord& r, uint32_t now) { return liveWithin(r, now, kAtStopMaxMin); }
 
 bool cardStale(const StopRecord& r, uint32_t now, bool wifiLost) { return r.ts && (wifiLost || isStale(r, now)); }
 

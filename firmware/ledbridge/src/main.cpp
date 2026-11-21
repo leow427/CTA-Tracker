@@ -42,8 +42,8 @@
 
 // The LED board's DATA screw. GPIO 4: not a strapping, USB or flash/PSRAM pin, and on every common S3 board.
 #define LED_DATA_PIN 4
-// The dock's cap (firmware/dock/include/pins.h), so 21 LEDs stay inside the 5 V budget.
-#define LED_MAX_BRIGHTNESS 96
+// The dock's cap (firmware/dock/include/pins.h): full, about 1.3 A for 21 LEDs at full white.
+#define LED_MAX_BRIGHTNESS 255
 
 namespace {
 
@@ -119,7 +119,7 @@ void ledTask(void*) {
         portEXIT_CRITICAL(&mux);
         if (!h) continue;
         const uint32_t ms = nowMs();
-        // The dock's time moved on locally, so rows go dark by themselves once stale if the dock stops answering.
+        // The dock's time moved on locally, so rows drop to the bare track and stop once stale if the dock stops answering.
         cta::ledFrame(r, now ? now + (ms - at) / 1000 : 0, n, LED_MAX_BRIGHTNESS, ms, rgb);
         show(rgb);
     }

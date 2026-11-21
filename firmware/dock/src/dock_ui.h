@@ -155,7 +155,7 @@ int wifiBars(int rssi);
 // True while something on screen moves faster than the 2 Hz bob and blink (a drag).
 bool animating(const App& a);
 
-// cta::dueNow for a picked section (the LEDs' LED 7, and the map's vehicle at the stop).
+// cta::dueNow for a picked section (the map's vehicle at the stop).
 bool dueNow(const Section& s, uint32_t now);
 // cta::dockMood and cta::moodReason over the picked sections.
 cta::Mood moodOf(const Data& d, const Clock& c);

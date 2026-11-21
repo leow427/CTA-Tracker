@@ -121,19 +121,31 @@ static cta::LedRow row(uint8_t mask, uint32_t rgb, uint32_t ts, bool due) {
     return r;
 }
 
+static const uint32_t kTrack = 0x333333;   // white at kLedTrackLevel (0.2 × 255 = 51)
+
 static void test_led_chain_order_and_colors() {
     // Row r, position i is LED 7r + i (spec 3); bit k of the mask is LED k + 1, LED 1 (the farthest) on the left.
     TEST_ASSERT_EQUAL_INT(0, cta::ledIndex(0, 0));
     TEST_ASSERT_EQUAL_INT(13, cta::ledIndex(1, 6));
     TEST_ASSERT_EQUAL_INT(20, cta::ledIndex(2, 6));
-    const uint32_t red = cta::lineColor("Red");
-    cta::LedRow rows[3] = {row(0b0010010, red, 1000, false), row(0, red, 1000, false), row(0b1000001, cta::kBusColor, 1000, false)};
+    const uint32_t red = cta::ledLineColor("Red");
+    cta::LedRow rows[3] = {row(0b0010010, red, 1000, false), row(0, 0, 1000, false),
+                           row(0b0000001, cta::kLedBusColor, 1000, false)};
     uint32_t out[cta::kLedCount];
     cta::ledFrame(rows, 1000, false, 255, 0, out);
-    for (int i = 0; i < cta::kLedCount; ++i) {
-        const bool lit = i == 1 || i == 4 || i == 14 || i == 20;
-        TEST_ASSERT_EQUAL_HEX32(lit ? (i < 7 ? red : cta::kBusColor) : 0, out[i]);
-    }
+    for (int i = 0; i < 7; ++i) TEST_ASSERT_EQUAL_HEX32(i == 6 ? cta::kLedStopColor : i == 1 || i == 4 ? red : kTrack, out[i]);
+    for (int i = 7; i < 14; ++i) TEST_ASSERT_EQUAL_HEX32(0, out[i]);   // no pick: dark
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedBusColor, out[14]);                // a bus in bus purple
+    for (int i = 15; i < 20; ++i) TEST_ASSERT_EQUAL_HEX32(kTrack, out[i]);
+    TEST_ASSERT_EQUAL_HEX32(0x00FFFF, out[20]);                         // the stop: cyan, steady
+}
+
+static void test_led_stop_ignores_a_vehicle_on_led_seven() {
+    // LED 7 is the stop: a vehicle there only shows by pulsing (due), never as a steady line color.
+    cta::LedRow rows[3] = {row(0b1000000, cta::ledLineColor("Blue"), 1000, false), row(0, 0, 0, false), row(0, 0, 0, false)};
+    uint32_t out[cta::kLedCount];
+    cta::ledFrame(rows, 1000, false, 255, 0, out);
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedStopColor, out[6]);
 }
 
 static void test_led_brightness_cap() {
@@ -141,17 +153,29 @@ static void test_led_brightness_cap() {
     uint32_t out[cta::kLedCount];
     cta::ledFrame(rows, 1000, false, 128, 0, out);
     TEST_ASSERT_EQUAL_HEX32(0x804020, out[0]);   // every channel scaled by 128/255, rounded
+    TEST_ASSERT_EQUAL_HEX32(0x008080, out[6]);
+    TEST_ASSERT_EQUAL_HEX32(0x1A1A1A, out[1]);   // 255 × 0.2 × 128/255 = 25.6
+    rows[0].level = 50;                          // the app's LED brightness, on top of the cap
+    cta::ledFrame(rows, 1000, false, 255, 0, out);
+    TEST_ASSERT_EQUAL_HEX32(0x804020, out[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x1A1A1A, out[1]);
+    rows[0].level = 0;                           // Off
+    cta::ledFrame(rows, 1000, false, 255, 0, out);
+    for (uint32_t c : out) TEST_ASSERT_EQUAL_HEX32(0, c);
 }
 
 static void test_led_stale_and_night() {
-    const uint32_t red = cta::lineColor("Red");
+    const uint32_t red = cta::ledLineColor("Red");
     cta::LedRow rows[3] = {row(1, red, 1000, false), row(1, red, 1000 - cta::kLedStaleSec, false),
                            row(1, red, 0, false)};
     uint32_t out[cta::kLedCount];
     cta::ledFrame(rows, 1000 + 1, false, 255, 0, out);
     TEST_ASSERT_EQUAL_HEX32(red, out[0]);
-    TEST_ASSERT_EQUAL_HEX32(0, out[7]);    // just over 2 min old: the row goes dark (spec 6.4)
-    TEST_ASSERT_EQUAL_HEX32(0, out[14]);   // never fetched
+    // Just over 2 min old, or never fetched: the track and the stop, no vehicles (spec 6.4).
+    for (int r = 1; r < 3; ++r) {
+        for (int i = 0; i < 6; ++i) TEST_ASSERT_EQUAL_HEX32(kTrack, out[cta::ledIndex(r, i)]);
+        TEST_ASSERT_EQUAL_HEX32(cta::kLedStopColor, out[cta::ledIndex(r, 6)]);
+    }
     cta::ledFrame(rows, 1000 + cta::kLedStaleSec, false, 255, 0, out);
     TEST_ASSERT_EQUAL_HEX32(red, out[0]);  // exactly 2 min: still on
     cta::ledFrame(rows, 1000, true, 255, 0, out);
@@ -159,23 +183,24 @@ static void test_led_stale_and_night() {
 }
 
 static void test_led_seven_pulses_when_due() {
-    const uint32_t red = cta::lineColor("Red");
-    cta::LedRow rows[3] = {row(0, red, 1000, true), row(0b1000000, red, 1000, false), row(0, 0, 0, false)};
+    const uint32_t red = cta::ledLineColor("Red");
+    cta::LedRow rows[3] = {row(0, red, 1000, true), row(0, red, 0, true), row(0, red, 1000, false)};
     uint32_t a[cta::kLedCount], b[cta::kLedCount];
     cta::ledFrame(rows, 1000, false, 255, 0, a);
     cta::ledFrame(rows, 1000, false, 255, 471, b);   // a quarter period later (300 ms per radian)
     TEST_ASSERT_TRUE(a[6] != 0 && b[6] != 0);
     TEST_ASSERT_TRUE(a[6] != b[6]);                  // it breathes
-    TEST_ASSERT_TRUE(((b[6] >> 16) & 255) <= ((red >> 16) & 255));
-    TEST_ASSERT_EQUAL_HEX32(red, a[13]);             // a vehicle at the stop, nothing due: steady
-    TEST_ASSERT_EQUAL_HEX32(red, b[13]);
-    for (int i = 0; i < 6; ++i) TEST_ASSERT_EQUAL_HEX32(0, a[i]);
+    TEST_ASSERT_EQUAL_HEX32(0, a[6] & 0x00FFFF);     // in the vehicle's color, not cyan
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedStopColor, a[13]);   // stale positions: a steady stop, no pulse
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedStopColor, a[20]);   // nothing at the stop: steady cyan
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedStopColor, b[20]);
+    for (int i = 0; i < 6; ++i) TEST_ASSERT_EQUAL_HEX32(kTrack, a[i]);
 }
 
 static void test_led_breath_keeps_its_shape_with_uptime() {
     // The breath's phase is reduced before the float math, so day 35 breathes like boot (and the 49.7-day wrap of
     // millis() costs at most one step).
-    const uint32_t red = cta::lineColor("Red");
+    const uint32_t red = cta::ledLineColor("Red");
     cta::LedRow rows[3] = {row(0, red, 1000, true), row(0, 0, 0, false), row(0, 0, 0, false)};
     uint32_t a[cta::kLedCount], b[cta::kLedCount];
     const uint32_t big = cta::kLedBreathMs * 1591511u;   // about 3e9 ms
@@ -295,7 +320,7 @@ static void test_minutes_count_down_from_the_fetch() {
 }
 
 static void test_due_at_the_hyped_threshold() {
-    // LED 7 breathes and Trackie is Hyped while the next live arrival is within kHypedMaxMin (spec 6.3, 6.4).
+    // Trackie is Hyped while the next live arrival is within kHypedMaxMin (spec 6.3, 6.4).
     TEST_ASSERT_TRUE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, cta::kHypedMaxMin), 1000));
     TEST_ASSERT_FALSE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, cta::kHypedMaxMin + 1), 1000));
     TEST_ASSERT_TRUE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, cta::kHypedMaxMin + 1), 1060));   // counted down
@@ -303,6 +328,20 @@ static void test_due_at_the_hyped_threshold() {
     TEST_ASSERT_FALSE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, 1), 1000 + cta::kStaleSec + 1));   // stale
     TEST_ASSERT_FALSE(cta::dueNow(rec("Red", cta::Kind::Train, 0, 1), 1000));                       // never fetched
     TEST_ASSERT_FALSE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, -1), 1000));                   // no arrivals
+}
+
+static void test_at_stop_threshold() {
+    // LED 7 pulses while the next live arrival is within kAtStopMaxMin (Due or Approaching), counted down (6.4).
+    TEST_ASSERT_EQUAL_INT(1, cta::kAtStopMaxMin);
+    TEST_ASSERT_TRUE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 0), 1000));
+    TEST_ASSERT_TRUE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 1), 1000));
+    TEST_ASSERT_FALSE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 2), 1000));
+    TEST_ASSERT_TRUE(cta::dueNow(rec("Red", cta::Kind::Train, 1000, 2), 1000));                 // due, not yet there
+    TEST_ASSERT_TRUE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 2), 1060));                 // counted down
+    TEST_ASSERT_TRUE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 2), 1000 + 4 * 60));        // held at 0 till it drops off
+    TEST_ASSERT_FALSE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 0, false), 1000));         // timetable only
+    TEST_ASSERT_FALSE(cta::atStop(rec("Red", cta::Kind::Train, 1000, 0), 1000 + cta::kStaleSec + 1));   // stale
+    TEST_ASSERT_FALSE(cta::atStop(rec("Red", cta::Kind::Train, 1000, -1), 1000));               // no arrivals
 }
 
 static void test_card_stale() {
@@ -432,11 +471,12 @@ static void test_dock_veil() {
 static void test_led_state_round_trip() {
     cta::LedRow rows[cta::kLedRows];
     rows[0].mask = 0x60; rows[0].rgb = 0xE41B23; rows[0].ts = 1763499990; rows[0].due = true;
-    rows[2].mask = 0x7F; rows[2].rgb = 0xFFFFFF; rows[2].ts = 0xFFFFFFFF;
+    rows[1].level = 0;
+    rows[2].mask = 0x7F; rows[2].rgb = 0xFFFFFF; rows[2].ts = 0xFFFFFFFF; rows[2].level = 37;
     char line[160];
     const int len = cta::formatLedState(line, sizeof(line), rows, 1763500000, true);
     TEST_ASSERT_EQUAL((int)strlen(line), len);
-    TEST_ASSERT_EQUAL_STRING("1763500000 1 96 14949155 1763499990 1 0 0 0 0 127 16777215 4294967295 0", line);
+    TEST_ASSERT_EQUAL_STRING("1763500000 1 96 14949155 1763499990 1 100 0 0 0 0 0 127 16777215 4294967295 0 37", line);
     cta::LedRow got[cta::kLedRows];
     uint32_t now = 0;
     bool night = false;
@@ -448,6 +488,7 @@ static void test_led_state_round_trip() {
         TEST_ASSERT_EQUAL_UINT32(rows[r].rgb, got[r].rgb);
         TEST_ASSERT_EQUAL_UINT32(rows[r].ts, got[r].ts);
         TEST_ASSERT_EQUAL(rows[r].due, got[r].due);
+        TEST_ASSERT_EQUAL(rows[r].level, got[r].level);
     }
     char crlf[170];
     snprintf(crlf, sizeof(crlf), "%s\r\n", line);
@@ -459,15 +500,18 @@ static void test_led_state_round_trip() {
 static void test_led_state_rejects_garbage() {
     const char* bad[] = {
         "",
-        "1763500000 0",                                        // short
-        "1763500000 0 96 14948899 1763499990 1 0 0 0 0 0 0 0",  // one field short
-        "1763500000 0 96 14948899 1763499990 1 0 0 0 0 0 0 0 0 7",   // one too many
-        "1763500000 2 96 14948899 1763499990 1 0 0 0 0 0 0 0 0",     // night not 0/1
-        "1763500000 0 256 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // mask over 8 bits
-        "1763500000 0 96 16777216 1763499990 1 0 0 0 0 0 0 0 0",     // rgb over 24 bits
-        "1763500000 0 96 14948899 4294967296 1 0 0 0 0 0 0 0 0",     // ts over 32 bits
-        "1763500000 0 -96 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // sign
-        "1763500000 0 96x 14948899 1763499990 1 0 0 0 0 0 0 0 0",    // junk in a field
+        "1763500000 0",                                                          // short
+        "1763500000 0 96 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0",         // one field short
+        "1763500000 0 96 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0 100 7",   // one too many
+        "1763500000 0 96 14948899 1763499990 1 0 0 0 0 0 0 0 0",                 // the old 4-field rows
+        "1763500000 2 96 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0 100",     // night not 0/1
+        "1763500000 0 256 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0 100",    // mask over 8 bits
+        "1763500000 0 96 16777216 1763499990 1 100 0 0 0 0 100 0 0 0 0 100",     // rgb over 24 bits
+        "1763500000 0 96 14948899 4294967296 1 100 0 0 0 0 100 0 0 0 0 100",     // ts over 32 bits
+        "1763500000 0 96 14948899 1763499990 2 100 0 0 0 0 100 0 0 0 0 100",     // due not 0/1
+        "1763500000 0 96 14948899 1763499990 1 101 0 0 0 0 100 0 0 0 0 100",     // level over 100
+        "1763500000 0 -96 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0 100",    // sign
+        "1763500000 0 96x 14948899 1763499990 1 100 0 0 0 0 100 0 0 0 0 100",    // junk in a field
         "<html>404 Not Found</html>",
     };
     cta::LedRow rows[cta::kLedRows];
@@ -492,6 +536,7 @@ int main() {
     RUN_TEST(test_bus_picker_lists);
     RUN_TEST(test_picker_lists_stay_bounded);
     RUN_TEST(test_led_chain_order_and_colors);
+    RUN_TEST(test_led_stop_ignores_a_vehicle_on_led_seven);
     RUN_TEST(test_led_brightness_cap);
     RUN_TEST(test_led_stale_and_night);
     RUN_TEST(test_led_seven_pulses_when_due);
@@ -503,6 +548,7 @@ int main() {
     RUN_TEST(test_poll_due);
     RUN_TEST(test_minutes_count_down_from_the_fetch);
     RUN_TEST(test_due_at_the_hyped_threshold);
+    RUN_TEST(test_at_stop_threshold);
     RUN_TEST(test_card_stale);
     RUN_TEST(test_dock_mood_and_reason);
     RUN_TEST(test_dock_veil);

@@ -31,5 +31,5 @@
 // Route board: 3 rows × 7 NeoPixels through an SN74AHCT125 level shifter, on the header pin labelled "AD" (Leo,
 // 2026-11-12). One chain: row r, position i is index 7r + i (spec 3; cta::ledIndex).
 #define LED_DATA_PIN 6
-// Hard cap on NeoPixel brightness (0–255), so 21 LEDs stay well inside the 5 V, 3 A budget (spec 3).
-#define LED_MAX_BRIGHTNESS 96
+// Cap on NeoPixel brightness (0–255): full, as 21 LEDs at full white draw about 1.3 A of the 5 V, 3 A budget (spec 3).
+#define LED_MAX_BRIGHTNESS 255

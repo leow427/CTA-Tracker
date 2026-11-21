@@ -25,6 +25,17 @@ static void test_line_colors() {
     TEST_ASSERT_EQUAL_HEX32(0x565A5C, cta::lineColor("22"));  // every bus route
 }
 
+static void test_led_line_colors() {
+    // The route board's own saturated table (spec 6.4), not the screen's: red is pure red, not pink.
+    TEST_ASSERT_EQUAL_HEX32(0xFF0000, cta::ledLineColor("Red"));
+    TEST_ASSERT_EQUAL_HEX32(0xFF0000, cta::ledLineColor("red"));
+    TEST_ASSERT_EQUAL_HEX32(0x801000, cta::ledLineColor("Brn"));
+    TEST_ASSERT_EQUAL_HEX32(0x6000FF, cta::ledLineColor("P"));
+    TEST_ASSERT_EQUAL_HEX32(0xFFB000, cta::ledLineColor("Y"));
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedBusColor, cta::ledLineColor("22"));
+    TEST_ASSERT_EQUAL_HEX32(cta::kLedBusColor, cta::ledLineColor(nullptr));
+}
+
 static void test_line_colors_edge_cases() {
     TEST_ASSERT_EQUAL_HEX32(0x522398, cta::lineColor("p"));
     TEST_ASSERT_EQUAL_HEX32(0x565A5C, cta::lineColor("Pin"));    // a prefix of Pink is not Pink
@@ -265,6 +276,7 @@ int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_line_colors);
     RUN_TEST(test_line_colors_edge_cases);
+    RUN_TEST(test_led_line_colors);
     RUN_TEST(test_parse_cta_time);
     RUN_TEST(test_parse_cta_time_formats_agree);
     RUN_TEST(test_parse_cta_time_rejects);

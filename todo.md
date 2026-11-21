@@ -93,6 +93,12 @@ Small items from the Send to Trackie and Follow checks on Leo's phone and wearab
 - ~~**The setup flow's Wi-Fi step says "Couldn't join. Check the password." for every failure.**~~ Done 2026-11-17:
   `info.wifi.fail` carries the bucketed disconnect reason and the app shows a matching line (ecosystem spec 5.1).
 
+## Found 2026-11-20
+
+- **The route LEDs' new look needs Leo's by-eye tuning on the board** (spec 6.4): the LED line palette
+  (`kLedLineColors` in `line_colors.cpp`), `kLedBusColor`, `kLedTrackLevel`, `kLedStopColor` (`dock_leds.h`) and
+  `kAtStopMaxMin`. The bus purple (`A000FF`) and the Purple Line (`6000FF`) are close; pick one to move.
+
 ## Features
 
 Ranked by importance, most important first (do F1 first). Labels: F = feature, B = bug.

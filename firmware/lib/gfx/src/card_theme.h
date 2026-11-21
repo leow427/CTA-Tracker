@@ -11,7 +11,7 @@
 namespace ui {
 
 // Bus cards as the app draws them (Theme.busCard, redesign revision 4): white down to a pale gray, gray text, and
-// the text, icons and rim outlined in light blue. The LEDs keep cta::kBusColor.
+// the text, icons and rim outlined in light blue. The LEDs use cta::kLedBusColor.
 constexpr uint32_t kBusTop = 0xFFFFFF, kBusCard = 0xEEF3F7, kBusText = 0x5B6573, kBusOutline = 0x7FCBF2;
 // The arrival glyph (Theme.live / Theme.scheduled): light green when live, held still in light blue when scheduled,
 // on every card and tile; on a white bus surface it wears a one-art-pixel halo in the bus's gray.
