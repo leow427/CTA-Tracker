@@ -631,8 +631,11 @@ void pollPatterns(int i, uint32_t now) {
     const int n = code == 200 ? cta::buildBusRows(body, bodyLen, s.pick.id, s.rows, kRows) : -1;
     uprintf("net: patterns for route %s: HTTP %d, %d rows\n", s.pick.route, code, n);
     if (n < 0) {
-        const uint32_t t = nowUnix();   // the retry counts from the failure's end (as retryStamp)
-        s.patTried = t ? t : 1;
+        // One bus host: every bus section still without rows backs off together, counted from the failure's end, so
+        // their turns can't starve the train polls.
+        const uint32_t t = nowUnix();
+        for (Sec& o : secs)
+            if (hasPick(o) && isBus(o) && !o.rowsReady) o.patTried = t ? t : 1;
         return;
     }
     s.nRows = n;

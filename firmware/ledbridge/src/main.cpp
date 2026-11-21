@@ -97,6 +97,7 @@ void selfTest() {
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 cta::LedRow rows[cta::kLedRows];
 uint32_t dockNow = 0, gotMs = 0;
+constexpr uint32_t kSilentMs = 10 * 60 * 1000;   // no good GET /leds this long: all LEDs dark
 bool night = false, have = false;
 
 // On core 1, away from Wi-Fi on core 0: the RMT channel's refill interrupt runs on the core that set it up, and Wi-Fi
@@ -120,6 +121,8 @@ void ledTask(void*) {
         if (!h) continue;
         const uint32_t ms = nowMs();
         // The dock's time moved on locally, so rows drop to the bare track and stop once stale if the dock stops answering.
+        // Stale rows keep their track lit and night is frozen at the last fetch, so a long-silent dock counts as night.
+        if (ms - at > kSilentMs) n = true;
         cta::ledFrame(r, now ? now + (ms - at) / 1000 : 0, n, LED_MAX_BRIGHTNESS, ms, rgb);
         show(rgb);
     }
