@@ -38,6 +38,7 @@ import os
 
     @ObservationIgnored private var found: [String: String] = [:]   // id -> "ip:port" Bonjour gave this session
     @ObservationIgnored private var resolving: Set<String> = []
+    @ObservationIgnored private var listed: [String: NWEndpoint] = [:]   // id -> Bonjour endpoint from the latest browse
     @ObservationIgnored private var watches: [String: DeviceWatch] = [:]
     @ObservationIgnored private var browser: NWBrowser?
     @ObservationIgnored private var poll: Task<Void, Never>?
@@ -208,6 +209,12 @@ import os
         return r
     }
 
+    /// A missed poll of a board Bonjour still lists re-resolves it: DHCP can move it while it stays listed (2026-11-21).
+    nonisolated static func reresolve(_ id: String, answered: Bool, listed: [String: NWEndpoint],
+                                      resolving: Set<String>) -> NWEndpoint? {
+        answered || resolving.contains(id) ? nil : listed[id]
+    }
+
     /// "ip:port" for a resolved IPv4 endpoint.
     nonisolated static func address(_ endpoint: NWEndpoint) -> String? {
         guard case let .hostPort(host, port) = endpoint, case let .ipv4(ip) = host else { return nil }
@@ -242,6 +249,9 @@ import os
     private func feed(_ id: String, _ answer: InfoMessage?) {
         let info = answer?.id == id ? answer : nil   // another board now on that address is a miss for this one
         let actions = watches[id, default: DeviceWatch()].polled(info)
+        if let endpoint = Self.reresolve(id, answered: info != nil, listed: listed, resolving: resolving) {
+            resolve(id, endpoint)
+        }
         if let info { online[id] = info; onInfo?(id, info) }
         if actions.contains(.wentOffline) {
             online[id] = nil
@@ -267,9 +277,8 @@ import os
         for r in results {
             if case let .bonjour(txt) = r.metadata, let id = txt.dictionary["id"] { endpoints[id] = r.endpoint }
         }
+        listed = endpoints
         found = found.filter { endpoints[$0.key] != nil }
-        // shortcut: an address is resolved once per Bonjour appearance; a board that changes IP while still listed keeps
-        // the old one until it re-announces. Re-resolve on misses if DHCP churn shows up.
         for (id, endpoint) in endpoints where found[id] == nil && !resolving.contains(id) { resolve(id, endpoint) }
     }
 

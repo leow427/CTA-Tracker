@@ -15,6 +15,14 @@ struct DeviceLinkTests {
         #expect(DeviceLink.address(of: "c3d4", found: [:], known: [dock]) == nil)
     }
 
+    @Test func missedPollReresolvesListedBoardOnce() {
+        let e = NWEndpoint.service(name: "dock", type: "_ctatracker._tcp", domain: "local.", interface: nil)
+        #expect(DeviceLink.reresolve("a1b2", answered: false, listed: ["a1b2": e], resolving: []) == e)
+        #expect(DeviceLink.reresolve("a1b2", answered: true, listed: ["a1b2": e], resolving: []) == nil)
+        #expect(DeviceLink.reresolve("a1b2", answered: false, listed: ["a1b2": e], resolving: ["a1b2"]) == nil)
+        #expect(DeviceLink.reresolve("a1b2", answered: false, listed: [:], resolving: []) == nil)   // not on Bonjour
+    }
+
     @Test func readsCarryNoTokenWritesNeedOne() throws {
         let read = try DeviceLink.request("GET", "/info", address: "192.168.1.20:80", token: "ab")
         #expect(read.url?.absoluteString == "http://192.168.1.20:80/info")
