@@ -649,6 +649,7 @@ void drawPair(Canvas& cv, const Model& m, uint32_t ms) {
 // tall, so they're easy to hit.
 constexpr int kRowX = C - 160, kRowW = 320, kRowH = 56;
 constexpr Rect kPairBtn{C - 120, 356, 240, 56}, kYesBtn{C - 120, 236, 240, 60}, kNoBtn{C - 120, 310, 240, 60};
+constexpr Rect kStartOverBtn{C - 120, 332, 240, 56};   // the Pair screen's, above the toast (y 402)
 // The brightness row's − and + plates (48 × 44 in the 56 px row); a tap anywhere in the row's height on either side
 // hits them (kMinusHit, kPlusHit).
 constexpr int kBrightY = 288, kScreenMinPct = 20;   // as the dock's floor (cta::kDimFloorPct): still readable
@@ -776,7 +777,10 @@ void drawView(Canvas& cv, App& a, const Model& m, const View& v, uint32_t ms, ui
         case Screen::First: drawHome(cv, a, m, ms, aod, v); break;
         case Screen::Stops: drawStops(cv, a, m, ms, v.tab, scratch); break;
         case Screen::Detail: drawDetail(cv, a, m, ms, v); break;
-        case Screen::Pair: drawPair(cv, m, ms); break;
+        case Screen::Pair:   // Start over: a pairing stuck halfway (a dismissed iOS prompt) begins again (Leo 2026-11-23)
+            drawPair(cv, m, ms);
+            button(cv, kStartOverBtn, "Start over", false);
+            break;
         case Screen::Settings: drawSettings(cv, m); break;
         case Screen::Confirm: drawConfirm(cv); break;
     }
@@ -869,6 +873,10 @@ void tap(App& a, Model& m, float x, float y, uint32_t ms) {
         device::pairAgain();   // wipes the bond and token and enters pairing mode (Track W)
         go(a, with(a.view, Screen::Pair), 0, 0, ms);
     } else if (sc == Screen::Confirm && inRect(x, y, kNoBtn)) go(a, with(a.view, Screen::Settings), 0, 0, ms);
+    else if (sc == Screen::Pair && inRect(x, y, kStartOverBtn)) {
+        device::pairAgain();   // drops a half-done pairing: new address, fresh code, advertising again
+        toast(a, "Starting over", ms);
+    }
 }
 
 }  // namespace
@@ -1041,7 +1049,8 @@ void tick(App& a, Model& m, uint32_t ms) {
     // the debug gesture: hold Trackie
     if (a.drag.down && !a.drag.moved && !a.drag.isLong && !a.drag.wasDim && ms - a.drag.t0 > 650) {
         if (a.view.screen == Screen::Home && inRect(a.drag.x0, a.drag.y0, gPetTile)) { a.drag.isLong = true; cycleScenario(a, m, ms); }
-        else if ((a.view.screen == Screen::Home && a.drag.y0 < 100) || a.view.screen == Screen::Pair || a.view.screen == Screen::First) {
+        else if ((a.view.screen == Screen::Home && a.drag.y0 < 100) || (a.view.screen == Screen::Pair && !inRect(a.drag.x0, a.drag.y0, kStartOverBtn)) ||
+                 a.view.screen == Screen::First) {
             a.drag.isLong = true;
             if (a.view.screen == Screen::Home) cycleWeather(a, m, ms); else cycleScenario(a, m, ms);
         }
