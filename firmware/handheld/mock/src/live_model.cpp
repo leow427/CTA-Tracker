@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "compass.h"
+#include "cta_config.h"
 #include "device_hooks.h"
 #include "mood.h"
 
@@ -150,7 +151,7 @@ void fromLive(Model& m, const live::Snapshot& s, const power::State& p, uint32_t
     m.wifiSetUp = s.wifiUp || strcmp(s.status, "No Wi-Fi set up") != 0;
     // Docked (spec 8.4, decision 1): on home Wi-Fi or joined to none (cta::handheldDocked). Dropped off another network
     // (a gap, a rejoin) still counts as joined there, so a charger away from home never docks for a moment.
-    m.powerDocked = cta::handheldDocked(p.usb, p.battery, s.wifiUp || s.lastOther, s.homeWifi);
+    m.powerDocked = !cta::kDemoStayAwake && cta::handheldDocked(p.usb, p.battery, s.wifiUp || s.lastOther, s.homeWifi);
     m.battery = p.battery ? p.percent : -1;
     m.charging = p.charging;
     m.hasWeather = s.hasWeather;

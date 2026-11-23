@@ -1023,7 +1023,7 @@ void tick(App& a, Model& m, uint32_t ms) {
     const float dt = static_cast<float>(ms - a.lastTick);
     a.lastTick = ms;
     const uint32_t idle = ms - a.lastInput;
-    if (!a.dim && idle > cta::kScreenDimSec * 1000 && !a.drag.down) a.dim = true;
+    if (!cta::kDemoStayAwake && !a.dim && idle > cta::kScreenDimSec * 1000 && !a.drag.down) a.dim = true;
     if (a.dim && idle > 45000 && a.view.screen != Screen::Home && a.view.screen != Screen::Pair && a.view.screen != Screen::First) {
         a.view.screen = Screen::Home; a.trans.on = false;
     }

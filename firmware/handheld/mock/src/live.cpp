@@ -1110,6 +1110,23 @@ void start() {
         snprintf(nets->nets[0].pass, sizeof(nets->nets[0].pass), "%s", WIFI_PASS);
         netsFromSecrets = true;
     }
+#ifdef DOCK_WIFI_SSID
+    // Showcase (Leo 2026-11-23): also the dock's network (secrets.h), in the first free slot after home unless it's saved
+    // already. Added in RAM at each boot; it reaches flash only alongside a network the phone saves later.
+    if (DOCK_WIFI_SSID[0]) {
+        cta::SavedNet* slot = nullptr;
+        bool have = false;
+        for (int i = 0; i < cta::kWifiSlots; ++i) {
+            have = have || strcmp(nets->nets[i].ssid, DOCK_WIFI_SSID) == 0;
+            if (i > 0 && !slot && !nets->nets[i].ssid[0]) slot = &nets->nets[i];
+        }
+        if (!have && slot) {
+            snprintf(slot->ssid, sizeof(slot->ssid), "%s", DOCK_WIFI_SSID);
+            snprintf(slot->pass, sizeof(slot->pass), "%s", DOCK_WIFI_PASS);
+            printf("net: added the dock's network as slot %d\n", static_cast<int>(slot - nets->nets));
+        }
+    }
+#endif
     // Core 0, below the panel sender (2) and touch (3): TLS handshakes take CPU but never hold up a frame.
     xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
 }

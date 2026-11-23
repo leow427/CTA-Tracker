@@ -32,6 +32,8 @@ constexpr uint16_t kBleMaxPayload = 512;
 constexpr uint8_t kNearbyPerTab = 5;   // stations and bus stops each (Leo, 2026-11-09: 10 was too slow)
 constexpr uint8_t kHypedClosestStops = 3;
 constexpr uint32_t kScreenDimSec = 15;
+// Showcase (Leo 2026-11-23): Trackie never dims and never docks (no sleeping pet, full brightness) on USB. false after.
+constexpr bool kDemoStayAwake = true;
 // Card caps for the handheld's nearest stops per tab (handheld plan, milestone 5; proposed spec values). Downtown is
 // the worst case: State & Lake alone has about 60 bus route-directions, Clark/Lake 12 train line-directions.
 constexpr int kMaxBusCards = 80;
