@@ -10,7 +10,7 @@ struct SettingsScreen: View {
             List {
                 // What every device shares first; each device's own controls are on its page (spec 5.2).
                 Section {
-                    NavigationLink { PetSettings() } label: { Label("Trackie", systemImage: "pawprint.fill") }
+                    NavigationLink { PetSettings() } label: { Label("Trackie", systemImage: "train.side.front.car") }
                     NavigationLink { QuietHoursScreen() } label: { Label("Quiet hours", systemImage: "moon.fill") }
                 }
                 DeviceList(link: link)

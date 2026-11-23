@@ -510,7 +510,7 @@ struct SendToTrackieButton: View {
                             send("Trackie", done: "Removed from Trackie") { await model.unpin() }
                         }
                     } else if !model.onlineWearables.isEmpty {
-                        Button("Send to Trackie", systemImage: "pawprint.fill") { send("Trackie") { await model.pin(pin) } }
+                        Button("Send to Trackie", systemImage: "train.side.front.car") { send("Trackie") { await model.pin(pin) } }
                     }
                     ForEach(model.onlineDocks, id: \.self) { id in
                         Section("Send to dock") {

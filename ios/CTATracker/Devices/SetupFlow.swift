@@ -310,14 +310,16 @@ nonisolated struct SetupCandidate: Identifiable, Equatable {
     }
 
     #if DEBUG
-    /// Screenshots: a flow parked on one step (`-setupDemo pair|asking|code|wifi|pet|ready|failed`), or the Wi-Fi
+    /// Screenshots: a flow parked on one step (`-setupDemo pair|asking|code|wifi|pet|ready|failed`, `dock`: a dock's Pair), or the Wi-Fi
     /// step after a failed join (`wifi-password|wifi-no_network|wifi-refused|wifi-other`).
     init(demo: String, link: DeviceLink) {
-        candidate = SetupCandidate(kind: .handheld, peripheral: UUID(), name: "Trackie-c3d4", deviceID: "c3d4")
+        candidate = demo == "dock" ? SetupCandidate(kind: .dock, deviceID: "c3d4")
+            : SetupCandidate(kind: .handheld, peripheral: UUID(), name: "Trackie-c3d4", deviceID: "c3d4")
         self.link = link
         firstDevice = true
         switch demo {
         case "code": method = .code("c3d4"); code = "48"
+        case "dock": method = .code("c3d4")
         case "failed":
             method = .bluetooth(UUID()); bluetoothFailed = true; fallbackID = "c3d4"
             message = "Couldn't pair over Bluetooth."

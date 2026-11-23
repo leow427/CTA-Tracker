@@ -15,7 +15,7 @@ struct SetupHost: ViewModifier {
             .overlay(alignment: .bottom) {
                 Group {
                     if let c = candidates.first {
-                        SetupCard(title: c.title, action: c.action, symbol: c.kind == .dock ? "tv" : "applewatch") {
+                        SetupCard(title: c.title, action: c.action, kind: c.kind) {
                             let f = SetupFlow(c, link: link)
                             f.petName = model.pet.name
                             f.onPetName = { [model] name in model.pet = PetConfig(name: name, colors: model.pet.colors) }
@@ -41,7 +41,7 @@ struct SetupHost: ViewModifier {
             .onAppear {
                 let args = UserDefaults.standard
                 if flow == nil, let demo = args.string(forKey: "setupDemo"),
-                   ["pair", "asking", "failed", "code", "wifi", "pet", "ready"].contains(demo) || demo.hasPrefix("wifi-") {
+                   ["pair", "asking", "failed", "code", "wifi", "pet", "ready", "dock"].contains(demo) || demo.hasPrefix("wifi-") {
                     flow = SetupFlow(demo: demo, link: link)
                 }
             }
@@ -57,8 +57,9 @@ struct SetupHost: ViewModifier {
 
     private var candidates: [SetupCandidate] {
         #if DEBUG
-        if UserDefaults.standard.string(forKey: "setupDemo") == "card", !dismissed.contains("c3d4") {
-            return [SetupCandidate(kind: .handheld, deviceID: "c3d4")]
+        let demo = UserDefaults.standard.string(forKey: "setupDemo")
+        if demo == "card" || demo == "card-dock", !dismissed.contains("c3d4") {
+            return [SetupCandidate(kind: demo == "card" ? .handheld : .dock, deviceID: "c3d4")]
         }
         #endif
         return SetupFlow.candidates(bleFound: BLELink.enabled ? link.ble.found : [:], unpaired: link.unpaired, known: link.devices, dismissed: dismissed)
@@ -71,17 +72,23 @@ extension SetupFlow: Identifiable {}
 private struct SetupCard: View {
     let title: String
     let action: String
-    let symbol: String
+    var symbol = ""
+    var kind: DeviceKind? = nil   // the device's own icon instead of the symbol
     let go: () -> Void
     let notNow: () -> Void
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: symbol)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Theme.headlight)
-                .frame(width: 32)
-                .accessibilityHidden(true)
+            switch kind {
+            case .dock: DockIcon(size: 32)
+            case .handheld: TrackieIcon(size: 32)
+            case nil:
+                Image(systemName: symbol)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.headlight)
+                    .frame(width: 32)
+                    .accessibilityHidden(true)
+            }
             Text(title)
                 .font(Theme.rounded(.subheadline, .bold))
                 .foregroundStyle(.white)
@@ -108,9 +115,10 @@ struct SetupScreen: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Theme.Space.l) {
-                    PixelImage(image: Glyphs.pet(mood), points: 128)
-                        .padding(.top, Theme.Space.xl)
-                        .accessibilityHidden(true)
+                    Group {
+                        if flow.candidate.kind == .dock { DockIcon(size: 128) } else { TrackieIcon(size: 128, mood: mood) }
+                    }
+                    .padding(.top, Theme.Space.xl)
                     Text(title)
                         .font(Theme.rounded(.title2, .bold))
                         .foregroundStyle(.white)

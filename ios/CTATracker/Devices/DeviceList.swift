@@ -31,7 +31,7 @@ struct DeviceList: View {
                     }
                 }
             } icon: {
-                Image(systemName: device.kind == .dock ? "tv" : "pawprint.fill")
+                if device.kind == .dock { DockIcon(size: 28) } else { TrackieIcon(size: 28) }
             }
             Spacer()
             if let info, let battery = Self.battery(info.battery, charging: info.charging) {
