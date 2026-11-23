@@ -271,6 +271,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CTATracker/Info.plist;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your dock and Trackie.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your dock and Trackie on this Wi-Fi.";
@@ -303,6 +304,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CTATracker/Info.plist;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = Trackie;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Sets up your dock and Trackie.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Finds your dock and Trackie on this Wi-Fi.";
